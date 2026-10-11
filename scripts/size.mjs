@@ -5,8 +5,8 @@
 //
 // Each row has a budget, in gzipped kB, about 5% over its size: CI fails when an import outgrows
 // it. Raise a budget here, in the same pull request, when the growth is worth it. The docs show the
-// sizes too (Performance and limits): CI fails when a row there says something other than what was
-// measured, so update it in the same pull request.
+// sizes too (Performance and limits): CI fails when a row there is missing or more than 0.2 kB off
+// what was measured, so update it in the same pull request.
 //
 //   pnpm build:lib && pnpm size
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -88,12 +88,18 @@ const documented = new Map(
     size,
   ]),
 );
+// Within 0.2 kB passes, so a dependency's patch release does not fail CI over the docs; in tenths of
+// a kB, as both are printed, so the comparison has no float error.
+const tenths = (size) => Math.round(Number.parseFloat(size) * 10);
 const stale = measured
-  .filter(({ label, size }) => documented.get(key(label)) !== size)
+  .filter(({ label, size }) => {
+    const there = documented.get(key(label));
+    return there === undefined || Math.abs(tenths(there) - tenths(size)) > 2;
+  })
   .map(({ label, size }) => `${label}: ${documented.get(key(label)) ?? 'no row'} there, ${size} measured`);
 if (stale.length > 0) {
   console.error(
-    `\nThe sizes in limits.md are not what was measured (update its Bundle size table):\n  ${stale.join('\n  ')}`,
+    `\nlimits.md is missing a size, or is more than 0.2 kB off one (update its Bundle size table):\n  ${stale.join('\n  ')}`,
   );
 }
 
