@@ -12,7 +12,7 @@ const description =
 // app/opengraph-image.png is the top of docs/media/hero.png (`pnpm media og`); the docs and the
 // components page draw their own (lib/og.tsx).
 export const metadata: Metadata = {
-  metadataBase: new URL('https://agent-ui-kit-demo.vercel.app'),
+  metadataBase: new URL('https://signoff-ui.vercel.app'),
   title,
   description,
   alternates: { canonical: '/' },

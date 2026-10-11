@@ -29,18 +29,18 @@ If the CLI doesn't know the `@signoff-ui` namespace yet, add it to your `compone
 ```json title="components.json"
 {
   "registries": {
-    "@signoff-ui": "https://agent-ui-kit-demo.vercel.app/r/{name}.json"
+    "@signoff-ui": "https://signoff-ui.vercel.app/r/{name}.json"
   }
 }
 ```
 
 Each item brings the component, the helpers it imports, its npm dependencies and the theme tokens, which `shadcn add` writes into your CSS. Files land in `components/signoff-ui/`.
 
-The items are `agent-message`, `tool-call-timeline`, `approval-card`, `use-approval-policy`, `diff-review`, `use-diff-review`, `run-meter`, `agent-status`, `sources`, `markdown`, `reasoning` and `ag-ui`. Installing a second item skips the shared files it already added. They also install by URL, with no setup (`https://agent-ui-kit-demo.vercel.app/r/agent-message.json`), or straight from the repository (`dgesteves/signoff-ui/agent-message`).
+The items are `agent-message`, `tool-call-timeline`, `approval-card`, `use-approval-policy`, `diff-review`, `use-diff-review`, `run-meter`, `agent-status`, `sources`, `markdown`, `reasoning` and `ag-ui`. Installing a second item skips the shared files it already added. They also install by URL, with no setup (`https://signoff-ui.vercel.app/r/agent-message.json`), or straight from the repository (`dgesteves/signoff-ui/agent-message`).
 
 Component and hook files start with `'use client'`, so they work when rendered from Server Components; the helpers in `lib/` (`diff.ts`, `usage.ts`, `ai.ts`, `format.ts`) do not, so the server can call them. The files pass a new Next.js app's ESLint config with no warnings, which CI checks.
 
-**From a coding agent.** The [shadcn MCP server](https://ui.shadcn.com/docs/mcp) lets Claude Code, Cursor, VS Code or Codex browse and install registry items. Set it up with `npx shadcn@latest mcp init --client claude` (or `cursor`, `vscode`), make sure `components.json` lists the registry as above, and ask for it by name, for example "add the signoff-ui diff review to the chat page". Agents can also read these docs from [`/llms.txt`](https://agent-ui-kit-demo.vercel.app/llms.txt).
+**From a coding agent.** The [shadcn MCP server](https://ui.shadcn.com/docs/mcp) lets Claude Code, Cursor, VS Code or Codex browse and install registry items. Set it up with `npx shadcn@latest mcp init --client claude` (or `cursor`, `vscode`), make sure `components.json` lists the registry as above, and ask for it by name, for example "add the signoff-ui diff review to the chat page". Agents can also read these docs from [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt).
 
 ### Which one
 

@@ -15,8 +15,9 @@
 | shadcn namespace         | `@agent-ui-kit`                                                    | `@signoff-ui`                                                                      |
 | shadcn files             | `components/agent-ui/`                                             | `components/signoff-ui/`                                                           |
 | Repository               | `github.com/dgesteves/agent-ui-kit`                                | `github.com/dgesteves/signoff-ui`; the old URLs redirect                           |
+| Website and registry     | `agent-ui-kit-demo.vercel.app`                                     | `signoff-ui.vercel.app`; the old address redirects                                 |
 
-The docs, the playground and the hosted registry stay at `agent-ui-kit-demo.vercel.app`, so registry URLs such as `https://agent-ui-kit-demo.vercel.app/r/diff-review.json` keep working.
+The docs, the playground and the hosted registry moved to `signoff-ui.vercel.app`. The old address redirects there for good, so registry URLs such as `https://agent-ui-kit-demo.vercel.app/r/diff-review.json` keep working.
 
 ## From npm
 
@@ -53,7 +54,7 @@ The command leaves `data-slot` values alone, since other libraries use the same 
 
 The files you added are your code, and they keep working as they are. To take the new names:
 
-1. Rename the registry in `components.json` from `@agent-ui-kit` to `@signoff-ui`. The URL stays the same.
+1. Rename the registry in `components.json` from `@agent-ui-kit` to `@signoff-ui`, and point it at `https://signoff-ui.vercel.app/r/{name}.json`. The old URL redirects, so the CLI keeps working until you change it.
 2. Add the items again, for example `npx shadcn@latest add @signoff-ui/diff-review`. The new files land in `components/signoff-ui/`, and the tokens written into your CSS are now `--signoff-*`.
 3. Carry over any edits you made to the old files, point your imports at `@/components/signoff-ui/...`, then delete `components/agent-ui/` and the `--aui-*` tokens, `--color-aui-*` mappings and `aui-*` keyframes the old items wrote into your CSS.
 

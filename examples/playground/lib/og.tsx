@@ -97,7 +97,7 @@ export function ogImage({
           color: '#8b94a0',
         }}
       >
-        <span>agent-ui-kit-demo.vercel.app</span>
+        <span>signoff-ui.vercel.app</span>
         <span style={{ color: '#c9d1d9' }}>AI SDK 6 & 7 · AG-UI</span>
       </div>
     </div>,
