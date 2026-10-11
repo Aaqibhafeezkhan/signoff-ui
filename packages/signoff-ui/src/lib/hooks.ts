@@ -226,7 +226,8 @@ export function useAnimatedNumber(value: number, durationMs = 450): number {
     const start = performance.now();
     let frame = 0;
     const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / durationMs);
+      // A frame's timestamp is when the frame began, which can be before `start`: not below 0.
+      const p = Math.max(0, Math.min(1, (t - start) / durationMs));
       const eased = 1 - Math.pow(1 - p, 3);
       const v = from + (value - from) * eased;
       displayRef.current = v;

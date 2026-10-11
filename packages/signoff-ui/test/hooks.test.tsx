@@ -1,7 +1,7 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import type { ChatStatus } from 'ai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useRunTiming, type RunTimingMessage } from '../src/lib/hooks';
+import { useAnimatedNumber, useRunTiming, type RunTimingMessage } from '../src/lib/hooks';
 
 const user = (id: string): RunTimingMessage => ({ id, role: 'user' });
 const reply = (id: string): RunTimingMessage => ({ id, role: 'assistant' });
@@ -200,5 +200,34 @@ describe('useRunTiming', () => {
     ]);
     expect(timing.ttftMs).toBe(600);
     expect(timing.activeMs).toBe(2_000);
+  });
+});
+
+describe('useAnimatedNumber', () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  const frame = (at: number) => act(() => frames.shift()?.(at));
+
+  it('eases from the old value to the new one, never past either', () => {
+    const { result, rerender } = renderHook(({ value }) => useAnimatedNumber(value), { initialProps: { value: 0 } });
+    rerender({ value: 100 });
+    // A frame's timestamp is when the frame began, which can come before the animation started:
+    // the meter showed "↑ -89" for a moment.
+    frame(950);
+    expect(result.current).toBe(0);
+    frame(1225);
+    expect(result.current).toBeGreaterThan(0);
+    expect(result.current).toBeLessThan(100);
+    frame(1450);
+    expect(result.current).toBe(100);
   });
 });
