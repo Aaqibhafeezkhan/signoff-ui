@@ -12,15 +12,19 @@
 //   node scripts/perf.mjs --dist <other checkout>/packages/signoff-ui/dist --no-budget   # compare
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
+import { createRequire, SourceMap } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { build } from 'rolldown';
-import { runCases } from './perf/deadline.ts';
+import { runCases, within } from './perf/deadline.ts';
+import { chromeThreads } from './perf/threads.ts';
 
-// Each case has two minutes, and one more try in a new browser (scripts/perf/deadline.ts). This is
-// the backstop: however the browser behaves, the check ends before the CI job's clock does.
+// Each case runs in a browser of its own, with a minute a try and two more tries in a new browser
+// when it stalls (scripts/perf/deadline.ts): under four minutes for a case that stalls every time.
+// A case took 26 s at most on the slowest runner seen, tracing it again included when it went over
+// budget. This is the backstop: however the browser behaves, the check ends before the CI job's
+// clock does.
 setTimeout(() => {
   console.error('perf: no result after 8 minutes');
   process.exit(1);
@@ -37,18 +41,39 @@ const json = process.argv.includes('--json');
 // [label, query, budgets]. Times in ms; DOM in elements. A local edit renders its hunks in its first
 // task (20 and 100 of them, each with decision and comment buttons and the bar of unchanged lines
 // around it): about 70 and 90 ms on a laptop, and up to about 310 ms on a shared CI runner.
+//
+// Scrolling a screen per frame, a frame's work is mostly rendering the rows coming into view: the
+// split view renders two lines a row, so its frames take about twice as long (a laptop's p95: 17 ms
+// unified, 30 ms split; CI runners: 21 to 38 ms and 46 to 68 ms, and one slow runner 73 to 85 ms and
+// 119 to 143 ms). Its budget is the same multiple of what a laptop measures as the unified view's.
+const SCROLL = { scrollFrameP95Ms: 120, scrollLongestTaskMs: 250 };
 const CASES = [
-  ['local edit, 1,000 lines', 's=local&n=1000', { readyMs: 400, longestTaskMs: 400, domNodes: 15_000, keyMs: 40 }],
-  ['local edit, 5,000 lines', 's=local&n=5000', { readyMs: 800, longestTaskMs: 400, domNodes: 20_000, keyMs: 40 }],
-  ['full rewrite, 2,000 lines', 's=rewrite&n=2000', { readyMs: 1000, longestTaskMs: 250, domNodes: 15_000, keyMs: 40 }],
-  ['full rewrite, 5,000 lines', 's=rewrite&n=5000', { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40 }],
+  [
+    'local edit, 1,000 lines',
+    's=local&n=1000',
+    { readyMs: 400, longestTaskMs: 400, domNodes: 15_000, keyMs: 40, ...SCROLL },
+  ],
+  [
+    'local edit, 5,000 lines',
+    's=local&n=5000',
+    { readyMs: 800, longestTaskMs: 400, domNodes: 20_000, keyMs: 40, ...SCROLL },
+  ],
+  [
+    'full rewrite, 2,000 lines',
+    's=rewrite&n=2000',
+    { readyMs: 1000, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL },
+  ],
+  [
+    'full rewrite, 5,000 lines',
+    's=rewrite&n=5000',
+    { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL },
+  ],
   [
     'full rewrite, 5,000 lines, split',
     's=rewrite&n=5000&view=split',
-    { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40 },
+    { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL, scrollFrameP95Ms: 200 },
   ],
 ];
-const SCROLL_BUDGET = { scrollFrameP95Ms: 120, scrollLongestTaskMs: 250 };
 
 // Bundle the harness against the built package, with the React that package resolves.
 const pkg = createRequire(join(dist, '../package.json'));
@@ -61,7 +86,8 @@ await build({
   logLevel: 'silent',
   resolve: { alias: { 'signoff-ui': join(dist, 'index.js'), react: reactDir, 'react-dom': reactDomDir } },
   transform: { define: { 'process.env.NODE_ENV': '"production"' } },
-  output: { dir: out, format: 'esm', entryFileNames: 'harness.js', minify: true },
+  // The map only reaches a stalled case's stack (`diagnose`): nothing in the page loads it.
+  output: { dir: out, format: 'esm', entryFileNames: 'harness.js', minify: true, sourcemap: true },
 });
 const LOADED = "console.log('perf: diff worker loaded');";
 // The package starts its diff worker from `new URL('./diff-worker.js', import.meta.url)`, which a
@@ -108,6 +134,7 @@ async function launch() {
   const chrome = server.process();
   return {
     browser,
+    pid: chrome.pid,
     close: () => server.close(),
     kill() {
       // Its renderers too: Playwright starts Chrome as the leader of a process group.
@@ -195,11 +222,75 @@ async function whereTimeWent(browser, query) {
   return `${top(kinds, 5)}\n    busiest: ${top(names, 8)}`;
 }
 
+/** The case running now: a DevTools session on its page and its scripts by id, for `diagnose`. */
+let current;
+
+/** A paused stack frame, at its place in the package's dist when it is in the bundled harness. */
+function frameAt({ functionName, location }) {
+  const url = current?.scripts.get(location.scriptId) ?? '';
+  let where = `${url.split('/').pop() || '?'}:${location.lineNumber + 1}:${location.columnNumber + 1}`;
+  let name = functionName;
+  if (url.endsWith('/harness.js')) {
+    current.map ??= new SourceMap(JSON.parse(readFileSync(join(out, 'harness.js.map'), 'utf8')));
+    const found = current.map.findEntry(location.lineNumber, location.columnNumber);
+    if (found?.originalSource) {
+      where = `${found.originalSource.replace(/^.*?(packages|scripts)\//, '$1/')}:${found.originalLine + 1}:${found.originalColumn + 1}`;
+      name = found.name ?? name;
+    }
+  }
+  return `  at ${name || '(anonymous)'} (${where})`;
+}
+
+/**
+ * What a stalled case's browser is doing: whether its page answers, the JavaScript it is running if
+ * any, and on Linux what its threads are waiting on. Printed with the page's log.
+ */
+async function diagnose({ pid }) {
+  const lines = [];
+  const cdp = current?.cdp;
+  if (cdp) {
+    // Pausing works while the page runs JavaScript, even a script that never ends: its stack says
+    // which code is stuck. Asked first, since an evaluate waits for that script to end.
+    const paused = new Promise((resolve) => cdp.once('Debugger.paused', resolve));
+    cdp.send('Debugger.pause').catch(() => {});
+    const stack = await within(paused, 5000, '').then(
+      ({ callFrames }) => callFrames.slice(0, 12).map(frameAt),
+      () => undefined,
+    );
+    if (stack) {
+      lines.push('paused in JavaScript:', ...stack);
+      await within(cdp.send('Debugger.resume'), 5000, '').catch(() => {});
+    } else {
+      lines.push('not running JavaScript: it did not pause within 5 s');
+      lines.push(
+        await within(
+          cdp.send('Runtime.evaluate', { expression: 'performance.now()', returnByValue: true }),
+          5000,
+          '',
+        ).then(
+          ({ result }) => `the page answers, ${Math.round(result.value)} ms after it started`,
+          () => 'the page does not answer within 5 s: its main thread is waiting on something',
+        ),
+      );
+    }
+  }
+  return [...lines, ...(await chromeThreads(pid))];
+}
+
 /** One case: its measurements, the budgets they go over, and if any, where the time went. */
-async function measure({ browser }, { label, query, budget }, log) {
+async function measure({ browser }, { label, query, budgets }, log) {
   const started = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  page.setDefaultTimeout(90_000);
+  // With the debugger on from the start, a stalled case can be paused even inside a long script
+  // (DevTools cannot turn it on then). It costs nothing measurable here, and with breakpoints off a
+  // `debugger` statement does not stop the page.
+  const cdp = await page.context().newCDPSession(page);
+  const scripts = new Map();
+  cdp.on('Debugger.scriptParsed', ({ scriptId, url }) => scripts.set(scriptId, url));
+  await cdp.send('Debugger.enable');
+  await cdp.send('Debugger.setBreakpointsActive', { active: false });
+  current = { cdp, scripts };
+  page.setDefaultTimeout(45_000);
   const errors = [];
   record(page, log);
   page.on('pageerror', (error) => errors.push(error.message));
@@ -207,10 +298,10 @@ async function measure({ browser }, { label, query, budget }, log) {
   await page.waitForFunction(() => window.__perf, null, { polling: 100 });
   const result = await page.evaluate(() => window.__perf);
   await page.close();
+  current = undefined;
   if (errors.length || result.error)
     throw new Error([...new Set([result.error, ...errors])].filter(Boolean).join('; '));
   console.error(`perf: ${label} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-  const budgets = { ...budget, ...SCROLL_BUDGET };
   const over = Object.entries(budgets)
     .filter(([metric, limit]) => result[metric] > limit)
     .map(([metric, limit]) => `${label}: ${metric} ${Math.round(result[metric])}, budget ${limit}`);
@@ -221,12 +312,16 @@ async function measure({ browser }, { label, query, budget }, log) {
 let measured;
 try {
   measured = await runCases(
-    CASES.map(([label, query, budget]) => ({ label, query, budget })),
+    CASES.map(([label, query, budgets]) => ({ label, query, budgets })),
     {
       launch,
       run: measure,
-      // Playwright's own timeouts, and a crashed page, count as a stuck browser too: worth one more try.
+      deadlineMs: 60_000,
+      retries: 2,
+      // Playwright's own timeouts, and a crashed page, count as a stuck browser too: worth another try.
       stalled: (error) => error.name === 'TimeoutError' || /crashed/i.test(error.message),
+      diagnose,
+      diagnoseMs: 20_000,
     },
   );
 } catch (error) {
