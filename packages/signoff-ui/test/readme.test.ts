@@ -118,3 +118,10 @@ describe('Getting started', () => {
     expect(imports(files).filter((name) => !install.includes(name))).toEqual([]);
   });
 });
+
+describe('README top', () => {
+  it('links the website before the video, as the sibling projects do', () => {
+    const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
+    expect(top).toMatch(/^\*\*Website and docs:\*\* \[signoff-ui\.vercel\.app\]\(https:\/\/signoff-ui\.vercel\.app\)/m);
+  });
+});

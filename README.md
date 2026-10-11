@@ -6,6 +6,8 @@ Review what your agent changed and control what it may do: React components for 
 [![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=22d3ee)](https://www.npmjs.com/package/signoff-ui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22d3ee?labelColor=0d0f12)](./LICENSE)
 
+**Website and docs:** [signoff-ui.vercel.app](https://signoff-ui.vercel.app), with a playground where a scripted coding agent asks for a review and an approval, driven from the keyboard, with no API key.
+
 <!-- npm-readme:video -->
 
 https://github.com/user-attachments/assets/eb7c6a77-555f-4f6e-badf-230ebeeba45e
