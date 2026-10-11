@@ -135,6 +135,12 @@ export const pt: SignoffLabels = {
     error: 'Erro',
     deniedBy: (automatic) => (automatic ? 'Bloqueada pela política' : 'Recusada pelo utilizador'),
     waitingForInput: 'À espera da entrada…',
+    subagent: {
+      name: 'Subagente',
+      calls: (count) => `${count} ${plural(count, 'chamada', 'chamadas')}`,
+      list: (name) => `Chamadas de ferramentas de ${name}`,
+      paused: 'Em pausa',
+    },
   },
   approvalCard: {
     required: 'Aprovação necessária',

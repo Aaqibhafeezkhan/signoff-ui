@@ -18,6 +18,7 @@ export {
   type AgUiMessage,
   type AgUiResumeEntry,
   type AgUiRunState,
+  type AgUiSubagent,
   type AgUiTokenUsage,
   type AgUiToolCall,
 } from './lib/ag-ui';

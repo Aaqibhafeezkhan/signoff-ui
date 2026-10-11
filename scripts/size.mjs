@@ -27,15 +27,15 @@ const rows = [
   ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 19.5],
   ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 2],
   ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 1],
-  ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 22.5],
+  ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 23.5],
   ['`DiffReview`', `export { DiffReview } from ${index};`, 42.5],
   ['`useDiffReview` (no markup)', `export { useDiffReview } from ${index};`, 16],
   [
     '`AgentMessage` (with markdown, reasoning, timeline, approvals, sources)',
     `export { AgentMessage } from ${index};`,
-    85.5,
+    86.5,
   ],
-  ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 3],
+  ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 3.7],
   ['ACP converters (`/acp`)', `export * from ${JSON.stringify(join(dist, 'acp.js'))};`, 1.8],
   [
     '`signoffTools` (`/assistant-ui`, with DiffReview and the approval card)',

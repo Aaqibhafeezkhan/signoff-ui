@@ -70,23 +70,31 @@ Create the agent once, outside the component or in a `useMemo`: the hook subscri
 
 ## How events map
 
-| AG-UI 1.0                                                           | Becomes                                                                                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| user message                                                        | `user` message with `text` parts, images and documents as `file` parts                                                                                        |
-| the assistant, reasoning, tool and activity messages that follow it | one `assistant` message, the way the AI SDK groups a multi-step run                                                                                           |
-| `TEXT_MESSAGE_*`, `REASONING_*`                                     | `text` and `reasoning` parts, `state: 'streaming'` until their end event                                                                                      |
-| `TOOL_CALL_START`, `TOOL_CALL_ARGS`                                 | `dynamic-tool` part, `input-streaming`, with the arguments parsed as they arrive                                                                              |
-| `TOOL_CALL_END`                                                     | `input-available`                                                                                                                                             |
-| `TOOL_CALL_RESULT`, tool message                                    | `output-available` (JSON results parsed), or `output-error` with the tool message's `error`                                                                   |
-| `RUN_FINISHED` with an `interrupt` outcome bound to a tool call     | `approval-requested`, the interrupt's `message` as `approval.requestReason`                                                                                   |
-| `respond({ id, approved, reason })`                                 | `approval-responded` or `output-denied`; the agent resumes with `payload: { approved, reason }`, plus `input` when the arguments were edited with `editInput` |
-| `RUN_STARTED`, content, `RUN_FINISHED`, `RUN_ERROR`                 | `status`: `submitted`, `streaming`, then `ready` or `error`                                                                                                   |
-| `RUN_FINISHED` with a `cancelled` outcome, or `stop()`              | `status: 'ready'`, with what was streaming left cut off: `deriveAgentState` reads `stopped`                                                                   |
-| `usage` on `RUN_FINISHED` and `RUN_ERROR`                           | `usage`, summed over runs, with cache and reasoning tokens                                                                                                    |
-| `STEP_STARTED`                                                      | `step`                                                                                                                                                        |
-| activity message                                                    | a `data-${activityType}` part, rendered by `renderData`                                                                                                       |
+| AG-UI 1.0                                                                | Becomes                                                                                                                                                       |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| user message                                                             | `user` message with `text` parts, images and documents as `file` parts                                                                                        |
+| the assistant, reasoning, tool and activity messages that follow it      | one `assistant` message, the way the AI SDK groups a multi-step run                                                                                           |
+| `TEXT_MESSAGE_*`, `REASONING_*`                                          | `text` and `reasoning` parts, `state: 'streaming'` until their end event                                                                                      |
+| `TOOL_CALL_START`, `TOOL_CALL_ARGS`                                      | `dynamic-tool` part, `input-streaming`, with the arguments parsed as they arrive                                                                              |
+| `TOOL_CALL_END`                                                          | `input-available`                                                                                                                                             |
+| `TOOL_CALL_RESULT`, tool message                                         | `output-available` (JSON results parsed), or `output-error` with the tool message's `error`                                                                   |
+| `RUN_FINISHED` with an `interrupt` outcome bound to a tool call          | `approval-requested`, the interrupt's `message` as `approval.requestReason`                                                                                   |
+| `respond({ id, approved, reason })`                                      | `approval-responded` or `output-denied`; the agent resumes with `payload: { approved, reason }`, plus `input` when the arguments were edited with `editInput` |
+| `RUN_STARTED`, content, `RUN_FINISHED`, `RUN_ERROR`                      | `status`: `submitted`, `streaming`, then `ready` or `error`                                                                                                   |
+| `RUN_FINISHED` with a `cancelled` outcome, or `stop()`                   | `status: 'ready'`, with what was streaming left cut off: `deriveAgentState` reads `stopped`                                                                   |
+| `usage` on `RUN_FINISHED` and `RUN_ERROR`                                | `usage`, summed over runs, with cache and reasoning tokens                                                                                                    |
+| `STEP_STARTED`                                                           | `step`                                                                                                                                                        |
+| activity message                                                         | a `data-${activityType}` part, rendered by `renderData`                                                                                                       |
+| `SUBAGENT_STARTED`, and the messages and events with its `subagentRunId` | a `data-signoff-subagent` part after the call that started it (`parentToolCallId`), with `{ subagentRunId, parentToolCallId, name, status, parts }`           |
+| `SUBAGENT_FINISHED`, `SUBAGENT_ERROR`                                    | the part's `status`: `done`, `suspended` (paused until a later run) or `error`, with the message as `errorText`                                               |
 
-Shared state (`STATE_SNAPSHOT`, `STATE_DELTA`) stays on `agent.state`, and a subagent's messages render inline in its parent's timeline.
+Shared state (`STATE_SNAPSHOT`, `STATE_DELTA`) stays on `agent.state`.
+
+## Sub-agents
+
+A sub-agent's messages don't join its parent's parts one by one. Its text and tool calls, in the same shapes as the parent's, go in one `data-signoff-subagent` part, placed after the tool call that started it, and `ToolCallTimeline` (inside `AgentMessage` too) nests them under that call, collapsed. A sub-agent another one started goes inside that one's `parts`, after its call. One started by no call it can find shows where its first message was, and the timeline shows its calls in place.
+
+Events can arrive in any order: a sub-agent's own events before its `SUBAGENT_STARTED` mark it running, and an end that came first stands. Messages restored from before the page (no events) still group by `subagentRunId`, without a name, `running` while one of their calls is. A call a sub-agent makes can wait on approval like any other: the interrupt names its `toolCallId`, the sub-agent opens to show the card, `deriveAgentState` reads `awaiting-approval`, and `respond` resumes the run. `subagents` in the run state (`reduceAgUiRun`) lists each one, with its name, parent call and status.
 
 ## Interrupts and approvals
 

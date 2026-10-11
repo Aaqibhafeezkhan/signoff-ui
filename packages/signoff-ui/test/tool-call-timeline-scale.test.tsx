@@ -3,7 +3,7 @@ import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ToolPart, ToolTimings } from '../src/lib/ai';
+import type { AnyUIPart, ToolPart, ToolTimings } from '../src/lib/ai';
 import { ToolCallTimeline, type ToolMeta } from '../src/tool-call-timeline';
 import { axe, toolPart } from './utils';
 
@@ -14,6 +14,26 @@ import { axe, toolPart } from './utils';
 
 const calls = (count: number, state: Parameters<typeof toolPart>[0] = 'output-available') =>
   Array.from({ length: count }, (_, i) => toolPart(state, { toolName: 'read_file', toolCallId: `call-${i}` }));
+
+/** A sub-agent with two calls, started by `parent`. */
+const withSubagent = (parent: string): AnyUIPart => ({
+  type: 'data-signoff-subagent',
+  data: {
+    subagentRunId: `${parent}-helper`,
+    parentToolCallId: parent,
+    name: 'Helper',
+    status: 'done',
+    parts: [
+      toolPart('output-available', { toolName: 'format', toolCallId: `${parent}-format` }),
+      toolPart('output-available', { toolName: 'lint', toolCallId: `${parent}-lint` }),
+    ],
+  },
+});
+/** Top-level calls between two positions in the whole list. */
+const inChunk = (from: number, to: number) => (item: HTMLElement) => {
+  const at = Number(item.getAttribute('aria-posinset'));
+  return at >= from && at <= to;
+};
 
 const rendered = (container: HTMLElement) => [
   ...container.querySelectorAll<HTMLElement>('[data-slot="signoff-tool-call"]'),
@@ -134,6 +154,51 @@ describe('ToolCallTimeline in a long run', () => {
     await user.keyboard('{Home}');
     expect(triggerOf(container, 1)).toHaveFocus();
     expect(scrollIntoView).toHaveBeenCalledTimes(5);
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  });
+
+  it('keeps a call’s chunk rendered while its sub-agent is open or holds focus', async () => {
+    const user = userEvent.setup();
+    const parts: AnyUIPart[] = calls(400);
+    // Call 30 started a sub-agent; its chunk (calls 26 to 50) is not near the screen.
+    parts.splice(30, 0, withSubagent('call-29'));
+    const { container } = render(<ToolCallTimeline parts={parts} />);
+    expect(triggerOf(container, 30)).toBeNull();
+    FakeObserver.report([placeholders(container)[0]!], true);
+    const group = screen.getByRole('button', { name: /^Helper/ });
+    await user.click(group);
+    // Open, it stays as the chunk leaves the screen, its calls with it.
+    FakeObserver.report(rendered(container).filter(inChunk(26, 50)), false);
+    expect(screen.getByRole('button', { name: /^Helper/ })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: /^Helper/ }));
+    expect(screen.getByRole('button', { name: /^Helper/ })).toHaveAttribute('aria-expanded', 'false');
+    // Closed but focused, it stays; once focus moves on, it goes.
+    FakeObserver.report(rendered(container).filter(inChunk(26, 50)), false);
+    expect(screen.getByRole('button', { name: /^Helper/ })).toHaveFocus();
+    await user.click(triggerOf(container, 1)!);
+    expect(screen.queryByRole('button', { name: /^Helper/ })).not.toBeInTheDocument();
+    expect(triggerOf(container, 30)).toBeNull();
+  });
+
+  it('moves from a sub-agent’s last call to the next call, by index, and back', async () => {
+    const user = userEvent.setup();
+    Element.prototype.scrollIntoView = vi.fn();
+    const parts: AnyUIPart[] = calls(400);
+    // The last call of the first chunk started a sub-agent; the next call is not rendered.
+    parts.splice(25, 0, withSubagent('call-24'));
+    const { container } = render(<ToolCallTimeline parts={parts} />);
+    await user.click(screen.getByRole('button', { name: /^Helper/ }));
+    const last = screen.getByRole('button', { name: /^Lint/ });
+    // Nested calls are not counted among the timeline's.
+    expect(last.closest('li')).not.toHaveAttribute('aria-posinset');
+    expect(last.closest('li')).not.toHaveAttribute('aria-setsize');
+    last.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(triggerOf(container, 26)).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('button', { name: /^Lint/ })).toHaveFocus();
+    await user.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
+    expect(triggerOf(container, 25)).toHaveFocus();
     Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
   });
 

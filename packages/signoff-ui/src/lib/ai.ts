@@ -124,6 +124,43 @@ export function getToolParts(parts: readonly AnyUIPart[]): ToolPart[] {
   return parts.filter(isToolPart);
 }
 
+/** Where a sub-agent is: working, finished, failed, or paused until a later run (AG-UI's `suspended`). */
+export type SubagentStatus = 'running' | 'done' | 'error' | 'suspended';
+
+/** A sub-agent's run, as the `data` of a `data-signoff-subagent` part. */
+export interface SubagentData {
+  subagentRunId: string;
+  /** The tool call that started it: the timeline nests the sub-agent under that call. */
+  parentToolCallId?: string | undefined;
+  name?: string | undefined;
+  status: SubagentStatus;
+  /** What went wrong, when `status` is `error`. */
+  errorText?: string | undefined;
+  /** Its tool calls and text, as message parts. A sub-agent it started is a part here too. */
+  parts: AnyUIPart[];
+}
+
+/** A sub-agent's work, in its parent's message: the AG-UI adapter makes one, and you can stream your own. */
+export interface SubagentPart {
+  type: 'data-signoff-subagent';
+  id?: string | undefined;
+  data: SubagentData;
+}
+
+export function isSubagentPart(part: { type: string }): part is SubagentPart {
+  return part.type === 'data-signoff-subagent' && Array.isArray((part as SubagentPart).data?.parts);
+}
+
+/** Every tool call in `parts`, with those of its sub-agents, at any depth. */
+export function getAllToolParts(parts: readonly AnyUIPart[]): ToolPart[] {
+  const out: ToolPart[] = [];
+  for (const part of parts) {
+    if (isToolPart(part)) out.push(part);
+    else if (isSubagentPart(part)) out.push(...getAllToolParts(part.data.parts));
+  }
+  return out;
+}
+
 /**
  * Calls that only the model or a tool can still finish: input still streaming, running, or partial
  * output. Once the run has ended, these were cut off. An approved call waiting for the app to send
@@ -268,7 +305,8 @@ export function deriveAgentState({
 }): DerivedAgentState {
   if (status === 'error') return { state: 'error' };
   const parts = message?.role === 'assistant' ? message.parts : [];
-  const tools = getToolParts(parts);
+  // A sub-agent's calls count as the message's own: one waiting on approval holds up the run.
+  const tools = getAllToolParts(parts);
   const approval = tools.find((t) => t.state === 'approval-requested' && !isAutomaticApproval(t.approval));
   if (approval) return { state: 'awaiting-approval', detail: getToolPartName(approval) };
   const clientWait = tools.find(
@@ -280,6 +318,10 @@ export function deriveAgentState({
     const last = parts.at(-1);
     if (!last || last.type === 'step-start' || last.type === 'reasoning') return { state: 'thinking' };
     if (isToolPart(last)) return { state: 'working', detail: getToolPartName(last) };
+    if (isSubagentPart(last)) {
+      const call = getAllToolParts([last]).at(-1);
+      return { state: 'working', detail: call ? getToolPartName(call) : last.data.name };
+    }
     if (last.type === 'text') return { state: 'working', detail: writingResponse };
     return { state: 'working' };
   }
@@ -294,5 +336,6 @@ export function deriveAgentState({
 /** A part the run left unfinished: text or reasoning still streaming, or an interrupted tool call. */
 function isUnfinishedPart(part: AnyUIPart): boolean {
   if (part.type === 'text' || part.type === 'reasoning') return part.state === 'streaming';
+  if (isSubagentPart(part)) return part.data.parts.some(isUnfinishedPart);
   return isToolPart(part) && isInterruptibleToolPart(part);
 }

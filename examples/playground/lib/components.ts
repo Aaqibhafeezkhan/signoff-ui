@@ -319,7 +319,7 @@ const last = messages.findLast((m) => m.role === 'assistant');
         defaults: { file: 'tool-call-timeline.tsx', functions: ['ToolCallTimeline'] },
       },
     ],
-    types: ['ToolMeta', 'ToolTiming', 'RiskLevel'],
+    types: ['ToolMeta', 'ToolTiming', 'RiskLevel', 'SubagentPart', 'SubagentData', 'SubagentStatus'],
     imports: { npm: npm('ToolCallTimeline'), shadcn: shadcn('ToolCallTimeline', 'tool-call-timeline') },
     usage: `<ToolCallTimeline
   parts={message.parts}
@@ -331,12 +331,13 @@ const last = messages.findLast((m) => m.role === 'assistant');
   active={status === 'submitted' || status === 'streaming'}
 />`,
     keyboard: [
-      { keys: ['↑', '↓'], action: 'Previous or next call' },
+      { keys: ['↑', '↓'], action: 'Previous or next call, through a sub-agent and its calls while it is open' },
       { keys: ['Home', 'End'], action: 'First or last call' },
-      { keys: ['Enter', 'Space'], action: 'Show or hide the call’s input and output' },
+      { keys: ['Enter', 'Space'], action: 'Show or hide the call’s input and output, or the sub-agent’s calls' },
     ],
     accessibility: [
       'An ordered list named by `label` ("Tool calls"). Each call is a disclosure button with `aria-expanded`, as in the WAI-ARIA accordion pattern; the arrow keys move between them.',
+      'A sub-agent is a disclosure button under the call that started it, named by its name, its number of calls and its state ("Researcher 2 calls Running"). Open, its calls are an ordered list of their own ("Researcher’s tool calls"), with the same buttons, keys and announcements; the arrow keys go through them in the order they show.',
       'A call’s name, summary, state and duration are in its button’s accessible name. In narrow containers the summary is hidden visually but still read.',
       'Completions and failures are announced through a polite live region, such as "Read file finished in 1.2 seconds" or "Read file failed: ENOENT…". Calls that settle together, such as parallel calls, are announced together. Turn it off with `announce={false}` when something else announces them.',
       'The state node beside each call is hidden from screen readers: the call’s button already says "Needs approval", "Failed" or "Stopped".',
@@ -346,7 +347,8 @@ const last = messages.findLast((m) => m.role === 'assistant');
     stateTypes: {
       'data-phase': 'ToolPhase',
       'data-state': 'ToolState',
-      'data-interrupted': 'set once the run ended before the call settled',
+      'data-interrupted': 'set once the run ended before the call, or the sub-agent, settled',
+      'data-status': 'SubagentStatus',
     },
   },
   {

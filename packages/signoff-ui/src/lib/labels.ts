@@ -99,6 +99,17 @@ export interface SignoffLabels {
     error: string;
     deniedBy: (automatic: boolean) => string;
     waitingForInput: string;
+    /** A sub-agent nested under the call that started it. */
+    subagent: {
+      /** Its name, when the agent gave none. */
+      name: string;
+      /** How many tool calls it made. */
+      calls: (count: number) => string;
+      /** The name of the list of its calls. */
+      list: (name: string) => string;
+      /** Paused until a later run (AG-UI's `suspended`). */
+      paused: string;
+    };
   };
   approvalCard: {
     required: string;
@@ -348,6 +359,12 @@ export const toolCallTimelineLabels: SignoffLabels['toolCallTimeline'] = {
   error: 'Error',
   deniedBy: (automatic) => (automatic ? 'Blocked by policy' : 'Denied by user'),
   waitingForInput: 'Waiting for input…',
+  subagent: {
+    name: 'Sub-agent',
+    calls: (count) => `${count} ${count === 1 ? 'call' : 'calls'}`,
+    list: (name) => `${name}’s tool calls`,
+    paused: 'Paused',
+  },
 };
 
 export const approvalCardLabels: SignoffLabels['approvalCard'] = {

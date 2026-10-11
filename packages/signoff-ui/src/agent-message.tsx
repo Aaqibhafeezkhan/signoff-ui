@@ -7,7 +7,16 @@ import {
   type ApprovalCardProps,
   type ToolApprovalResponse,
 } from './approval-card';
-import { getSourceParts, getToolPartName, isToolPart, type AnyUIPart, type ToolPart, type UIMessage } from './lib/ai';
+import {
+  getAllToolParts,
+  getSourceParts,
+  getToolPartName,
+  isSubagentPart,
+  isToolPart,
+  type AnyUIPart,
+  type ToolPart,
+  type UIMessage,
+} from './lib/ai';
 import { useToolTimings, type ToolTimings } from './lib/hooks';
 import { FileIcon, ImageIcon } from './lib/icons';
 import { getImagePolicy, isAllowedImage, type ImagePolicy } from './lib/images';
@@ -60,7 +69,10 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
    * `(id, input) => setMessages((m) => setToolInput(m, id, input))`; with `useAgUiAgent`, its `editInput`.
    */
   onToolInputEdit?: ((toolCallId: string, input: unknown) => void) | undefined;
-  /** Render `data-*` parts. They are skipped when omitted. Your content, like `renderTool`'s. */
+  /**
+   * Render `data-*` parts. They are skipped when omitted. Your content, like `renderTool`'s. A
+   * sub-agent's part (`data-signoff-subagent`) is not one of them: the timeline nests its calls.
+   */
   renderData?: ((part: DataPart) => ReactNode) | undefined;
   showSources?: boolean;
   sourcesVariant?: 'chips' | 'cards';
@@ -80,7 +92,7 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
 type Segment =
   | { kind: 'text'; key: string; text: string; streaming: boolean }
   | { kind: 'reasoning'; key: string; text: string; streaming: boolean }
-  | { kind: 'tools'; key: string; parts: ToolPart[] }
+  | { kind: 'tools'; key: string; parts: AnyUIPart[] }
   | { kind: 'node'; key: string; node: ReactNode }
   | { kind: 'file'; key: string; part: FilePart };
 
@@ -129,15 +141,21 @@ export function AgentMessage({
       } else if (part.type === 'reasoning') {
         if (!part.text && part.state !== 'streaming') return;
         out.push({ kind: 'reasoning', key, text: part.text, streaming: isStreaming(part, i) });
-      } else if (isToolPart(part)) {
-        const custom = renderTool?.(part);
+      } else if (isToolPart(part) || isSubagentPart(part)) {
+        const custom = isToolPart(part) ? renderTool?.(part) : undefined;
         if (custom !== undefined) {
-          out.push({ kind: 'node', key: part.toolCallId, node: custom });
+          out.push({ kind: 'node', key: (part as ToolPart).toolCallId, node: custom });
           return;
         }
+        // A sub-agent joins the calls before it, where the one that started it is.
         const prev = out.at(-1);
         if (prev?.kind === 'tools') prev.parts.push(part);
-        else out.push({ kind: 'tools', key: part.toolCallId, parts: [part] });
+        else
+          out.push({
+            kind: 'tools',
+            key: isToolPart(part) ? part.toolCallId : `subagent:${part.data.subagentRunId}`,
+            parts: [part],
+          });
       } else if (part.type === 'file') {
         out.push({ kind: 'file', key, part });
       } else if (part.type.startsWith('data-')) {
@@ -166,7 +184,7 @@ export function AgentMessage({
       >
         {onToolApproval && (
           <ToolApprovalBatch
-            parts={parts.filter(isToolPart)}
+            parts={getAllToolParts(parts)}
             onRespond={onToolApproval}
             policy={approvalPolicy}
             tools={tools}
