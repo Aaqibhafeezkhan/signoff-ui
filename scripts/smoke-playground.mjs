@@ -64,8 +64,8 @@ try {
   const robots = await (await fetch(`${BASE}/robots.txt`)).text();
   check(
     ['/docs/getting-started', '/docs/components/approval-card', '/gallery'].every((path) =>
-      sitemap.includes(`https://agent-ui-kit-demo.vercel.app${path}</loc>`),
-    ) && robots.includes('Sitemap: https://agent-ui-kit-demo.vercel.app/sitemap.xml'),
+      sitemap.includes(`https://signoff-ui.vercel.app${path}</loc>`),
+    ) && robots.includes('Sitemap: https://signoff-ui.vercel.app/sitemap.xml'),
     'sitemap.xml lists the docs and components, and robots.txt points to it',
   );
 

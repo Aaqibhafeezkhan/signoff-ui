@@ -10,14 +10,14 @@ Review what your agent changed and control what it may do: React components for 
 
 https://github.com/user-attachments/assets/eb7c6a77-555f-4f6e-badf-230ebeeba45e
 
-<sub>The <a href="https://agent-ui-kit-demo.vercel.app">playground</a>, driven from the keyboard: tool calls stream into the timeline, <kbd>Y</kbd> approves the install, <kbd>A</kbd>/<kbd>R</kbd> review hunks, <kbd>Ctrl</kbd>+<kbd>↵</kbd> applies. Then the <a href="https://agent-ui-kit-demo.vercel.app/gallery#ag-ui">AG-UI demo</a>, a real <code>@ag-ui/client</code> agent that resumes once you approve.</sub>
+<sub>The <a href="https://signoff-ui.vercel.app">playground</a>, driven from the keyboard: tool calls stream into the timeline, <kbd>Y</kbd> approves the install, <kbd>A</kbd>/<kbd>R</kbd> review hunks, <kbd>Ctrl</kbd>+<kbd>↵</kbd> applies. Then the <a href="https://signoff-ui.vercel.app/gallery#ag-ui">AG-UI demo</a>, a real <code>@ag-ui/client</code> agent that resumes once you approve.</sub>
 
 <!-- npm-readme:image
 <p align="center">
-  <a href="https://agent-ui-kit-demo.vercel.app"><img src="docs/media/demo.webp" width="100%" alt="The playground driven from the keyboard: tool calls stream into a timeline, Y approves a package install, A and R accept and reject diff hunks, Ctrl+Enter applies them and the run meter shows the cost. Then the AG-UI demo: a LangGraph-style run that resumes once the install is approved."></a>
+  <a href="https://signoff-ui.vercel.app"><img src="docs/media/demo.webp" width="100%" alt="The playground driven from the keyboard: tool calls stream into a timeline, Y approves a package install, A and R accept and reject diff hunks, Ctrl+Enter applies them and the run meter shows the cost. Then the AG-UI demo: a LangGraph-style run that resumes once the install is approved."></a>
 </p>
 
-<sub>The <a href="https://agent-ui-kit-demo.vercel.app">playground</a>, driven from the keyboard: tool calls stream into the timeline, <kbd>Y</kbd> approves the install, <kbd>A</kbd>/<kbd>R</kbd> review hunks, <kbd>Ctrl</kbd>+<kbd>↵</kbd> applies. Then the <a href="https://agent-ui-kit-demo.vercel.app/gallery#ag-ui">AG-UI demo</a>, a real <code>@ag-ui/client</code> agent that resumes once you approve.</sub>
+<sub>The <a href="https://signoff-ui.vercel.app">playground</a>, driven from the keyboard: tool calls stream into the timeline, <kbd>Y</kbd> approves the install, <kbd>A</kbd>/<kbd>R</kbd> review hunks, <kbd>Ctrl</kbd>+<kbd>↵</kbd> applies. Then the <a href="https://signoff-ui.vercel.app/gallery#ag-ui">AG-UI demo</a>, a real <code>@ag-ui/client</code> agent that resumes once you approve.</sub>
 -->
 
 ## Why it exists
@@ -122,7 +122,7 @@ const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } 
 />
 ```
 
-The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://agent-ui-kit-demo.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add @signoff-ui/diff-review`).
+The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add @signoff-ui/diff-review`).
 
 ## Works inside assistant-ui, AI Elements or your own chat
 
@@ -134,7 +134,7 @@ The components take AI SDK message parts and plain props, not a runtime, and `st
 - **AG-UI agents** (LangGraph, CrewAI, Mastra and others): `useAgUiAgent` from `signoff-ui/ag-ui` turns the run into the same message parts, with interrupts as approval cards.
 - **Agent Client Protocol:** `signoff-ui/acp` folds a prompt turn's session updates and permission requests into the same message parts, with the agent's options on the approval card and each edit's diff as `DiffReview` files.
 
-[Inside your chat UI](https://agent-ui-kit-demo.vercel.app/docs/chat-ui) has the code for each.
+[Inside your chat UI](https://signoff-ui.vercel.app/docs/chat-ui) has the code for each.
 
 ## Components
 
@@ -152,9 +152,9 @@ Typed against AI SDK 6 and 7 (`ai@^6.0.0 || ^7.0.102`), on React 18 and 19 (`rea
 
 ## Docs
 
-- [Live playground](https://agent-ui-kit-demo.vercel.app): a scripted coding-agent run with a review and an approval, driven from the keyboard. No API key.
-- [Docs](https://agent-ui-kit-demo.vercel.app/docs): [Getting started](https://agent-ui-kit-demo.vercel.app/docs/getting-started), [Inside your chat UI](https://agent-ui-kit-demo.vercel.app/docs/chat-ui), [AG-UI agents](https://agent-ui-kit-demo.vercel.app/docs/ag-ui), [theming](https://agent-ui-kit-demo.vercel.app/docs/getting-started#theming), [accessibility](https://agent-ui-kit-demo.vercel.app/docs/accessibility), [labels and translations](https://agent-ui-kit-demo.vercel.app/docs/labels), [performance and limits](https://agent-ui-kit-demo.vercel.app/docs/limits), and a page per component with its props, keyboard and styling hooks. Also as [`/llms.txt`](https://agent-ui-kit-demo.vercel.app/llms.txt) and [`/llms-full.txt`](https://agent-ui-kit-demo.vercel.app/llms-full.txt) for coding agents.
-- Formerly `@dgesteves/agent-ui-kit`: [Migrating](https://agent-ui-kit-demo.vercel.app/docs/migrating-from-agent-ui-kit) is a package swap and one command.
+- [Live playground](https://signoff-ui.vercel.app): a scripted coding-agent run with a review and an approval, driven from the keyboard. No API key.
+- [Docs](https://signoff-ui.vercel.app/docs): [Getting started](https://signoff-ui.vercel.app/docs/getting-started), [Inside your chat UI](https://signoff-ui.vercel.app/docs/chat-ui), [AG-UI agents](https://signoff-ui.vercel.app/docs/ag-ui), [theming](https://signoff-ui.vercel.app/docs/getting-started#theming), [accessibility](https://signoff-ui.vercel.app/docs/accessibility), [labels and translations](https://signoff-ui.vercel.app/docs/labels), [performance and limits](https://signoff-ui.vercel.app/docs/limits), and a page per component with its props, keyboard and styling hooks. Also as [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) and [`/llms-full.txt`](https://signoff-ui.vercel.app/llms-full.txt) for coding agents.
+- Formerly `@dgesteves/agent-ui-kit`: [Migrating](https://signoff-ui.vercel.app/docs/migrating-from-agent-ui-kit) is a package swap and one command.
 - [Changelog](packages/signoff-ui/CHANGELOG.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
 
 ## How it compares
@@ -164,7 +164,7 @@ signoff-ui does one part of an agent product in depth: the review and approval s
 - **assistant-ui** has a chat runtime and thread, adapters for the AI SDK, LangGraph, AG-UI and more, and an Elements collection far wider than this kit. Its task card shows nested sub-agents, which this kit renders flat.
 - **AI Elements** covers the most of the message surface in shadcn style (conversation, prompt input, artifacts, a `Context` usage indicator and more), maintained by Vercel. Its components are written against AI SDK 6.
 
-Where signoff-ui goes further: review from file contents across several files, with the patched files, the rejected hunks and line comments as the result; approvals once, for the session or always, by tool and argument pattern, with the arguments editable first and the same rules for AI SDK 7's `toolApproval`; approvals that tell a person's decision from a policy's; tool durations that leave out time spent waiting for a person; and a stylesheet for Tailwind v3 or no Tailwind. Use either library for the chat, and these components for the sign-off. [The full comparison](https://agent-ui-kit-demo.vercel.app/docs/comparison).
+Where signoff-ui goes further: review from file contents across several files, with the patched files, the rejected hunks and line comments as the result; approvals once, for the session or always, by tool and argument pattern, with the arguments editable first and the same rules for AI SDK 7's `toolApproval`; approvals that tell a person's decision from a policy's; tool durations that leave out time spent waiting for a person; and a stylesheet for Tailwind v3 or no Tailwind. Use either library for the chat, and these components for the sign-off. [The full comparison](https://signoff-ui.vercel.app/docs/comparison).
 
 ## License
 

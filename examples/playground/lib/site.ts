@@ -1,5 +1,5 @@
 /** Links and names the whole site shares. */
-export const SITE_URL = 'https://agent-ui-kit-demo.vercel.app';
+export const SITE_URL = 'https://signoff-ui.vercel.app';
 export const GITHUB_URL = 'https://github.com/dgesteves/signoff-ui';
 export const NPM_URL = 'https://www.npmjs.com/package/signoff-ui';
 export const PACKAGE = 'signoff-ui';
@@ -13,13 +13,13 @@ export const AUTHOR = { name: 'Diogo Esteves', url: 'https://github.com/dgesteve
 export const MORE_BY_AUTHOR = [
   {
     name: 'ondocs',
-    url: 'https://ask-my-site-demo.vercel.app',
+    url: 'https://ondocs.vercel.app',
     description:
       'Docs answerable by people and agents from one static index: a cited Ask box, an MCP server and llms.txt.',
   },
   {
     name: 'onsystem',
-    url: 'https://design-system-mcp-demo.vercel.app',
+    url: 'https://onsystem.vercel.app',
     description: 'Keeps coding agents on your design system, and the same check gates your PRs.',
   },
 ];

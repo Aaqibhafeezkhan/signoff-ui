@@ -9,7 +9,7 @@ import { GUIDES, readGuide, toMarkdown } from './docs';
  * pages and registry.json when the playground builds, so they always match the docs.
  */
 
-const SITE = 'https://agent-ui-kit-demo.vercel.app';
+const SITE = 'https://signoff-ui.vercel.app';
 const REPO = 'https://github.com/dgesteves/signoff-ui';
 // `next build` runs in examples/playground.
 const root = join(process.cwd(), '../..');
