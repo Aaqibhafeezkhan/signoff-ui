@@ -2,7 +2,9 @@
 // cases (local edits to 1,000 and 5,000 lines, full rewrites of 2,000 and 5,000) and the 5,000-line
 // rewrite in split view. For each: the first render, the time until every file is compared and on
 // screen, the longest task that blocked the page, the DOM it leaves, one keyboard decision, and
-// paging through the whole review a screen per frame.
+// paging through the whole review a screen per frame. Then ToolCallTimeline on a run of 2,000
+// calls: the first render, appending a call until the frame that shows it is painted, the frames
+// while a call runs, and the calls it renders.
 //
 // Each metric has a budget, a few times what a laptop measures so CI runners pass with room; CI
 // fails when a case goes over. The old behaviour (a 5,000-line rewrite blocking for 3 s, 260k DOM
@@ -74,6 +76,17 @@ const CASES = [
     { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL, scrollFrameP95Ms: 200 },
   ],
 ];
+// [label, query, budgets] for the timeline page (scripts/perf/timeline.mjs). Before the timeline
+// rendered only the calls near the screen, appending a call took about 105 ms and a running call's
+// frames 45 to 52 ms on a laptop; now about 2.5 ms and 17 ms, and 12 ms and 18 ms with the CPU six
+// times slower. The append budget is the one the timeline is held to: under a frame.
+const TIMELINE_CASES = [
+  [
+    'tool call timeline, 2,000 calls',
+    'n=2000',
+    { mountMs: 400, appendMs: 16, runningFrameP95Ms: 40, domNodes: 5_000, renderedCalls: 200 },
+  ],
+];
 
 // Bundle the harness against the built package, with the React that package resolves.
 const pkg = createRequire(join(dist, '../package.json'));
@@ -102,13 +115,21 @@ if (existsSync(worker)) {
     output: { dir: out, format: 'esm', entryFileNames: 'diff-worker.js', minify: true, footer: LOADED },
   });
 }
+await build({
+  input: join(import.meta.dirname, 'perf/timeline.mjs'),
+  platform: 'browser',
+  logLevel: 'silent',
+  resolve: { alias: { 'signoff-ui': join(dist, 'index.js'), react: reactDir, 'react-dom': reactDomDir } },
+  transform: { define: { 'process.env.NODE_ENV': '"production"' } },
+  output: { dir: out, format: 'esm', entryFileNames: 'timeline.js', minify: true, sourcemap: true },
+});
 copyFileSync(join(dist, 'styles.css'), join(out, 'styles.css'));
-writeFileSync(
-  join(out, 'index.html'),
+const html = (script) =>
   '<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css">' +
-    '<style>body{margin:0;padding:24px;background:#0d0f12}</style></head>' +
-    '<body><div id="root"></div><script type="module" src="harness.js"></script></body></html>',
-);
+  '<style>body{margin:0;padding:24px;background:#0d0f12}</style></head>' +
+  `<body><div id="root"></div><script type="module" src="${script}"></script></body></html>`;
+writeFileSync(join(out, 'index.html'), html('harness.js'));
+writeFileSync(join(out, 'timeline.html'), html('timeline.js'));
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const server = createServer((req, res) => {
@@ -167,14 +188,14 @@ function record(page, log) {
  * kind (script, style, layout, paint, garbage collection) and the busiest trace events. Printed
  * for a case over budget, so a CI failure says what to look at.
  */
-async function whereTimeWent(browser, query) {
+async function whereTimeWent(browser, url) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const cdp = await page.context().newCDPSession(page);
   const events = [];
   cdp.on('Tracing.dataCollected', ({ value }) => events.push(...value));
   const done = new Promise((resolve) => cdp.once('Tracing.tracingComplete', resolve));
   await cdp.send('Tracing.start', { categories: 'devtools.timeline,v8', transferMode: 'ReportEvents' });
-  await page.goto(`${base}/?${query}`, { waitUntil: 'commit' });
+  await page.goto(url, { waitUntil: 'commit' });
   await page.waitForFunction(() => window.__perf, null, { polling: 100 });
   await cdp.send('Tracing.end');
   await done;
@@ -225,14 +246,17 @@ async function whereTimeWent(browser, query) {
 /** The case running now: a DevTools session on its page and its scripts by id, for `diagnose`. */
 let current;
 
-/** A paused stack frame, at its place in the package's dist when it is in the bundled harness. */
+/** A paused stack frame, at its place in the source when it is in one of the bundled pages. */
 function frameAt({ functionName, location }) {
   const url = current?.scripts.get(location.scriptId) ?? '';
   let where = `${url.split('/').pop() || '?'}:${location.lineNumber + 1}:${location.columnNumber + 1}`;
   let name = functionName;
-  if (url.endsWith('/harness.js')) {
-    current.map ??= new SourceMap(JSON.parse(readFileSync(join(out, 'harness.js.map'), 'utf8')));
-    const found = current.map.findEntry(location.lineNumber, location.columnNumber);
+  const bundle = /\/(harness|timeline)\.js$/.exec(url)?.[1];
+  if (bundle) {
+    current.maps ??= new Map();
+    if (!current.maps.has(bundle))
+      current.maps.set(bundle, new SourceMap(JSON.parse(readFileSync(join(out, `${bundle}.js.map`), 'utf8'))));
+    const found = current.maps.get(bundle).findEntry(location.lineNumber, location.columnNumber);
     if (found?.originalSource) {
       where = `${found.originalSource.replace(/^.*?(packages|scripts)\//, '$1/')}:${found.originalLine + 1}:${found.originalColumn + 1}`;
       name = found.name ?? name;
@@ -278,7 +302,8 @@ async function diagnose({ pid }) {
 }
 
 /** One case: its measurements, the budgets they go over, and if any, where the time went. */
-async function measure({ browser }, { label, query, budgets }, log) {
+async function measure({ browser }, { label, query, budgets, timeline }, log) {
+  const url = timeline ? `${base}/timeline.html?${query}` : `${base}/?${query}`;
   const started = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   // With the debugger on from the start, a stalled case can be paused even inside a long script
@@ -294,7 +319,7 @@ async function measure({ browser }, { label, query, budgets }, log) {
   const errors = [];
   record(page, log);
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(`${base}/?${query}`, { waitUntil: 'commit' });
+  await page.goto(url, { waitUntil: 'commit' });
   await page.waitForFunction(() => window.__perf, null, { polling: 100 });
   const result = await page.evaluate(() => window.__perf);
   await page.close();
@@ -305,14 +330,17 @@ async function measure({ browser }, { label, query, budgets }, log) {
   const over = Object.entries(budgets)
     .filter(([metric, limit]) => result[metric] > limit)
     .map(([metric, limit]) => `${label}: ${metric} ${Math.round(result[metric])}, budget ${limit}`);
-  const breakdown = enforce && over.length ? `${label}: ${await whereTimeWent(browser, query)}` : undefined;
-  return { result: { label, ...result, budgets }, over, breakdown };
+  const breakdown = enforce && over.length ? `${label}: ${await whereTimeWent(browser, url)}` : undefined;
+  return { result: { label, timeline, ...result, budgets }, over, breakdown };
 }
 
 let measured;
 try {
   measured = await runCases(
-    CASES.map(([label, query, budgets]) => ({ label, query, budgets })),
+    [
+      ...CASES.map(([label, query, budgets]) => ({ label, query, budgets })),
+      ...TIMELINE_CASES.map(([label, query, budgets]) => ({ label, query, budgets, timeline: true })),
+    ],
     {
       launch,
       run: measure,
@@ -343,9 +371,18 @@ else {
     '| Case | First render | Ready | Longest task | DOM nodes | Keypress | Scroll p95 frame | DOM after scrolling |',
   );
   console.log('| --- | --: | --: | --: | --: | --: | --: | --: |');
-  for (const r of results) {
+  for (const r of results.filter((r) => !r.timeline)) {
     console.log(
       `| ${r.label} | ${ms(r.mountMs)} | ${ms(r.readyMs)} | ${ms(r.longestTaskMs)} | ${count(r.domNodes)} | ${r.keyMs.toFixed(1)} ms | ${ms(r.scrollFrameP95Ms)} | ${count(r.domNodesAfterScroll)} |`,
+    );
+  }
+  console.log(
+    '\n| Case | First render | Append, to the painted frame | p95 frame, a call running | DOM nodes | Calls rendered |',
+  );
+  console.log('| --- | --: | --: | --: | --: | --: |');
+  for (const r of results.filter((r) => r.timeline)) {
+    console.log(
+      `| ${r.label} | ${ms(r.mountMs)} | ${r.appendMs.toFixed(1)} ms | ${ms(r.runningFrameP95Ms)} | ${count(r.domNodes)} | ${count(r.renderedCalls)} |`,
     );
   }
 }
