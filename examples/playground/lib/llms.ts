@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { componentMarkdown } from './component-markdown';
 import { componentHref, COMPONENTS } from './components';
 import { GUIDES, readGuide, toMarkdown } from './docs';
+import { shadcnAdd } from './site';
 
 /*
  * /llms.txt and /llms-full.txt (https://llmstxt.org), built from the repository's README, the docs
@@ -124,8 +125,7 @@ export function llmsFullTxt() {
   const guides = GUIDES.map((doc) => nested(toMarkdown(doc, readGuide(doc))).trim());
   const components = COMPONENTS.map((c) => nested(componentMarkdown(c)).trim());
   const items = registryItems().map(
-    (item) =>
-      `- \`${item.name}\` (${item.title}): ${item.description} \`npx shadcn@latest add @signoff-ui/${item.name}\``,
+    (item) => `- \`${item.name}\` (${item.title}): ${item.description} \`${shadcnAdd(item.name)}\``,
   );
   return [
     markdown.trimEnd(),

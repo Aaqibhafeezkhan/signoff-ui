@@ -70,7 +70,7 @@ AI Elements apps run Tailwind v4, so import `signoff-ui/tailwind.css` after Tail
 npm i signoff-ui @assistant-ui/react
 ```
 
-`@assistant-ui/react` is an optional peer dependency of signoff-ui, needed only for this entry, which uses its types and none of its code. With the shadcn CLI, the binding is the `assistant-ui` item: `npx shadcn@latest add @signoff-ui/assistant-ui`.
+`@assistant-ui/react` is an optional peer dependency of signoff-ui, needed only for this entry, which uses its types and none of its code. With the shadcn CLI, the binding is the `assistant-ui` item: `npx shadcn@latest add https://signoff-ui.vercel.app/r/assistant-ui.json`.
 
 With the AI SDK runtime, against the `review_changes` and `run_command` tools of [Getting started](/docs/getting-started#render-a-run):
 

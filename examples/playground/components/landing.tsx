@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CallsToAction } from './hero';
 import { ArrowRightIcon } from './icons';
+import { shadcnAdd } from '@/lib/site';
 
 /*
  * The sections after the live run: what's in the kit (review and approval first), what it works
@@ -88,7 +89,7 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
   {
     title: 'npm or shadcn',
     body: <>Install the package, or copy a component’s source into your app with the shadcn CLI and make it yours.</>,
-    code: 'npx shadcn@latest add @signoff-ui/diff-review',
+    code: shadcnAdd('diff-review'),
   },
   {
     title: 'Your chat UI',

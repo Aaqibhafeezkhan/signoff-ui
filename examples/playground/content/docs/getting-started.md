@@ -21,10 +21,14 @@ npm i signoff-ui ai
 ### With the shadcn CLI
 
 ```package-install
-npx shadcn@latest add @signoff-ui/agent-message
+npx shadcn@latest add https://signoff-ui.vercel.app/r/agent-message.json
 ```
 
-If the CLI doesn't know the `@signoff-ui` namespace yet, add it to your `components.json` once:
+Each item brings the component, the helpers it imports, its npm dependencies and the theme tokens, which `shadcn add` writes into your CSS. Files land in `components/signoff-ui/`.
+
+The items are `agent-message`, `tool-call-timeline`, `approval-card`, `use-approval-policy`, `diff-review`, `use-diff-review`, `run-meter`, `agent-status`, `sources`, `markdown`, `reasoning`, `ag-ui` and `assistant-ui`, each at `https://signoff-ui.vercel.app/r/<item>.json`. Installing a second item skips the shared files it already added. They also install straight from the repository (`npx shadcn@latest add dgesteves/signoff-ui/agent-message`).
+
+To add them by name instead (`npx shadcn@latest add @signoff-ui/agent-message`), add the namespace to your `components.json` once. The namespace needs this `registries` entry: the shadcn directory doesn't list it yet.
 
 ```json title="components.json"
 {
@@ -33,10 +37,6 @@ If the CLI doesn't know the `@signoff-ui` namespace yet, add it to your `compone
   }
 }
 ```
-
-Each item brings the component, the helpers it imports, its npm dependencies and the theme tokens, which `shadcn add` writes into your CSS. Files land in `components/signoff-ui/`.
-
-The items are `agent-message`, `tool-call-timeline`, `approval-card`, `use-approval-policy`, `diff-review`, `use-diff-review`, `run-meter`, `agent-status`, `sources`, `markdown`, `reasoning` and `ag-ui`. Installing a second item skips the shared files it already added. They also install by URL, with no setup (`https://signoff-ui.vercel.app/r/agent-message.json`), or straight from the repository (`dgesteves/signoff-ui/agent-message`).
 
 Component and hook files start with `'use client'`, so they work when rendered from Server Components; the helpers in `lib/` (`diff.ts`, `usage.ts`, `ai.ts`, `format.ts`) do not, so the server can call them. The files pass a new Next.js app's ESLint config with no warnings, which CI checks.
 

@@ -7,6 +7,14 @@ export const INSTALL_COMMAND = `npm i ${PACKAGE}`;
 export const GET_STARTED_URL = '/docs/getting-started';
 export const RELEASES_URL = `${GITHUB_URL}/releases`;
 
+/** The hosted shadcn registry: each item is `${REGISTRY_URL}/<item>.json`. */
+export const REGISTRY_URL = `${SITE_URL}/r`;
+/**
+ * The command that adds a registry item. By URL, so it works with no setup: the `@signoff-ui`
+ * namespace needs a `registries` entry in components.json until the shadcn directory lists it.
+ */
+export const shadcnAdd = (item: string) => `npx shadcn@latest add ${REGISTRY_URL}/${item}.json`;
+
 export const AUTHOR = { name: 'Diogo Esteves', url: 'https://github.com/dgesteves' };
 
 /** The owner's other open-source projects, for the footer. */

@@ -1,6 +1,6 @@
 import { getDescription, getInterface, getSignature, getStylingHooks, getType, type InterfaceDoc } from './api';
 import { componentAbout, componentHref, stateValues, type ComponentDoc } from './components';
-import { SITE_URL } from './site';
+import { shadcnAdd, SITE_URL } from './site';
 
 /*
  * A component's docs page as Markdown, from the same sources as the page: served at
@@ -50,7 +50,7 @@ export function componentMarkdown(c: ComponentDoc) {
     'Or as source, with the shadcn CLI:',
     '',
     '```bash',
-    `npx shadcn@latest add @signoff-ui/${c.item}`,
+    shadcnAdd(c.item),
     '```',
     '',
     '```tsx',

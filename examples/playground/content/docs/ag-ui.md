@@ -11,7 +11,7 @@ npm i signoff-ui ai @ag-ui/client
 `ai` is there for the message part types only. A custom agent, an `AbstractAgent` whose `run()` returns an RxJS `Observable`, needs `rxjs` too, at the version `@ag-ui/client` uses (`rxjs@7.8.1` for 1.0). Add the styles as in [Getting started](/docs/getting-started#add-the-styles). With the shadcn CLI, the adapter is the `ag-ui` item:
 
 ```package-install
-npx shadcn@latest add @signoff-ui/ag-ui
+npx shadcn@latest add https://signoff-ui.vercel.app/r/ag-ui.json
 ```
 
 ## Render an agent
