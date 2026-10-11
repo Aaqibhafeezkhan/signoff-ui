@@ -37,8 +37,7 @@ Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in y
 ```ts
 // app/api/chat/route.ts (excerpt)
 import { openai } from '@ai-sdk/openai';
-import { addUsage } from 'signoff-ui/core';
-import { convertToModelMessages, stepCountIs, streamText, tool, type LanguageModelUsage, type UIMessage } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from 'ai';
 import { z } from 'zod';
 // …
 const tools = {
@@ -72,6 +71,8 @@ const result = streamText({
 
 ```tsx
 // app/agent-run.tsx (excerpt)
+'use client';
+
 import { useChat } from '@ai-sdk/react';
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -92,34 +93,55 @@ import {
   type FileChange,
 } from 'signoff-ui';
 // …
-const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
-  // Continue the run once the review is in and every approval has an answer.
-  sendAutomaticallyWhen: (chat) =>
-    lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
-});
-// …
-<AgentMessage
-  message={last}
-  streaming={status === 'streaming'}
-  // Once the run has finished, been stopped or failed, calls that never settled read "Stopped".
-  active={state !== 'done' && state !== 'stopped' && state !== 'error'}
-  onToolApproval={addToolApprovalResponse}
-  // The proposed edit, reviewed hunk by hunk: the agent gets the files as applied, and your comments.
-  renderTool={(part) =>
-    getToolPartName(part) === 'review_changes' && part.state === 'input-available' ? (
-      <DiffReview
-        files={(part.input as { files: FileChange[] }).files}
-        onSubmit={(review) =>
-          addToolOutput({
-            tool: 'review_changes',
-            toolCallId: part.toolCallId,
-            output: reviewToolOutput(review),
-          })
-        }
-      />
-    ) : undefined
-  }
-/>
+export function AgentRun() {
+  const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
+    // Continue the run once the review is in and every approval has an answer.
+    sendAutomaticallyWhen: (chat) =>
+      lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
+  });
+  // …
+        <AgentMessage
+          message={last}
+          streaming={status === 'streaming'}
+          // Once the run has finished, been stopped or failed, calls that never settled read "Stopped".
+          active={state !== 'done' && state !== 'stopped' && state !== 'error'}
+          onToolApproval={addToolApprovalResponse}
+          // The proposed edit, reviewed hunk by hunk: the agent gets the files as applied, and your comments.
+          renderTool={(part) =>
+            getToolPartName(part) === 'review_changes' && part.state === 'input-available' ? (
+              <DiffReview
+                files={(part.input as { files: FileChange[] }).files}
+                onSubmit={(review) =>
+                  addToolOutput({
+                    tool: 'review_changes',
+                    toolCallId: part.toolCallId,
+                    output: reviewToolOutput(review),
+                  })
+                }
+              />
+            ) : undefined
+          }
+        />
+  // …
+}
+```
+
+**Render it from a page.** New Next.js 16 apps turn on `cacheComponents`, and `useChat` creates ids with `Math.random()`, which a prerendered page may not contain, so the component that calls it goes inside `<Suspense>`:
+
+```tsx
+// app/page.tsx
+import { Suspense } from 'react';
+import { AgentRun } from './agent-run';
+
+export default function Page() {
+  // With cacheComponents (on in new Next.js 16 apps), useChat needs a Suspense boundary:
+  // it creates ids with Math.random(), which Next.js does not allow in prerendered output.
+  return (
+    <Suspense>
+      <AgentRun />
+    </Suspense>
+  );
+}
 ```
 
 The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add @signoff-ui/diff-review`).

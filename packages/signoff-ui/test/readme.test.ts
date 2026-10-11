@@ -7,9 +7,10 @@ import { describe, expect, it } from 'vitest';
 /*
  * The quickstart is examples/nextjs-minimal, which CI builds and runs in Chrome. The README shows
  * excerpts of it: each block that starts with `// app/... (excerpt)` is that file of the example,
- * in pieces separated by `// …` lines, each piece taken whole and in order, whatever its indent.
- * Getting started on the docs site shows the files in full. Both may use a real model where the
- * example uses the scripted one.
+ * in pieces separated by `// …` lines, each piece taken whole and in order, whatever its indent;
+ * an import may name fewer of the module's exports than the file's. A block that starts with
+ * `// app/...` alone is the whole file. Getting started on the docs site shows the files in full.
+ * Both may use a real model where the example uses the scripted one.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -25,9 +26,11 @@ const walkthrough = guide.slice(
   guide.indexOf('\n## ', guide.indexOf('## Render a run') + 1),
 );
 
-const excerpts = [...quickstart.matchAll(/```tsx?\n\/\/ (app\/\S+) \(excerpt\)\n([\s\S]*?)```/g)].map(
-  ([, path, code]) => ({ path: path!, code: code! }),
+const blocks = [...quickstart.matchAll(/```tsx?\n\/\/ (app\/\S+)( \(excerpt\))?\n([\s\S]*?)```/g)].map(
+  ([, path, excerpt, code]) => ({ path: path!, excerpt: !!excerpt, code: code! }),
 );
+const excerpts = blocks.filter((block) => block.excerpt);
+const wholeFiles = blocks.filter((block) => !block.excerpt);
 const files = [...walkthrough.matchAll(/```tsx? title="(app\/\S+)"\n([\s\S]*?)```/g)].map(([, path, code]) => ({
   path: path!,
   code: code!,
@@ -49,6 +52,16 @@ const lines = (code: string) =>
 
 const read = (path: string) => readFileSync(join(example, path), 'utf8');
 
+/** Whether an excerpt's line is the file's: the same, or an import of some of the same names. */
+const sameLine = (excerpt: string, file: string) => {
+  if (excerpt === file) return true;
+  const named = (line: string) => /^import \{ (.+) \} from ('[^']+');$/.exec(line);
+  const [a, b] = [named(excerpt), named(file)];
+  if (!a || !b || a[2] !== b[2]) return false;
+  const names = new Set(b[1]!.split(', '));
+  return a[1]!.split(', ').every((name) => names.has(name));
+};
+
 const imports = (blocks: Array<{ code: string }>) => {
   const names = new Set(
     blocks.flatMap(({ code }) => [...code.matchAll(/from '((?:@[^/']+\/)?[^/'.@][^/']*)/g)].map(([, name]) => name!)),
@@ -58,8 +71,17 @@ const imports = (blocks: Array<{ code: string }>) => {
 };
 
 describe('README quickstart', () => {
-  it('shows the route, then the page, of the runnable example', () => {
-    expect(excerpts.map((block) => block.path)).toEqual(['app/api/chat/route.ts', 'app/agent-run.tsx']);
+  it('shows the route, then the client component and the page that renders it, of the runnable example', () => {
+    expect(blocks.map((block) => block.path)).toEqual(['app/api/chat/route.ts', 'app/agent-run.tsx', 'app/page.tsx']);
+  });
+
+  it.each(wholeFiles)('$path is the example file', ({ path, code }) => {
+    expect(code).toBe(read(path));
+  });
+
+  it('keeps a client file’s directive in its excerpt, so it builds as copied', () => {
+    for (const { path, code } of excerpts)
+      if (read(path).startsWith("'use client';")) expect(code, path).toMatch(/^'use client';\n/);
   });
 
   it.each(excerpts)('$path is an excerpt of the example', ({ path, code }) => {
@@ -70,7 +92,7 @@ describe('README quickstart', () => {
       .split(/^\s*\/\/ …$/m)
       .map(lines)
       .filter((piece) => piece.length > 0)) {
-      const at = file.findIndex((_, i) => i >= from && piece.every((line, j) => file[i + j] === line));
+      const at = file.findIndex((_, i) => i >= from && piece.every((line, j) => sameLine(line, file[i + j] ?? '')));
       expect(at, `not in ${path}, in this order:\n${piece.join('\n')}`).toBeGreaterThanOrEqual(0);
       from = at + piece.length;
     }
@@ -78,7 +100,7 @@ describe('README quickstart', () => {
 
   it('installs every package the excerpts import', () => {
     const install = /```bash\nnpm i (signoff-ui [^\n]+)\n```/.exec(quickstart)?.[1]?.split(' ') ?? [];
-    expect(imports(excerpts).filter((name) => !install.includes(name))).toEqual([]);
+    expect(imports(blocks).filter((name) => !install.includes(name))).toEqual([]);
   });
 });
 
