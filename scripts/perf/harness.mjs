@@ -72,8 +72,8 @@ step(`rendered in ${Math.round(result.mountMs)} ms`);
 const hunkSelector = '[data-slot="signoff-diff-hunk"]';
 for (;;) {
   if (container.querySelector(hunkSelector) && !container.querySelector('[aria-busy="true"]')) break;
-  if (performance.now() - start > 60_000) {
-    window.__perf = { error: 'the review was not ready after 60 s' };
+  if (performance.now() - start > 30_000) {
+    window.__perf = { error: 'the review was not ready after 30 s' };
     throw new Error(window.__perf.error);
   }
   await frame();
@@ -108,6 +108,8 @@ for (let y = 0, n = 0; y < document.documentElement.scrollHeight && n < 400; y +
   const now = performance.now();
   frames.push(now - last);
   last = now;
+  // Now and then, so a case that stalls while scrolling says where.
+  if (n % 50 === 49) step(`scrolled ${n + 1} frames, to ${y} px`);
 }
 frames.sort((a, b) => a - b);
 result.scrollFrameP95Ms = frames[Math.floor(frames.length * 0.95)] ?? 0;

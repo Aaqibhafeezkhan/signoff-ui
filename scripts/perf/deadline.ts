@@ -39,7 +39,7 @@ export async function dispose(browser: Disposable, ms: number): Promise<void> {
 }
 
 export interface RunCasesOptions<B extends Disposable, C extends Case, R> {
-  /** Starts a browser: at the start, and again after a case stalls. */
+  /** Starts a browser: for every case, and again after a case stalls. */
   launch(): Promise<B>;
   /** Runs one case. Whatever its page logs goes into `log`, to be printed if it fails. */
   run(browser: B, item: C, log: string[]): Promise<R>;
@@ -47,20 +47,31 @@ export interface RunCasesOptions<B extends Disposable, C extends Case, R> {
   deadlineMs?: number;
   /** How long closing the browser may take before it is killed. */
   closeMs?: number;
+  /** How many more tries a case that stalls gets, each in a new browser. */
+  retries?: number;
   /** Whether an error means the browser is stuck, so the case is worth a try in a new one. */
   stalled?(error: unknown): boolean;
+  /**
+   * What the stuck browser is doing, a line each (whether the page answers, a stack): asked after a
+   * stall, before the browser is killed, and printed with the page's log.
+   */
+  diagnose?(browser: B, item: C): Promise<string[]>;
+  /** How long `diagnose` may take. */
+  diagnoseMs?: number;
   /** Where a retry is announced. */
   warn?(message: string): void;
 }
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const pageLog = (log: string[]) => (log.length ? log.map((line) => `\n  ${line}`).join('') : ' nothing');
+const lines = (title: string, list: string[]) =>
+  list.length ? `${title}${list.map((line) => `\n  ${line}`).join('')}` : '';
 
 /**
- * Runs `cases` in order, each against `deadlineMs`. A case that stalls (runs out of time, or fails
- * in a way `stalled` accepts) is tried once more in a new browser, the old one killed; a second
- * stall, or any other error, throws with the case's label and what its page logged. The browser is
- * closed at the end however the run went, and killed if closing it hangs.
+ * Runs `cases` in order, each in a browser of its own and against `deadlineMs`. A case that stalls
+ * (runs out of time, or fails in a way `stalled` accepts) is tried again in a new browser, up to
+ * `retries` more times, the old one killed after `diagnose` has looked at it; one more stall, or any
+ * other error, throws with the case's label, what its page logged and what the browser was doing.
+ * Every browser is closed, and killed if closing it hangs.
  */
 export async function runCases<B extends Disposable, C extends Case, R>(
   cases: readonly C[],
@@ -69,15 +80,31 @@ export async function runCases<B extends Disposable, C extends Case, R>(
     run,
     deadlineMs = 120_000,
     closeMs = 10_000,
+    retries = 2,
     stalled = (error) => error instanceof Timeout,
+    diagnose,
+    diagnoseMs = 30_000,
     warn = console.error,
   }: RunCasesOptions<B, C, R>,
 ): Promise<R[]> {
   const start = () => within(launch(), deadlineMs, `the browser did not start in ${deadlineMs / 1000} s`);
+  const inspect = async (browser: B, item: C) => {
+    if (!diagnose) return [];
+    try {
+      return await within(diagnose(browser, item), diagnoseMs, `no answer in ${diagnoseMs / 1000} s`);
+    } catch (error) {
+      return [`could not tell: ${reason(error)}`];
+    }
+  };
   const results: R[] = [];
-  let browser = await start();
+  let browser: B | undefined;
   try {
     for (const item of cases) {
+      // A browser per case: whatever one case leaves behind (a stuck GPU process, a busy renderer)
+      // does not reach the next.
+      if (browser) await dispose(browser, closeMs);
+      browser = undefined;
+      browser = await start();
       for (let attempt = 1; ; attempt++) {
         const log: string[] = [];
         try {
@@ -85,23 +112,26 @@ export async function runCases<B extends Disposable, C extends Case, R>(
           break;
         } catch (error) {
           const stuck = error instanceof Timeout || stalled(error);
-          if (stuck && attempt === 1) {
+          const doing = stuck ? await inspect(browser, item) : [];
+          const detail =
+            (lines(' The page logged:', log) || ' The page logged nothing.') +
+            (doing.length ? `\n${lines('What the browser was doing:', doing)}` : '');
+          if (stuck && attempt <= retries) {
             warn(
-              `perf: ${item.label}: ${reason(error)}; trying it once more in a new browser. The page logged:${pageLog(log)}`,
+              `perf: ${item.label}: ${reason(error)}; trying it again in a new browser (try ${attempt + 1} of ${retries + 1}).${detail}`,
             );
             browser.kill();
+            browser = undefined;
             browser = await start();
             continue;
           }
-          const again = stuck ? ', the second time in a new browser' : '';
-          throw new Error(`perf: ${item.label}: ${reason(error)}${again}. The page logged:${pageLog(log)}`, {
-            cause: error,
-          });
+          const again = stuck && attempt > 1 ? `, on each of ${attempt} tries in a new browser` : '';
+          throw new Error(`perf: ${item.label}: ${reason(error)}${again}.${detail}`, { cause: error });
         }
       }
     }
   } finally {
-    await dispose(browser, closeMs);
+    if (browser) await dispose(browser, closeMs);
   }
   return results;
 }
