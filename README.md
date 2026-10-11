@@ -1,6 +1,6 @@
 # signoff-ui
 
-Review what your agent changed and control what it may do: React components for multi-file diff review and tool approvals, for AI SDK and AG-UI agents, inside the chat UI you already have.
+Review what your agent changed and approve what it may do: React components for multi-file diff review and tool approvals, for AI SDK and AG-UI agents, inside the chat UI you already have.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/dgesteves/signoff-ui/ci.yml?branch=main&label=CI&labelColor=0d0f12&color=22d3ee)](https://github.com/dgesteves/signoff-ui/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=22d3ee)](https://www.npmjs.com/package/signoff-ui)

@@ -45,7 +45,7 @@ export function Hero() {
         <span>React 18 &amp; 19</span>
       </p>
       <h1 className="text-fg-strong mt-3 text-[28px] leading-[1.12] font-semibold tracking-[-0.025em] text-balance sm:mt-4 sm:text-[38px] xl:text-[42px]">
-        Review what your agent changed. Control what it may do.
+        Review what your agent changed. Approve what it may do.
       </h1>
       <p className="text-fg-muted mt-4 max-w-[42rem] text-[15px] leading-relaxed text-pretty sm:text-[17px]">
         React components for multi-file diff review and tool approvals that return a result your agent acts on. For{' '}

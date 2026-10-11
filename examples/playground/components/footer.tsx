@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AUTHOR, GITHUB_URL, MORE_BY_AUTHOR, NPM_URL } from '@/lib/site';
+import { AUTHOR, GITHUB_URL, MORE_BY_AUTHOR, NPM_URL, TAGLINE } from '@/lib/site';
 import { Logo } from './header';
 
 const link =
@@ -15,7 +15,7 @@ export function Footer() {
             <span className="text-fg font-mono text-[13px] font-semibold tracking-tight">signoff-ui</span>
           </div>
           <p className="text-fg-subtle mt-3 max-w-xs text-[13px] leading-relaxed">
-            Accessible React components for agent runs. MIT licensed, by{' '}
+            {TAGLINE} MIT licensed, by{' '}
             <a
               href={AUTHOR.url}
               className={`${link} decoration-fg-subtle/50 hover:decoration-fg underline underline-offset-[3px]`}

@@ -40,7 +40,7 @@ const check = (ok, label, detail = '') => {
 try {
   // Link previews: each page has its title, description and a 1200×630 image that is served.
   for (const [path, title] of [
-    ['/', 'signoff-ui: review what your agent changed and control what it may do'],
+    ['/', 'signoff-ui: review what your agent changed and approve what it may do'],
     ['/gallery', 'Components · signoff-ui'],
     ['/docs/getting-started', 'Getting started · signoff-ui docs'],
     ['/docs/components/approval-card', 'ApprovalCard · signoff-ui docs'],
