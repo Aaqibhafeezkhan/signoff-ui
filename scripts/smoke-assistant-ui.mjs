@@ -7,8 +7,9 @@
 //
 //   pnpm build:lib && pnpm smoke:assistant-ui
 //
-// The tarball comes from `npm pack`, unpacked into a copy of the example. Every other package is
-// linked from the workspace's install, so the build needs no network.
+// The tarball comes from `npm pack`, unpacked into a copy of the example: all of it, as someone
+// copying it out of the repository gets it, so it must not lean on files outside its folder. Every
+// other package is linked from the workspace's install, so the build needs no network.
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -34,8 +35,10 @@ try {
   mkdirSync(installed, { recursive: true });
   execFileSync('tar', ['-xzf', join(work, filename), '-C', installed, '--strip-components=1']);
 
-  for (const file of ['index.html', 'vite.config.ts', 'package.json', 'src'])
-    cpSync(join(example, file), join(app, file), { recursive: true });
+  cpSync(example, app, {
+    recursive: true,
+    filter: (source) => !/[\\/](node_modules|dist)$/.test(source),
+  });
   const link = (name, from) => {
     const target = join(app, 'node_modules', name);
     mkdirSync(dirname(target), { recursive: true });
@@ -50,7 +53,9 @@ try {
   const vite = join(realpathSync(join(example, 'node_modules/vite')), 'bin/vite.js');
   execFileSync(process.execPath, [vite, 'build', '--logLevel', 'warn'], { cwd: app, stdio: 'inherit' });
   if (!existsSync(join(app, 'dist/index.html'))) throw new Error('The example did not build');
-  console.log(`pass  built examples/assistant-ui from ${filename}`);
+  const tsc = join(realpathSync(join(example, 'node_modules/typescript')), 'bin/tsc');
+  execFileSync(process.execPath, [tsc, '--noEmit', '-p', app], { cwd: app, stdio: 'inherit' });
+  console.log(`pass  built and typechecked a copy of examples/assistant-ui, from ${filename}`);
 
   const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
   const dist = join(app, 'dist');
