@@ -1,4 +1,5 @@
 import type { ComponentDoc } from '@/lib/components';
+import { shadcnAdd } from '@/lib/site';
 import { CopyButton } from '../copy-button';
 import { CodeBlock } from './code-block';
 import { Tabs } from './tabs';
@@ -16,7 +17,7 @@ export function installSnippets(component: ComponentDoc) {
       ].join('\n'),
     },
     shadcn: {
-      command: `npx shadcn@latest add @signoff-ui/${component.item}${extra ? `\nnpm i${extra}` : ''}`,
+      command: `${shadcnAdd(component.item)}${extra ? `\nnpm i${extra}` : ''}`,
       code: component.imports.shadcn,
     },
   };

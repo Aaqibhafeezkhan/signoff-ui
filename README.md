@@ -122,7 +122,7 @@ const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } 
 />
 ```
 
-The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add @signoff-ui/diff-review`).
+The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add https://signoff-ui.vercel.app/r/diff-review.json`).
 
 ## Works inside assistant-ui, AI Elements or your own chat
 
