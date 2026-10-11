@@ -22,7 +22,7 @@ const rows = [
   ['`Sources`', `export { Sources } from ${index};`, 10.5],
   ['`AgentStatus`', `export { AgentStatus, deriveAgentState } from ${index};`, 11.8],
   ['`RunMeter`', `export { RunMeter, useRunTiming } from ${index};`, 13],
-  ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 18.5],
+  ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 19.5],
   ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 2],
   ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 1],
   ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 20.5],
