@@ -4,10 +4,12 @@
 // counted again in every row; CSS is not included.
 //
 // Each row has a budget, in gzipped kB, about 5% over its size: CI fails when an import outgrows
-// it. Raise a budget here, in the same pull request, when the growth is worth it.
+// it. Raise a budget here, in the same pull request, when the growth is worth it. The docs show the
+// sizes too (Performance and limits): CI fails when a row there is missing or more than 0.2 kB off
+// what was measured, so update it in the same pull request.
 //
 //   pnpm build:lib && pnpm size
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -44,6 +46,7 @@ const rows = [
 ];
 
 const overBudget = [];
+const measured = [];
 const dir = mkdtempSync(join(tmpdir(), 'signoff-size-'));
 try {
   console.log('| Import | Minified | Gzipped | Budget |\n| --- | --: | --: | --: |');
@@ -63,6 +66,7 @@ try {
     const gzipped = gzipSync(code).length;
     const over = gzipped > budget * 1024;
     if (over) overBudget.push(`${label}: ${kb(gzipped)}, budget ${budget} kB`);
+    measured.push({ label, size: kb(gzipped) });
     console.log(
       `| ${label} | ${kb(Buffer.byteLength(code))} | ${kb(gzipped)} | ${budget} kB${over ? ' (over)' : ''} |`,
     );
@@ -71,9 +75,38 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 
+// The docs' table: its rows match these by the names in backticks (or the words, for the last).
+const limits = join(import.meta.dirname, '../examples/playground/content/docs/limits.md');
+const key = (label) =>
+  [...label.matchAll(/`([^`]+)`/g)]
+    .map(([, name]) => name)
+    .sort()
+    .join(' ') || label.trim();
+const documented = new Map(
+  [...readFileSync(limits, 'utf8').matchAll(/^\| (.+?) +\| +([\d.]+ kB) \|$/gm)].map(([, label, size]) => [
+    key(label),
+    size,
+  ]),
+);
+// Within 0.2 kB passes, so a dependency's patch release does not fail CI over the docs; in tenths of
+// a kB, as both are printed, so the comparison has no float error.
+const tenths = (size) => Math.round(Number.parseFloat(size) * 10);
+const stale = measured
+  .filter(({ label, size }) => {
+    const there = documented.get(key(label));
+    return there === undefined || Math.abs(tenths(there) - tenths(size)) > 2;
+  })
+  .map(({ label, size }) => `${label}: ${documented.get(key(label)) ?? 'no row'} there, ${size} measured`);
+if (stale.length > 0) {
+  console.error(
+    `\nlimits.md is missing a size, or is more than 0.2 kB off one (update its Bundle size table):\n  ${stale.join('\n  ')}`,
+  );
+}
+
 if (overBudget.length > 0) {
   console.error(
     `\nOver budget (raise it in scripts/size.mjs if the growth is worth it):\n  ${overBudget.join('\n  ')}`,
   );
   process.exit(1);
 }
+if (stale.length > 0) process.exit(1);
