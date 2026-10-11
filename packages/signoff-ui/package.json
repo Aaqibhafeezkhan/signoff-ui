@@ -4,7 +4,7 @@
   "description": "Review what your agent changed and approve what it may do: React components for multi-file diff review and tool approvals, for AI SDK 6 & 7 and AG-UI agents.",
   "license": "MIT",
   "author": "Diogo Esteves (https://diogo-studio.com)",
-  "homepage": "https://github.com/dgesteves/signoff-ui#readme",
+  "homepage": "https://signoff-ui.vercel.app",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dgesteves/signoff-ui.git",
