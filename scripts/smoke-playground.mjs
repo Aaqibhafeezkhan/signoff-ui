@@ -145,6 +145,20 @@ try {
       .join('\n'),
   );
 
+  // Security headers on every response, and the favicon browsers ask for at /favicon.ico.
+  const home = await fetch(`${BASE}/`);
+  const favicon = await fetch(`${BASE}/favicon.ico`);
+  check(
+    home.headers.get('x-content-type-options') === 'nosniff' &&
+      home.headers.get('referrer-policy') === 'strict-origin-when-cross-origin' &&
+      home.headers.get('x-frame-options') === 'DENY' &&
+      !home.headers.has('x-powered-by') &&
+      favicon.ok &&
+      favicon.headers.get('content-type') === 'image/x-icon',
+    'security headers, and /favicon.ico',
+    `${[...home.headers].filter(([key]) => /^(x-|referrer)/.test(key)).join('; ')}; favicon ${favicon.status} ${favicon.headers.get('content-type')}`,
+  );
+
   // The docs search finds sections, not only pages.
   const docs = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
   await docs.goto(`${BASE}/docs`, { waitUntil: 'networkidle' });
