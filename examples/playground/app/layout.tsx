@@ -1,11 +1,13 @@
 import { GeistSans } from 'geist/font/sans';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { PACKAGE, TAGLINE } from '@/lib/site';
 import { THEME_SCRIPT } from '@/lib/theme';
 import { GeistMono } from './fonts';
 import './globals.css';
 
-const title = 'signoff-ui: review what your agent changed and control what it may do';
+// "signoff-ui: review what your agent changed and approve what it may do"
+const title = `${PACKAGE}: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1, -1)}`;
 const description =
   'React components for multi-file diff review and tool approvals that return a result your agent acts on. For AI SDK 6 & 7 and AG-UI agents, inside assistant-ui, AI Elements or your own chat. Watch a scripted coding agent run, no API key needed.';
 

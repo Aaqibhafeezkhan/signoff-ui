@@ -40,7 +40,7 @@ const check = (ok, label, detail = '') => {
 try {
   // Link previews: each page has its title, description and a 1200×630 image that is served.
   for (const [path, title] of [
-    ['/', 'signoff-ui: review what your agent changed and control what it may do'],
+    ['/', 'signoff-ui: review what your agent changed and approve what it may do'],
     ['/gallery', 'Components · signoff-ui'],
     ['/docs/getting-started', 'Getting started · signoff-ui docs'],
     ['/docs/components/approval-card', 'ApprovalCard · signoff-ui docs'],
@@ -116,6 +116,19 @@ try {
     );
   }
 
+  // An address with no page: a 404 titled as one, with the docs' navigation to get back.
+  const unknown = await fetch(`${BASE}/docs/theming`);
+  const unknownHtml = await unknown.text();
+  check(
+    unknown.status === 404 &&
+      unknownHtml.includes('<title>Page not found · signoff-ui</title>') &&
+      ['/docs/getting-started', '/docs/components/diff-review', '/gallery'].every((path) =>
+        unknownHtml.includes(`href="${path}"`),
+      ),
+    'an unknown address: a 404 titled "Page not found", with the docs navigation',
+    `${unknown.status}`,
+  );
+
   // Component pages document props from the package's own types: ApprovalCard's toolName is a
   // required string, risk has no default, allowReason defaults to true, and approveLabel says which
   // label it defaults to (the page and its Markdown share the source).
@@ -130,6 +143,20 @@ try {
       .split('\n')
       .filter((line) => /`(risk|approveLabel)`/.test(line))
       .join('\n'),
+  );
+
+  // Security headers on every response, and the favicon browsers ask for at /favicon.ico.
+  const home = await fetch(`${BASE}/`);
+  const favicon = await fetch(`${BASE}/favicon.ico`);
+  check(
+    home.headers.get('x-content-type-options') === 'nosniff' &&
+      home.headers.get('referrer-policy') === 'strict-origin-when-cross-origin' &&
+      home.headers.get('x-frame-options') === 'DENY' &&
+      !home.headers.has('x-powered-by') &&
+      favicon.ok &&
+      favicon.headers.get('content-type') === 'image/x-icon',
+    'security headers, and /favicon.ico',
+    `${[...home.headers].filter(([key]) => /^(x-|referrer)/.test(key)).join('; ')}; favicon ${favicon.status} ${favicon.headers.get('content-type')}`,
   );
 
   // The docs search finds sections, not only pages.

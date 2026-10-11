@@ -91,6 +91,8 @@ for (const path of [
   '/docs/components/use-diff-review',
   '/docs/components/run-meter',
   '/docs/components/use-ag-ui-agent',
+  // No such page: the 404.
+  '/docs/theming',
 ]) {
   await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
   await settle(page);
