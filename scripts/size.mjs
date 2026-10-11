@@ -25,7 +25,7 @@ const rows = [
   ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 19.5],
   ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 2],
   ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 1],
-  ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 20.5],
+  ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 22.5],
   ['`DiffReview`', `export { DiffReview } from ${index};`, 42.5],
   ['`useDiffReview` (no markup)', `export { useDiffReview } from ${index};`, 16],
   [

@@ -142,3 +142,10 @@ describe.each([
     }
   });
 });
+
+it('leaves nothing behind once the enter animation has run: no fill after its last frame', () => {
+  // A filled animation stays in effect on every element it ran on: in a run of 2,000 tool calls, a
+  // frame's style and compositing work for all of them.
+  const css = readFileSync(fileURLToPath(new URL('../src/styles/tokens.css', import.meta.url)), 'utf8');
+  expect(css).toMatch(/--animate-signoff-enter: signoff-enter [^;]* backwards;/);
+});

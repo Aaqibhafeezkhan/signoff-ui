@@ -16,10 +16,10 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `RunMeter`                                                         |  12.5 kB |
 | `useDiffReview` (the review without markup)                        |  15.4 kB |
 | `ApprovalCard`                                                     |  18.4 kB |
-| `ToolCallTimeline`                                                 |  20.1 kB |
+| `ToolCallTimeline`                                                 |  21.6 kB |
 | `DiffReview`                                                       |  41.2 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  83.0 kB |
-| Everything in the main entry                                       | 116.8 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.5 kB |
+| Everything in the main entry                                       | 118.3 kB |
 
 Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. Each component carries the English labels of the sections it reads, not the others.
 
@@ -45,6 +45,20 @@ Measured with `pnpm perf`, which CI runs on every pull request with a budget per
 - **A worker.** A file that needs more than 300 edits is diffed in a worker, and shows "Comparing changes…" until it is done; smaller ones are diffed while rendering, on the server too. Webpack 5, Next.js (webpack or Turbopack) and Vite emit the worker without configuration. Where none is available, or `diffWorker={false}`, the file is diffed on the main thread after the first paint: the 5,000-line rewrite then blocks for about 0.17 s.
 - **Only what is near the screen.** A review with more than 400 rows renders, of each hunk, the rows within about 800 px of what is visible, also inside a scrolling chat panel. The others keep their height, and their lines as visually hidden text, so a screen reader and find-in-page still have every line. Hunks always render, so focus, J and K, and their names are the same.
 
+## Long runs
+
+`ToolCallTimeline` on a run of 2,000 calls, each with its timing so the waterfall shows, in Chrome with React's production build, on an Apple M1 Max. Appending a call is the main thread's time for the update and for the frame that shows it, without the wait for that frame to start; the frame is the 95th percentile while a call runs and its clock ticks.
+
+| Case             | First render | Append a call | Frame, a call running | DOM elements | Calls rendered |
+| ---------------- | -----------: | ------------: | --------------------: | -----------: | -------------: |
+| 2,000 tool calls |        41 ms |        2.2 ms |                 18 ms |        1,538 |             81 |
+
+Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under a frame, and it measures 12 ms with the CPU six times slower. Before these changes the same run took 440 ms to render, 105 ms per appended call and 50 ms frames while a call ran, and left 36,000 elements. Three things keep it fast:
+
+- **Only what is near the screen.** A timeline with more than 150 calls renders, in chunks of 25, the calls within about 800 px of what is visible. A chunk away from it keeps its height as one empty item. A chunk holding an open call, a call still going or focus stays rendered. The calls that render say where they are in the whole list (`aria-posinset`, `aria-setsize`), and the arrow keys, Home and End move between all the calls, bringing one that isn't rendered into view.
+- **Only the calls that change render again.** A new call, or a running call's clock, renders that call, not the others. The waterfall's bars are placed from each call's times and the timeline's span, which is set on the bars that are rendered.
+- **No animation left running.** A call slides in when it arrives, and the animation ends there.
+
 ## Known limitations
 
 - **Large rewrites.** A file changed in more places than `maxEditLength` is reviewed as one hunk that replaces the changed region, without word-level highlights; raise the limit to compare it line by line, at the square of the cost. Long changed lines skip word-level highlights rather than stall.
@@ -55,6 +69,7 @@ Measured with `pnpm perf`, which CI runs on every pull request with a budget per
 - **Markdown cost while streaming.** The whole text is parsed again on every delta: about 8 ms at 5k characters, 24 ms at 20k and 67 ms at 50k (jsdom), so very long streamed answers can drop frames.
 - **Citation numbering.** `[n]` markers are numbered over the message's sources after de-duplication by URL (by source id for documents). If your prompt numbers a list of sources that contains duplicates, markers after the first duplicate point one source early. Number unique sources in the prompt.
 - **Run state comes from you.** Parts carry no signal that a run has ended, so tool calls left behind by `stop()` or an interrupted history read "Stopped" only when you pass `active={false}`. `deriveAgentState` reports such a run as `stopped`, which the quickstart's `active` condition covers.
+- **Long timelines in find-in-page.** Past 150 calls, the calls far from the screen are not on the page: find-in-page and a screen reader's reading cursor reach only those near it, and `renderExtra`'s content for the others unmounts until they come back. The arrow keys, Home and End reach every call.
 - **Sub-agents render flat.** A sub-agent's calls show inline in its parent's timeline, not as a nested run.
 - **Words for the agent stay English.** Every word a person sees or hears is a [label](/docs/labels), but what goes to the model (`reviewToolOutput`'s summary, `toToolApproval`'s reasons) is English. Right-to-left layouts have not been tested.
 - **Nesting in slots.** With `styles.css`, a component rendered in a slot of a component that is itself in a slot is styled up to two levels deep; deeper than that it renders unstyled.

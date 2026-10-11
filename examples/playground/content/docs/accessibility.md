@@ -6,7 +6,7 @@ Every action is a real button. Single-key shortcuts (Y and N on an approval card
 
 ## Focus is managed, never lost
 
-Deciding an approval moves focus to the card instead of dropping it on `<body>`. Diff hunks use a roving tabindex, so the review is one tab stop that arrow and letter keys navigate; its file list is one more. Writing a comment moves focus to its text area and back to the hunk when it closes. Tool calls follow the disclosure pattern with arrow-key movement.
+Deciding an approval moves focus to the card instead of dropping it on `<body>`. Diff hunks use a roving tabindex, so the review is one tab stop that arrow and letter keys navigate; its file list is one more. Writing a comment moves focus to its text area and back to the hunk when it closes. Tool calls follow the disclosure pattern with arrow-key movement. In a run of more than 150 calls, the timeline renders those near the screen; the arrow keys, Home and End still move between all of them, scrolling one that isn't rendered into view, and each call that renders gives its place in the whole list.
 
 ## Scrolling content is reachable
 
