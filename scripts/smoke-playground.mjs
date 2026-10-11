@@ -116,6 +116,19 @@ try {
     );
   }
 
+  // An address with no page: a 404 titled as one, with the docs' navigation to get back.
+  const unknown = await fetch(`${BASE}/docs/theming`);
+  const unknownHtml = await unknown.text();
+  check(
+    unknown.status === 404 &&
+      unknownHtml.includes('<title>Page not found · signoff-ui</title>') &&
+      ['/docs/getting-started', '/docs/components/diff-review', '/gallery'].every((path) =>
+        unknownHtml.includes(`href="${path}"`),
+      ),
+    'an unknown address: a 404 titled "Page not found", with the docs navigation',
+    `${unknown.status}`,
+  );
+
   // Component pages document props from the package's own types: ApprovalCard's toolName is a
   // required string, risk has no default, allowReason defaults to true, and approveLabel says which
   // label it defaults to (the page and its Markdown share the source).
