@@ -8,6 +8,7 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | ------------------------------------------------------------------ | -------: |
 | `addUsage`, `estimateCost` from `/core` (for a route handler)      |   0.4 kB |
 | `toToolApproval` from `/core` (approval rules in a route handler)  |   0.9 kB |
+| ACP converters from `/acp`                                         |   1.6 kB |
 | `useApprovalPolicy` (the rules without markup)                     |   1.9 kB |
 | `useAgUiAgent` from `/ag-ui`                                       |   2.9 kB |
 | `applyHunks`, `parseFileChange` from `/core` (with jsdiff)         |   6.6 kB |
@@ -15,9 +16,10 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `AgentStatus`                                                      |  11.2 kB |
 | `RunMeter`                                                         |  12.5 kB |
 | `useDiffReview` (the review without markup)                        |  15.4 kB |
-| `ApprovalCard`                                                     |  18.4 kB |
+| `ApprovalCard`                                                     |  18.5 kB |
 | `ToolCallTimeline`                                                 |  21.6 kB |
 | `DiffReview`                                                       |  41.2 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  49.8 kB |
 | `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.5 kB |
 | Everything in the main entry                                       | 118.3 kB |
 
