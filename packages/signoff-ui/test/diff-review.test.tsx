@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { DiffReview, type DiffReviewResult } from '../src/diff-review';
 import { axe, collectErrors } from './utils';
@@ -339,6 +340,40 @@ describe('DiffReview', () => {
     await user.keyboard('a');
     expect(hunks()[0]).toHaveAttribute('data-decision', 'accepted');
     expect(hunks()[1]).toHaveFocus();
+  });
+
+  it('leaves keys pressed in a menu your actions open in a portal to the menu', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    // Like a DropdownMenu: the items render in document.body, outside the review's element, but
+    // their keys still bubble to it through React.
+    function Menu() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" aria-expanded={open} onClick={() => setOpen(true)}>
+            More
+          </button>
+          {open &&
+            createPortal(
+              <div role="menu" aria-label="More">
+                <div role="menuitem" tabIndex={-1}>
+                  Copy as a patch
+                </div>
+              </div>,
+              document.body,
+            )}
+        </>
+      );
+    }
+    render(<DiffReview files={files} onSubmit={onSubmit} actions={<Menu />} />);
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    const item = screen.getByRole('menuitem', { name: 'Copy as a patch' });
+    item.focus();
+    await user.keyboard('j{Shift>}A{/Shift}{Control>}{Enter}{/Control}');
+    expect(item).toHaveFocus();
+    expect(hunks().every((h) => h.dataset.decision === 'pending')).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("keeps its shortcuts when it sits in another component's slot", async () => {

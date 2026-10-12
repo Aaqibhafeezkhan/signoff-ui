@@ -140,12 +140,16 @@ function parseFiles(
 
 /**
  * True for a key pressed on the app's own content inside the review: an element in a
- * `data-signoff-slot` (DiffReview's `actions`). A review that is itself in another component's slot
- * still gets its keys, since that slot is outside it.
+ * `data-signoff-slot` (DiffReview's `actions`), or a portal it renders, such as a menu, whose keys
+ * reach the review through React but come from outside its element. A review that is itself in
+ * another component's slot still gets its keys, since that slot is outside it.
  */
 function fromSlot(event: KeyboardEvent<HTMLElement>) {
-  const slot = event.target instanceof Element ? event.target.closest('[data-signoff-slot]') : null;
-  return slot !== null && event.currentTarget.contains(slot);
+  const { target, currentTarget } = event;
+  if (!(target instanceof Element)) return false;
+  if (!currentTarget.contains(target)) return true;
+  const slot = target.closest('[data-signoff-slot]');
+  return slot !== null && currentTarget.contains(slot);
 }
 
 /** State that is either the caller's (controlled) or the hook's own. */
@@ -314,7 +318,8 @@ export interface UseDiffReviewResult {
 
   /**
    * The review's keyboard, for the element that contains it. Keys pressed inside an element with
-   * `data-signoff-slot` in it, your own controls, are left to them.
+   * `data-signoff-slot` in it, your own controls, are left to them, and so are keys from a portal
+   * rendered inside it, such as a menu.
    */
   getRootProps(): { onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
   /** A focusable item: a roving tabindex, its accessible name and its decision. */
