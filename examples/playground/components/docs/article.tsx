@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { getHeadings, getPager, NAV, readGuide, type DocPage, type Heading } from '@/lib/docs';
-import { ArrowRightIcon } from '../icons';
+import { GITHUB_URL } from '@/lib/site';
+import { ArrowRightIcon, GitHubIcon } from '../icons';
 import { DocMarkdown } from './markdown';
 import { PageActions } from './page-actions';
 import { TableOfContents } from './toc';
@@ -40,6 +41,7 @@ export function DocShell({
   title,
   description,
   markdownPath,
+  sourcePath,
   headings,
   children,
 }: {
@@ -48,6 +50,8 @@ export function DocShell({
   title: string;
   description: string;
   markdownPath: string;
+  /** The file the page is written in, from the repository's root, for "Edit this page on GitHub". */
+  sourcePath: string;
   headings: Heading[];
   children: ReactNode;
 }) {
@@ -64,6 +68,15 @@ export function DocShell({
             <PageActions markdownPath={markdownPath} />
           </div>
           <div className="mt-10">{children}</div>
+          <p className="mt-12">
+            <a
+              href={`${GITHUB_URL}/edit/main/${sourcePath}`}
+              className="focus-visible:outline-cyan-soft text-fg-muted hover:text-fg inline-flex items-center gap-1.5 rounded-sm text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              <GitHubIcon className="size-3.5" />
+              Edit this page on GitHub
+            </a>
+          </p>
           <Pager href={href} />
         </div>
       </article>
@@ -86,6 +99,7 @@ export function DocArticle({ doc }: { doc: DocPage }) {
       title={doc.title}
       description={doc.description}
       markdownPath={doc.href === '/docs' ? '/docs.md' : `${doc.href}.md`}
+      sourcePath={`examples/playground/content/docs/${doc.slug}.md`}
       headings={getHeadings(markdown)}
     >
       <DocMarkdown markdown={markdown} />

@@ -1,12 +1,15 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import Markdown from 'react-markdown';
 import { CallsToAction } from './hero';
 import { ArrowRightIcon } from './icons';
+import { getComparison } from '@/lib/comparison';
 import { shadcnAdd } from '@/lib/site';
 
 /*
  * The sections after the live run: what's in the kit (review and approval first), what it works
- * with, how it compares, and how to start. Server-rendered; the only client code is the copy button.
+ * with, how it compares (the table in content/docs/comparison.md), and how to start. Server-rendered;
+ * the only client code is the copy button.
  */
 
 const KIT: Array<{ name: string; id: string; description: ReactNode; meta: string }> = [
@@ -14,28 +17,45 @@ const KIT: Array<{ name: string; id: string; description: ReactNode; meta: strin
     name: 'DiffReview',
     id: 'diff-review',
     description:
-      'Accept or reject an agent’s edits hunk by hunk, across files. Returns each file with only the accepted hunks applied.',
+      'Accept or reject an agent’s edits hunk by hunk, across files, with your own controls in its header. Returns each file with only the accepted hunks applied.',
     meta: 'J K move · A R decide',
+  },
+  {
+    name: 'useDiffReview',
+    id: 'use-diff-review',
+    description: 'The same review without its markup: its state, keyboard and result, for your own design system.',
+    meta: 'your markup, its keyboard',
   },
   {
     name: 'ApprovalCard',
     id: 'approval-card',
     description:
-      'Approve or deny a tool call: exactly what will run, how risky it is, and a reason the agent reads. Automatic decisions are shown as such.',
+      'Approve or deny a tool call once, for the session or always: exactly what will run, how risky it is, and a reason the agent reads. Automatic decisions are shown as such.',
     meta: 'Y approve · N deny',
+  },
+  {
+    name: 'useApprovalPolicy',
+    id: 'use-approval-policy',
+    description: (
+      <>
+        Approval rules by tool and argument pattern, with an audit trail. <Code>getRules</Code> sends them with each
+        request, and <Code>parseApprovalRules</Code> checks them in your route.
+      </>
+    ),
+    meta: 'once, session or always',
   },
   {
     name: 'AgentMessage',
     id: 'agent-message',
     description:
-      'A whole assistant message: reasoning, streaming markdown, tool calls grouped into a timeline, approvals inline and sources.',
+      'A whole assistant message: reasoning, streaming markdown (or your own renderer), tool calls grouped into a timeline, approvals inline and sources.',
     meta: 'useChat parts, as they are',
   },
   {
     name: 'ToolCallTimeline',
     id: 'tool-call-timeline',
     description:
-      'Every tool call with its state, duration and a waterfall. Errors show inline; input and output on demand.',
+      'Every tool call with its state, duration and a waterfall, and sub-agents nested under the call that started them. Errors show inline; input and output on demand.',
     meta: '↑ ↓ between calls',
   },
   {
@@ -81,10 +101,30 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
     body: (
       <>
         LangGraph, CrewAI, Mastra, Pydantic AI and the rest of the protocol’s integrations, through one hook. Interrupts
-        become approval cards.
+        become approval cards, and sub-agents nest under the call that started them.
       </>
     ),
     code: "import { useAgUiAgent } from 'signoff-ui/ag-ui';",
+  },
+  {
+    title: 'Agent Client Protocol',
+    body: (
+      <>
+        The protocol editors use to run coding agents. A prompt turn becomes a message, each permission request an
+        approval card with the agent’s own options, and each edit a diff. Pure functions, nothing else to install.
+      </>
+    ),
+    code: "import { reduceAcpTurn, toAcpMessage } from 'signoff-ui/acp';",
+  },
+  {
+    title: 'assistant-ui',
+    body: (
+      <>
+        <Code>signoffTools</Code> puts a review on the tools that propose edits and the approval card on calls at an
+        approval gate, answered through assistant-ui’s runtime.
+      </>
+    ),
+    code: "import { signoffTools } from 'signoff-ui/assistant-ui';",
   },
   {
     title: 'npm or shadcn',
@@ -95,74 +135,27 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
     title: 'Your chat UI',
     body: (
       <>
-        Inside assistant-ui, AI Elements or your own components. A Tailwind v4 entry, or a stylesheet for Tailwind v3 or
-        none that styles only the components’ own elements.
+        Inside AI Elements or your own components. A Tailwind v4 entry, or a stylesheet for Tailwind v3 or none that
+        styles only the components’ own elements.
       </>
     ),
     code: "import 'signoff-ui/styles.css';",
   },
 ];
 
-const COMPARISON: Array<{ topic: string; kit: ReactNode; elements: ReactNode }> = [
-  {
-    topic: 'Diff review',
-    kit: (
-      <>
-        Takes the old and new text of several files and computes the hunks, with word-level highlights. Returns each
-        file with only the accepted hunks applied.
-      </>
-    ),
-    elements: <>Takes one file’s hunks, already split, and reports keep or discard per hunk; apply returns nothing.</>,
-  },
-  {
-    topic: 'Approvals',
-    kit: (
-      <>
-        What will run, a risk level when you give one, deny with a reason, and <Code>toolApproval</Code>’s automatic
-        decisions shown as such. Y and N, scoped to focus.
-      </>
-    ),
-    elements: <>Allow once, allow always or deny.</>,
-  },
-  {
-    topic: 'Data in',
-    kit: (
-      <>
-        A <Code>UIMessage</Code> from <Code>useChat</Code> as it is, or an AG-UI agent through <Code>useAgUiAgent</Code>
-        . No runtime to adopt.
-      </>
-    ),
-    elements: (
-      <>
-        Props (agent status also has a runtime-bound variant). With the assistant-ui runtime, its docs show how to map
-        approvals, message timing and step usage into them.
-      </>
-    ),
-  },
-  {
-    topic: 'Tool timeline',
-    kit: <>Every state, with durations measured on the client that leave out time spent waiting for an approval.</>,
-    elements: <>A summary of what was done, without durations or states.</>,
-  },
-  {
-    topic: 'Cost',
-    kit: <>Prices tokens from your rates and shows the prompt-cache hit rate.</>,
-    elements: <>Displays cost strings you format.</>,
-  },
-  {
-    topic: 'Styling',
-    kit: <>Tailwind v4, v3 or none: the npm package ships a precompiled stylesheet scoped to its own elements.</>,
-    elements: <>Tailwind v4.</>,
-  },
-  {
-    topic: 'React',
-    kit: <>18 or 19.</>,
-    elements: <>18 or 19.</>,
-  },
-];
-
 function Code({ children }: { children: ReactNode }) {
   return <code className="text-fg font-mono text-[0.9em]">{children}</code>;
+}
+
+/** A comparison cell: inline Markdown from content/docs/comparison.md. */
+function Cell({ children }: { children: string }) {
+  return (
+    <Markdown
+      components={{ p: ({ children: text }) => <>{text}</>, code: ({ children: text }) => <Code>{text}</Code> }}
+    >
+      {children}
+    </Markdown>
+  );
 }
 
 function SectionHeading({
@@ -199,13 +192,15 @@ function Section({ id, className = '', children }: { id: string; className?: str
 }
 
 export function Landing() {
+  const comparison = getComparison();
   return (
     <>
       <Section id="kit-heading" className="mt-14 sm:mt-20">
         <SectionHeading id="kit-heading" eyebrow="Components" title="Review and approval, and the run around them">
-          <Code>DiffReview</Code> and <Code>ApprovalCard</Code> are the sign-off. The others render the rest of the run,
-          or hand <Code>AgentMessage</Code> a whole assistant message and get them all, in order. Keyboard-first,
-          announced to screen readers, and in both the npm package and the shadcn registry.
+          <Code>DiffReview</Code> and <Code>ApprovalCard</Code> are the sign-off: <Code>useDiffReview</Code> is the same
+          review in your own markup, and <Code>useApprovalPolicy</Code> keeps the rules behind the approvals. The others
+          render the rest of the run, or hand <Code>AgentMessage</Code> a whole assistant message and get them all, in
+          order. Keyboard-first, announced to screen readers, and in both the npm package and the shadcn registry.
         </SectionHeading>
         <ul className="mt-8 grid gap-3 sm:mt-10 sm:grid-cols-2 lg:grid-cols-4">
           {KIT.map((item) => (
@@ -262,22 +257,24 @@ export function Landing() {
             aria-hidden="true"
           >
             <span className="px-5 py-3" />
-            <span className="text-cyan-soft border-line border-l px-5 py-3">signoff-ui</span>
-            <span className="border-line border-l px-5 py-3">assistant-ui Elements</span>
+            <span className="text-cyan-soft border-line border-l px-5 py-3">{comparison.columns.kit}</span>
+            <span className="border-line border-l px-5 py-3">{comparison.columns.other}</span>
           </div>
           <dl>
-            {COMPARISON.map((row) => (
+            {comparison.rows.map((row) => (
               <div key={row.topic} className="border-line grid border-b last:border-b-0 md:grid-cols-[10rem_1fr_1fr]">
                 <dt className="text-fg px-5 pt-4 text-[13px] font-medium md:py-4">{row.topic}</dt>
                 <dd className="border-line text-fg-soft px-5 pt-2 pb-2 text-[13.5px] leading-relaxed md:border-l md:py-4">
-                  <span className="text-cyan-soft mb-0.5 block font-mono text-[11px] md:sr-only">signoff-ui: </span>
-                  {row.kit}
+                  <span className="text-cyan-soft mb-0.5 block font-mono text-[11px] md:sr-only">
+                    {comparison.columns.kit}:{' '}
+                  </span>
+                  <Cell>{row.kit}</Cell>
                 </dd>
                 <dd className="border-line text-fg-muted px-5 pt-2 pb-4 text-[13.5px] leading-relaxed md:border-l md:py-4">
                   <span className="text-fg-subtle mb-0.5 block font-mono text-[11px] md:sr-only">
-                    assistant-ui Elements:{' '}
+                    {comparison.columns.other}:{' '}
                   </span>
-                  {row.elements}
+                  <Cell>{row.other}</Cell>
                 </dd>
               </div>
             ))}
@@ -299,7 +296,7 @@ export function Landing() {
             >
               The full comparison
             </Link>{' '}
-            includes what they do better, such as assistant-ui’s “allow always” and nested sub-agents.
+            also lists what they do better, such as assistant-ui’s chat runtime and its much wider set of components.
           </p>
         </div>
       </Section>

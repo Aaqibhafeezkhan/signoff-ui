@@ -8,8 +8,9 @@ import './globals.css';
 
 // "signoff-ui: review what your agent changed and approve what it may do"
 const title = `${PACKAGE}: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1, -1)}`;
+// Search results show about 160 characters.
 const description =
-  'React components for multi-file diff review and tool approvals that return a result your agent acts on. For AI SDK 6 & 7 and AG-UI agents, inside assistant-ui, AI Elements or your own chat. Watch a scripted coding agent run, no API key needed.';
+  'React components for multi-file diff review and tool approvals with AI SDK 6 & 7, AG-UI, ACP and assistant-ui. Watch a scripted agent run, no API key needed.';
 
 // app/opengraph-image.png is the top of docs/media/hero.png (`pnpm media og`); the docs and the
 // components page draw their own (lib/og.tsx).

@@ -31,8 +31,14 @@ import { MODEL, PRICING, PROMPT, REPO } from '@/lib/scenario';
 import { toolMeta } from '@/lib/tools';
 import { Composer } from './composer';
 import { CompactRunControls, KeyboardCard, RunControls, Sheet } from './controls';
+import { UserIcon } from './icons';
 
 type Mode = 'mock' | 'live';
+
+// "Live" is the mode switch's word for a real model; the meter says the run is going instead.
+const METER_LABELS = {
+  runMeter: { live: 'Running', metrics: (running: boolean) => `Run metrics${running ? ' (running)' : ''}` },
+};
 
 const CLIENT_TOOLS = ['review_changes'];
 
@@ -273,6 +279,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     onInspectChange: setInspect,
   };
   const meter = {
+    labels: METER_LABELS,
     usage,
     pricing: PRICING,
     ttftMs: timing.ttftMs,
@@ -284,7 +291,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     <>
       <aside
         data-inspect={inspect || undefined}
-        className="border-line/80 bg-ink/85 sticky top-14 z-30 -mx-4 border-y px-4 py-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:-m-2 lg:flex lg:max-h-[calc(100dvh-6rem)] lg:[scrollbar-width:thin] lg:flex-col lg:gap-4 lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-0 lg:bg-transparent lg:p-2 lg:backdrop-blur-none"
+        className="border-line/80 bg-ink/95 sticky top-14 z-30 -mx-4 border-y px-4 py-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:-m-2 lg:flex lg:max-h-[calc(100dvh-6rem)] lg:[scrollbar-width:thin] lg:flex-col lg:gap-4 lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-0 lg:bg-transparent lg:p-2 lg:backdrop-blur-none"
         aria-label="Run status and controls"
       >
         <section
@@ -337,8 +344,12 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
           model={mode === 'mock' ? MODEL : undefined}
           className="border-line bg-raised/70 hidden backdrop-blur lg:block"
         />
-        {/* Shortcuts mean nothing on a touch screen. */}
-        <KeyboardCard className="hidden lg:block pointer-coarse:hidden" />
+        {/*
+         * Shortcuts mean nothing on a touch screen. The sidebar is about 840px tall with the card and
+         * 630px without, in a space 6rem shorter than the window: in a window 940px tall or less, the
+         * card goes, so the status and the meter fit without scrolling.
+         */}
+        <KeyboardCard className="hidden lg:block pointer-coarse:hidden [@media(max-height:940px)]:hidden" />
       </aside>
 
       {/*
@@ -376,10 +387,10 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
           <section aria-label="Your request" className="border-line bg-raised/60 rounded-xl border px-4 py-3.5">
             <div className="mb-1.5 flex items-center gap-2">
               <span
-                className="bg-line text-fg flex size-5 items-center justify-center rounded-full font-mono text-[10px] font-semibold"
+                className="bg-line text-fg-muted flex size-5 items-center justify-center rounded-full"
                 aria-hidden="true"
               >
-                DE
+                <UserIcon className="size-3" />
               </span>
               <span className="text-fg-muted text-[13px] font-medium">You</span>
             </div>

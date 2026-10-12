@@ -9,6 +9,13 @@ const config: NextConfig = {
   poweredByHeader: false,
   turbopack: { root },
   outputFileTracingRoot: root,
+  // Addresses people try: the introduction lives at /docs, and the components' overview is the gallery.
+  async redirects() {
+    return [
+      { source: '/docs/introduction', destination: '/docs', permanent: true },
+      { source: '/docs/components', destination: '/gallery', permanent: true },
+    ];
+  },
   // Each docs page as Markdown, at its own URL plus .md (app/md/).
   async rewrites() {
     return [

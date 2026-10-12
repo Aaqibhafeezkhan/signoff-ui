@@ -49,8 +49,10 @@ export function Hero() {
       </h1>
       <p className="text-fg-muted mt-4 max-w-[42rem] text-[15px] leading-relaxed text-pretty sm:text-[17px]">
         React components for multi-file diff review and tool approvals that return a result your agent acts on. For{' '}
-        <span className="text-fg">AI SDK 6 &amp; 7</span> and <span className="text-fg">AG-UI</span> agents, inside
-        assistant-ui, AI Elements or your own chat.
+        <span className="text-fg whitespace-nowrap">AI SDK 6 &amp; 7</span>, <span className="text-fg">AG-UI</span> and{' '}
+        <span className="text-fg">ACP</span> agents, inside{' '}
+        <span className="text-fg whitespace-nowrap">assistant-ui</span> (through its own adapter), AI Elements or your
+        own chat.
       </p>
       <div className="mt-6 sm:mt-7">
         <CallsToAction />
