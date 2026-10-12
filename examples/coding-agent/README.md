@@ -2,22 +2,25 @@
 
 The signoff-ui reference app: a coding agent working in the background on a small repository. It asks before it runs commands, your approval rules answer the calls they cover, and nothing it writes lands until you apply it in a review. Your comments go back to the agent, and it revises.
 
-[Open in StackBlitz](https://stackblitz.com/github/dgesteves/signoff-ui/tree/main/examples/coding-agent)
-
-As of October 2026, StackBlitz opens the code but the preview fails: its WebContainers render no App Router page on Next.js 15 or later (Next.js stops with "Expected workStore to be initialized"), whatever the app, while Next.js 14 renders. Locally, and copied with `create-next-app`, the app runs as it is.
-
-```bash
-npm install
-npm run dev   # http://localhost:3400
-```
-
-It needs no API key: a scripted agent plays the run, the same way every time. For a real model too, copy `.env.example` to `.env.local` and set `OPENAI_API_KEY` (and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`): the page then offers both, with the same tools, rules and reviews. A live run uses your key.
-
-To start an app of your own from it:
+Start an app of your own from it:
 
 ```bash
 npx create-next-app@latest my-agent --example https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent
+cd my-agent
+npm run dev   # http://localhost:3400
 ```
+
+Or run it from a clone of this repository, against the library's source:
+
+```bash
+git clone https://github.com/dgesteves/signoff-ui.git
+cd signoff-ui
+pnpm install
+pnpm build:lib
+pnpm --filter coding-agent dev   # http://localhost:3400
+```
+
+It needs no API key: a scripted agent plays the run, the same way every time. To offer a real model too, copy `.env.example` to `.env.local` and set `OPENAI_API_KEY` (and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`). The scripted agent stays the default: the page offers the model as a second choice, with the same tools, rules and reviews, and a run uses the key only when someone picks it. On a public deployment, anyone who opens the page can pick it.
 
 ## The run
 
@@ -43,7 +46,7 @@ Beside the run: the agent's status and the run meter (tokens, estimated cost, ti
 | [`lib/shell.ts`](lib/shell.ts)                         | `npm test`, `git status`, `git diff`, `git commit` and `git push`, simulated over the files                      |
 | [`lib/workspace.ts`](lib/workspace.ts)                 | The repository as the reviews left it, rebuilt from the messages on every request                                |
 | [`lib/scripted-agent.ts`](lib/scripted-agent.ts)       | The scripted agent: a language model that reads where the run is from the tool results and streams the next step |
-| [`lib/model.ts`](lib/model.ts)                         | The scripted agent, or `openai(OPENAI_MODEL)` when `OPENAI_API_KEY` is set, and the agent's instructions         |
+| [`lib/model.ts`](lib/model.ts)                         | The scripted agent, or `openai(OPENAI_MODEL)` for a live run, and the agent's instructions                       |
 | [`lib/project.ts`](lib/project.ts)                     | The repository the agent works in, and the task. The scripted agent plays this task; a real model takes any      |
 | [`components/agent-app.tsx`](components/agent-app.tsx) | The page: `useChat`, `useApprovalPolicy`, `AgentMessage`, `AgentStatus`, `RunMeter`                              |
 | [`components/review.tsx`](components/review.tsx)       | `review_changes` as a `DiffReview`, then what was applied                                                        |
@@ -51,10 +54,10 @@ Beside the run: the agent's status and the run meter (tokens, estimated cost, ti
 
 Nothing touches your disk or runs in a shell: the repository lives in memory, the commands are simulated, and each review's result carries the files as applied, so the server keeps no state between requests. Rules from the page are the person's own choices for their run; the server's rules hold whatever the page sends.
 
-The scripts build with webpack (`next dev --webpack`): Turbopack needs native bindings, which StackBlitz's WebContainers don't have. Left to itself StackBlitz starts `next dev`, with Turbopack, so `.stackblitzrc` has it start `npm run dev`.
+The scripts build with webpack (`next dev --webpack`), so the app also builds where Next.js has no native compiler for the platform and uses its WebAssembly one, which Turbopack can't run on.
 
 ## Tests
 
-`npm test` plays the whole scripted run headless, through AI SDK's `Chat` against the route, and checks the rules and the simulated commands. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine.
+`npm test` plays the whole scripted run headless, through AI SDK's `Chat` against the route, and checks the rules and the simulated commands. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine, and a key on the server alone never starts it.
 
-In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`). CI runs its tests and [`scripts/smoke-coding-agent.mjs`](../../scripts/smoke-coding-agent.mjs), which builds a copy of it against the packed package and drives the run in Chrome, on a desktop and a phone, with axe. Copied on its own, it installs `signoff-ui` 0.6 from npm.
+In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`). CI runs its tests and [`scripts/smoke-coding-agent.mjs`](../../scripts/smoke-coding-agent.mjs), which builds a copy of it against the packed package and drives the run in Chrome, on a desktop and a phone, with axe. Copied on its own, it installs `signoff-ui` from npm at the range in `package.json`, which each release moves to the version it publishes.

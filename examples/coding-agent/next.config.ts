@@ -4,9 +4,9 @@ const config: NextConfig = {
   // The create-next-app defaults since Next.js 16.4.
   cacheComponents: true,
   partialPrefetching: true,
-  // Where Next.js compiles with WebAssembly (StackBlitz's WebContainers), webpack bundles this
-  // CommonJS dependency of the AI SDK's gateway as an ES module and the route fails to load. Node
-  // loads it as it is.
+  // Where Next.js compiles with WebAssembly (no native compiler for the platform), webpack bundles
+  // this CommonJS dependency of the AI SDK's gateway as an ES module and the route fails to load.
+  // Node loads it as it is.
   serverExternalPackages: ['@vercel/oidc'],
 };
 
