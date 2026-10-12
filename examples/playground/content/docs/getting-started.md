@@ -3,6 +3,7 @@
 - **React** 18.2 or later, or 19 (`react@^18.2.0 || ^19.0.0`). CI runs the test suite on both.
 - **AI SDK** 6 or 7 (`ai@^6.0.0 || ^7.0.102`). The kit imports its types only, so it adds no SDK code to your bundle.
 - **A React app.** Nothing in the kit is tied to a framework. The walkthrough below is a Next.js 16 App Router app, which CI builds and runs in Chrome.
+- **ES modules.** The package is ESM only, with no CommonJS build: load it with `import`, as bundlers and Next.js do. CI builds and tests it on Node 24.
 
 For an AG-UI agent (LangGraph, CrewAI, Mastra and the rest) instead of the AI SDK, read this page for the install and the styles, then go to [AG-UI agents](/docs/ag-ui).
 
@@ -82,7 +83,7 @@ A Next.js App Router app with AI SDK 7: a client component, a page and a route. 
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
 ```
 
-The client renders the last assistant message, its status and its cost, with a minimal composer. `renderTool` puts a `DiffReview` where the agent proposes its edit, and the review's result goes back as the tool's output, shaped for the model by `reviewToolOutput`. The wrapper paints the kit's own background and text colors (`bg-signoff-bg text-signoff-fg`), so the run reads well whatever your page's colors are. Without Tailwind, give it `background: var(--signoff-bg); color: var(--signoff-fg)` instead.
+The client renders the last assistant message, its status and its cost, with a minimal composer. `renderTool` puts a `DiffReview` where the agent proposes its edit, and the review's result goes back as the tool's output, shaped for the model by `reviewToolOutput`. The wrapper paints the kit's own background and text colors (`bg-signoff-bg text-signoff-fg`), so the run reads well whatever your page's colors are. Without Tailwind, use the CSS [after the walkthrough](/docs/getting-started#without-tailwind) instead, which covers the layout and the composer too.
 
 ```tsx title="app/agent-run.tsx"
 'use client';
@@ -124,7 +125,7 @@ export function AgentRun() {
 
   return (
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
-    <div className="bg-signoff-bg text-signoff-fg mx-auto flex max-w-2xl flex-col gap-4 p-6">
+    <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
       <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
       {last && (
         <AgentMessage
@@ -185,7 +186,7 @@ export function AgentRun() {
 }
 ```
 
-Render it from a page. With `cacheComponents`, on by default in new Next.js 16 apps, `useChat` needs a `<Suspense>` boundary: it creates ids with `Math.random()`, which Next.js doesn't allow in prerendered output.
+Render it from a page. With `cacheComponents`, on by default in new Next.js 16 apps, `useChat` needs a `<Suspense>` boundary: it creates ids with `Math.random()`, which Next.js doesn't allow in prerendered output. So the run renders in the browser, after hydration, and the page's server HTML has only an empty placeholder for it.
 
 ```tsx title="app/page.tsx"
 import { Suspense } from 'react';
@@ -279,6 +280,68 @@ What each part is for:
 - **`toolApproval`.** The `reason` shows on the approval card, as `approval.requestReason`.
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.
 - **`onError`.** A tool that throws becomes an `output-error` part, and its `errorText` goes through `onError`. By default that hides every message behind "An error occurred.", so the timeline would show that instead of `ENOENT`. In production, pass through the errors you're happy for users to read and keep the rest generic.
+
+### Without Tailwind
+
+The classes on the wrapper, the form, the input and the button are Tailwind utilities. `styles.css` styles only the kit's own components, so without Tailwind these elements get the browser's defaults. Give the wrapper `className="agent-run"` and the form `className="composer"` instead, and add this CSS:
+
+```css title="app/globals.css"
+.agent-run {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+  background: var(--signoff-bg);
+  color: var(--signoff-fg);
+}
+.composer {
+  display: flex;
+  gap: 0.5rem;
+}
+.composer input,
+.composer button {
+  border-radius: 0.5rem;
+  font: inherit;
+  font-size: 0.875rem;
+}
+.composer input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--signoff-border);
+  background: var(--signoff-surface);
+  color: inherit;
+}
+.composer button {
+  padding: 0 1rem;
+  border: 0;
+  background: var(--signoff-accent);
+  color: var(--signoff-on-accent);
+  font-weight: 500;
+}
+.composer button:disabled {
+  opacity: 0.5;
+}
+```
+
+### Imports with shadcn
+
+With the shadcn CLI, add the `agent-message`, `agent-status`, `diff-review` and `run-meter` items. The walkthrough's imports from `signoff-ui` then come from the files they add:
+
+```tsx
+import { AgentMessage } from '@/components/signoff-ui/agent-message';
+import { AgentStatus } from '@/components/signoff-ui/agent-status';
+import { DiffReview } from '@/components/signoff-ui/diff-review';
+import { RunMeter } from '@/components/signoff-ui/run-meter';
+import { deriveAgentState, getToolPartName } from '@/components/signoff-ui/lib/ai';
+import type { FileChange } from '@/components/signoff-ui/lib/diff';
+import { useRunTiming } from '@/components/signoff-ui/lib/hooks';
+import { reviewToolOutput } from '@/components/signoff-ui/lib/review';
+```
+
+In the route, `addUsage` comes from `@/components/signoff-ui/lib/usage`, where npm has `signoff-ui/core`.
 
 ## Choosing a model
 

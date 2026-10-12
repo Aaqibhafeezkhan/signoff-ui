@@ -32,18 +32,19 @@ Coding and editing agents propose changes across several files and ask to run co
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
 ```
 
-Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in your CSS, or `import 'signoff-ui/styles.css';` with Tailwind v3 or none.
+Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in your CSS, or `import 'signoff-ui/styles.css';` with Tailwind v3 or none. Without Tailwind, the classes on your own elements below need [this CSS](https://signoff-ui.vercel.app/docs/getting-started#without-tailwind).
+
+Then add three files to a Next.js App Router app (under `src/app/` if your app has a `src` folder). They build as they are, and run with `OPENAI_API_KEY` set.
 
 **The route.** The agent proposes edits through `review_changes`, a tool with no `execute`, so the page answers it. `toolApproval` makes AI SDK 7 stop and ask before `run_command`:
 
 ```ts
-// app/api/chat/route.ts (excerpt)
+// app/api/chat/route.ts
 import { openai } from '@ai-sdk/openai';
 import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from 'ai';
 import { z } from 'zod';
-// …
+
 const tools = {
-  // …
   // No execute: the page answers it with a DiffReview, and the result holds each file as applied.
   review_changes: tool({
     description: 'Propose edits to files. The user reviews them hunk by hunk before anything is written.',
@@ -57,51 +58,57 @@ const tools = {
     execute: async ({ command }) => ({ exitCode: 0, stdout: `(simulated) ${command}` }),
   }),
 };
-// …
-const result = streamText({
-  model: openai('gpt-5.4-mini'),
-  messages: await convertToModelMessages(messages, { tools }),
-  tools,
-  // Ask before running commands. The reason shows on the approval card.
-  toolApproval: { run_command: { type: 'user-approval', reason: 'Runs a shell command in the repository.' } },
-  // Keep going after tool calls: the AI SDK stops after the first step by default.
-  stopWhen: stepCountIs(10),
-});
+
+export async function POST(req: Request) {
+  const { messages }: { messages: UIMessage[] } = await req.json();
+  const result = streamText({
+    model: openai('gpt-5.4-mini'),
+    messages: await convertToModelMessages(messages, { tools }),
+    tools,
+    // Ask before running commands. The reason shows on the approval card.
+    toolApproval: { run_command: { type: 'user-approval', reason: 'Runs a shell command in the repository.' } },
+    // Keep going after tool calls: the AI SDK stops after the first step by default.
+    stopWhen: stepCountIs(10),
+  });
+  return result.toUIMessageStreamResponse({ originalMessages: messages });
+}
 ```
 
-**The page.** `AgentMessage` lays out the run with the approval card inline, and `renderTool` puts a `DiffReview` where the proposed edit is. Its `onSubmit` result goes back to the agent as the tool's output, through `reviewToolOutput`: a summary, each file as applied, the hunks rejected and the reviewer's comments. The run continues once every answer is in:
+**The client component.** `AgentMessage` lays out the run with the approval card inline, and `renderTool` puts a `DiffReview` where the proposed edit is. Its `onSubmit` result goes back to the agent as the tool's output, through `reviewToolOutput`: a summary, each file as applied, the hunks rejected and the reviewer's comments. The run continues once every answer is in:
 
 ```tsx
-// app/agent-run.tsx (excerpt)
+// app/agent-run.tsx
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import {
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-  lastAssistantMessageIsCompleteWithToolCalls,
-  type LanguageModelUsage,
-  type UIMessage,
-} from 'ai';
+import { lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls } from 'ai';
 import { useState } from 'react';
 import {
   AgentMessage,
   AgentStatus,
   DiffReview,
-  RunMeter,
   deriveAgentState,
   getToolPartName,
   reviewToolOutput,
-  useRunTiming,
   type FileChange,
 } from 'signoff-ui';
-// …
+
 export function AgentRun() {
-  const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
+  const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat({
     // Continue the run once the review is in and every approval has an answer.
     sendAutomaticallyWhen: (chat) =>
       lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
   });
-  // …
+  const [input, setInput] = useState('');
+  const last = messages.findLast((m) => m.role === 'assistant');
+  // review_changes waits on a person, like an approval.
+  const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: ['review_changes'] });
+
+  return (
+    // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
+    <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
+      <AgentStatus state={state} detail={detail} />
+      {last && (
         <AgentMessage
           message={last}
           streaming={status === 'streaming'}
@@ -124,11 +131,36 @@ export function AgentRun() {
             ) : undefined
           }
         />
-  // …
+      )}
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!input.trim()) return;
+          void sendMessage({ text: input });
+          setInput('');
+        }}
+      >
+        <input
+          aria-label="Message the agent"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          className="border-signoff-border bg-signoff-surface flex-1 rounded-lg border px-3 py-2 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={status !== 'ready' && status !== 'error'}
+          className="bg-signoff-accent text-signoff-on-accent rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+        >
+          Send
+        </button>
+      </form>
+    </div>
+  );
 }
 ```
 
-**Render it from a page.** New Next.js 16 apps turn on `cacheComponents`, and `useChat` creates ids with `Math.random()`, which a prerendered page may not contain, so the component that calls it goes inside `<Suspense>`:
+**Render it from a page.** New Next.js 16 apps turn on `cacheComponents`, and `useChat` creates ids with `Math.random()`, which a prerendered page may not contain, so the component that calls it goes inside `<Suspense>` and renders in the browser:
 
 ```tsx
 // app/page.tsx
@@ -146,7 +178,7 @@ export default function Page() {
 }
 ```
 
-The whole app, with a status pill and a cost meter, is [examples/nextjs-minimal](examples/nextjs-minimal): it runs against a scripted model with no API key, and CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add https://signoff-ui.vercel.app/r/diff-review.json`).
+[examples/nextjs-minimal](examples/nextjs-minimal) is this app plus a cost meter, the run's timing and a `read_file` tool, against a scripted model, so it needs no API key. CI drives it in Chrome through the review, the approval and the final answer. [Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models and the shadcn registry (`npx shadcn@latest add https://signoff-ui.vercel.app/r/diff-review.json`).
 
 ## Works inside assistant-ui, AI Elements or your own chat
 

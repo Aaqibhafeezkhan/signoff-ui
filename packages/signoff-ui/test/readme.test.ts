@@ -1,16 +1,18 @@
 // @vitest-environment node
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { AI_SDK_MAJOR } from './utils';
 
 /*
- * The quickstart is examples/nextjs-minimal, which CI builds and runs in Chrome. The README shows
- * excerpts of it: each block that starts with `// app/... (excerpt)` is that file of the example,
- * in pieces separated by `// …` lines, each piece taken whole and in order, whatever its indent;
- * an import may name fewer of the module's exports than the file's. A block that starts with
- * `// app/...` alone is the whole file. Getting started on the docs site shows the files in full.
- * Both may use a real model where the example uses the scripted one.
+ * The README's quickstart is three whole files, each starting with a `// app/...` line: a shorter
+ * examples/nextjs-minimal, without its cost meter, its run timing and its failing tool. People copy
+ * them as they are into a new app, so they're typechecked here, together, with a new Next.js app's
+ * compiler options. The example, which CI builds and runs in Chrome, is the full version, and
+ * Getting started on the docs site shows its files in full, with a real model where the example
+ * uses the scripted one.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -26,11 +28,10 @@ const walkthrough = guide.slice(
   guide.indexOf('\n## ', guide.indexOf('## Render a run') + 1),
 );
 
-const blocks = [...quickstart.matchAll(/```tsx?\n\/\/ (app\/\S+)( \(excerpt\))?\n([\s\S]*?)```/g)].map(
-  ([, path, excerpt, code]) => ({ path: path!, excerpt: !!excerpt, code: code! }),
-);
-const excerpts = blocks.filter((block) => block.excerpt);
-const wholeFiles = blocks.filter((block) => !block.excerpt);
+const blocks = [...quickstart.matchAll(/```tsx?\n(\/\/ (app\/\S+)[^\n]*\n[\s\S]*?)```/g)].map(([, code, path]) => ({
+  path: path!,
+  code: code!,
+}));
 const files = [...walkthrough.matchAll(/```tsx? title="(app\/\S+)"\n([\s\S]*?)```/g)].map(([, path, code]) => ({
   path: path!,
   code: code!,
@@ -44,23 +45,7 @@ const withoutModel = (code: string) =>
     .map((line) => line.replace(/^(\s*)model: .*$/, '$1model,'))
     .join('\n');
 
-const lines = (code: string) =>
-  withoutModel(code)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
 const read = (path: string) => readFileSync(join(example, path), 'utf8');
-
-/** Whether an excerpt's line is the file's: the same, or an import of some of the same names. */
-const sameLine = (excerpt: string, file: string) => {
-  if (excerpt === file) return true;
-  const named = (line: string) => /^import \{ (.+) \} from ('[^']+');$/.exec(line);
-  const [a, b] = [named(excerpt), named(file)];
-  if (!a || !b || a[2] !== b[2]) return false;
-  const names = new Set(b[1]!.split(', '));
-  return a[1]!.split(', ').every((name) => names.has(name));
-};
 
 const imports = (blocks: Array<{ code: string }>) => {
   const names = new Set(
@@ -70,37 +55,71 @@ const imports = (blocks: Array<{ code: string }>) => {
   return [...names];
 };
 
+/*
+ * The quickstart's files, in memory, in a folder of the playground, which installs every package
+ * they import. `signoff-ui` resolves to the built package (`pnpm build:lib`), as it does from npm.
+ */
+const app = join(root, 'examples/playground/.readme-quickstart');
+const built = existsSync(join(root, 'packages/signoff-ui/dist/index.d.ts'));
+
+/** TypeScript errors in the quickstart's files, with create-next-app's compiler options. */
+function typeErrors() {
+  const files = new Map(blocks.map(({ path, code }) => [join(app, path), code]));
+  // TypeScript looks for a file only in a folder that exists: the in-memory files' folders do.
+  const folders = new Set<string>();
+  for (let folder of [...files.keys()].map(dirname))
+    for (; folder.startsWith(app); folder = dirname(folder)) folders.add(folder);
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2017,
+    lib: ['lib.dom.d.ts', 'lib.dom.iterable.d.ts', 'lib.esnext.d.ts'],
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    esModuleInterop: true,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    resolveJsonModule: true,
+    isolatedModules: true,
+    jsx: ts.JsxEmit.ReactJSX,
+    types: [],
+  };
+  const host = ts.createCompilerHost(options);
+  const { fileExists, readFile, directoryExists, getSourceFile } = host;
+  host.fileExists = (file) => files.has(file) || fileExists(file);
+  host.readFile = (file) => files.get(file) ?? readFile(file);
+  host.directoryExists = (dir) => folders.has(dir) || (directoryExists?.(dir) ?? true);
+  host.getSourceFile = (file, language, ...rest) => {
+    const code = files.get(file);
+    return code === undefined ? getSourceFile(file, language, ...rest) : ts.createSourceFile(file, code, language);
+  };
+  const program = ts.createProgram([...files.keys()], options, host);
+  return ts.getPreEmitDiagnostics(program).map((diagnostic) => {
+    const where = diagnostic.file
+      ? `${diagnostic.file.fileName.slice(app.length + 1)}(${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1}): `
+      : '';
+    return where + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+  });
+}
+
 describe('README quickstart', () => {
-  it('shows the route, then the client component and the page that renders it, of the runnable example', () => {
+  it('shows the route, then the client component and the page that renders it, as whole files', () => {
     expect(blocks.map((block) => block.path)).toEqual(['app/api/chat/route.ts', 'app/agent-run.tsx', 'app/page.tsx']);
+    for (const { path, code } of blocks) expect(code, path).not.toMatch(/\(excerpt\)|^\s*\/\/ …$/m);
   });
 
-  it.each(wholeFiles)('$path is the example file', ({ path, code }) => {
-    expect(code).toBe(read(path));
+  it('keeps the client directive, so the client file builds as copied', () => {
+    for (const { path, code } of blocks)
+      if (read(path).startsWith("'use client';")) expect(code, path).toMatch(/^\/\/ app\/\S+\n'use client';\n/);
   });
 
-  it('keeps a client file’s directive in its excerpt, so it builds as copied', () => {
-    for (const { path, code } of excerpts)
-      if (read(path).startsWith("'use client';")) expect(code, path).toMatch(/^'use client';\n/);
-  });
-
-  it.each(excerpts)('$path is an excerpt of the example', ({ path, code }) => {
-    expect(existsSync(join(example, path))).toBe(true);
-    const file = lines(read(path));
-    let from = 0;
-    for (const piece of code
-      .split(/^\s*\/\/ …$/m)
-      .map(lines)
-      .filter((piece) => piece.length > 0)) {
-      const at = file.findIndex((_, i) => i >= from && piece.every((line, j) => sameLine(line, file[i + j] ?? '')));
-      expect(at, `not in ${path}, in this order:\n${piece.join('\n')}`).toBeGreaterThanOrEqual(0);
-      from = at + piece.length;
-    }
-  });
-
-  it('installs every package the excerpts import', () => {
+  it('installs every package the files import', () => {
     const install = /```bash\nnpm i (signoff-ui [^\n]+)\n```/.exec(quickstart)?.[1]?.split(' ') ?? [];
     expect(imports(blocks).filter((name) => !install.includes(name))).toEqual([]);
+  });
+
+  // Needs the built package, and AI SDK 7 for `toolApproval`: CI's main job builds it before the tests.
+  it.skipIf(!built || AI_SDK_MAJOR < 7)('typechecks as copied, the three files together', { timeout: 60_000 }, () => {
+    expect(typeErrors()).toEqual([]);
   });
 });
 

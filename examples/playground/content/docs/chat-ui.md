@@ -67,10 +67,10 @@ AI Elements apps run Tailwind v4, so import `signoff-ui/tailwind.css` after Tail
 `signoff-ui/assistant-ui` renders the kit for assistant-ui's tool calls, with whatever runtime draws the thread. `signoffTools()` goes in `MessagePrimitive.Parts`' `components.tools`. A call to one of its `review` tools gets a `DiffReview`, and the review goes back as the call's result through `addResult`. Any other call at an approval gate gets the approval card, answered through `respondToApproval`. `SignoffToolsProvider`, optional, passes approval rules from `useApprovalPolicy`, risk levels by tool, and props for the reviews and the cards.
 
 ```package-install
-npm i signoff-ui @assistant-ui/react
+npm i signoff-ui @assistant-ui/react @assistant-ui/react-ai-sdk
 ```
 
-`@assistant-ui/react` is an optional peer dependency of signoff-ui, needed only for this entry, which uses its types and none of its code. With the shadcn CLI, the binding is the `assistant-ui` item: `npx shadcn@latest add https://signoff-ui.vercel.app/r/assistant-ui.json`.
+`@assistant-ui/react` is an optional peer dependency of signoff-ui, needed only for this entry, which uses its types and none of its code. `@assistant-ui/react-ai-sdk` is for the AI SDK runtime in the thread below. With the shadcn CLI, the binding is the `assistant-ui` item: `npx shadcn@latest add https://signoff-ui.vercel.app/r/assistant-ui.json`.
 
 With the AI SDK runtime, against the `review_changes` and `run_command` tools of [Getting started](/docs/getting-started#render-a-run):
 
