@@ -2,6 +2,12 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.7.1
+
+### Patch Changes
+
+- [#102](https://github.com/dgesteves/signoff-ui/pull/102) [`03fa6ad`](https://github.com/dgesteves/signoff-ui/commit/03fa6ad80b47d201423fedbd625835eb59abb66a) Thanks [@dgesteves](https://github.com/dgesteves)! - In narrow containers with longer labels, such as a translation, `DiffReview` wraps its file buttons, its footer and (under 30rem) its lines instead of cutting them off, keeps "+n −n" together and shows a decided hunk's badge under its range, and `ApprovalCard` shows four or five choices in two columns with Approve across the last row; `RunMeter` reaches new numbers within 200 ms and starts each run from "–", its cost too, instead of counting down from the last run.
+
 ## 0.7.0
 
 ### Minor Changes
