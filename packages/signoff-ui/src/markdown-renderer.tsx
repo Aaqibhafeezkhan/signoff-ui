@@ -23,7 +23,10 @@ export interface MarkdownRendererProps {
   citations: number;
   /** The start of those ids. */
   citationPrefix: string;
-  /** Where images may load from, as the component got it: see `MarkdownProps.allowedImageHosts`. */
+  /**
+   * Where images may load from, as the component got it: see `MarkdownProps.allowedImageHosts`.
+   * Only the built-in renderer enforces it: yours has to drop images from other hosts itself.
+   */
   allowedImageHosts: readonly string[] | undefined;
 }
 

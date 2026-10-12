@@ -67,6 +67,7 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
    * or your own renderer. What it returns is your content, like `renderTool`'s. Overrides
    * `MarkdownRendererProvider`. Import `AgentMessage` from `signoff-ui/custom-markdown` to leave
    * react-markdown out of your bundle. Keep the function stable: a new one renders every text part again.
+   * `allowedImageHosts` is not enforced for it: restrict images in your renderer.
    */
   renderMarkdown?: MarkdownRenderer | undefined;
   showSources?: boolean;

@@ -18,16 +18,29 @@ The list is compared by value, so an inline array works as well: it does not re-
 
 Text and reasoning render with the built-in `Markdown`, which brings react-markdown and remark-gfm. If your app already has a renderer, such as Streamdown, pass it as `renderMarkdown` and import `AgentMessage` from `signoff-ui/custom-markdown`: that entry has no built-in renderer, so react-markdown stays out of your bundle ([bundle size](/docs/limits#bundle-size)). Streamdown is not a dependency of signoff-ui: install and style it as its docs say.
 
+> **Restrict images in your renderer.** `allowedImageHosts` protects only the built-in renderer. A custom renderer gets the list as a prop, but nothing enforces it, and Streamdown 2.7 loads images from any host by default. An image in model output can then send data out of the conversation as soon as it renders. Check each image's host yourself, as `components.img` does below.
+
 ```tsx
 import { AgentMessage, type MarkdownRenderer } from 'signoff-ui/custom-markdown';
-import { Streamdown } from 'streamdown';
+import { defaultComponents, Streamdown, type Components } from 'streamdown';
 
-// Outside the component: a new function renders every text part again.
+const IMAGE_HOSTS = ['images.example.com'];
+const allowed = (src: unknown) =>
+  typeof src === 'string' && URL.canParse(src) && IMAGE_HOSTS.includes(new URL(src).hostname);
+
+// Outside the component: a new function or object renders every text part again.
+const components: Components = {
+  // An image from any other host shows its alt text instead.
+  img: (props) => (allowed(props.src) ? <defaultComponents.img {...props} /> : (props.alt ?? null)),
+};
+
 const renderMarkdown: MarkdownRenderer = ({ children, streaming }) => (
-  <Streamdown isAnimating={streaming}>{children}</Streamdown>
+  <Streamdown isAnimating={streaming} components={components}>
+    {children}
+  </Streamdown>
 );
 
 <AgentMessage message={last} streaming={status === 'streaming'} renderMarkdown={renderMarkdown} />;
 ```
 
-`MarkdownRendererProvider` sets the renderer once for every `AgentMessage` and `Reasoning` inside it, from either entry. What the renderer returns is your content, like `renderTool`'s. It also gets `citations` and `citationPrefix`, to link `[n]` markers to `#${citationPrefix}-${n}`, and `allowedImageHosts`, which only the built-in renderer enforces: set your renderer's own image rules. Without a renderer, `signoff-ui/custom-markdown` shows the text as it is. If you render `Reasoning` on its own, import it from `signoff-ui/custom-markdown` too: `AgentMessage`, `Reasoning` and `Markdown` from `signoff-ui` bring react-markdown back.
+`MarkdownRendererProvider` sets the renderer once for every `AgentMessage` and `Reasoning` inside it, from either entry. What the renderer returns is your content, like `renderTool`'s. It also gets `citations` and `citationPrefix`, to link `[n]` markers to `#${citationPrefix}-${n}`, and `allowedImageHosts` as the component got it, which your renderer has to enforce itself (see the note above). Without a renderer, `signoff-ui/custom-markdown` shows the text as it is. If you render `Reasoning` on its own, import it from `signoff-ui/custom-markdown` too: `AgentMessage`, `Reasoning` and `Markdown` from `signoff-ui` bring react-markdown back.
