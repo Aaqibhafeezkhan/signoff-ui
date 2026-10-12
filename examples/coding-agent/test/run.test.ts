@@ -239,6 +239,16 @@ describe('the scripted run', () => {
     expect(list.state).toBe('approval-requested');
     expect(list.approval).not.toHaveProperty('isAutomatic', true);
   });
+
+  it('leaves out a rule from the page with more wildcards than parseApprovalRules allows', async () => {
+    // It would allow list_files if the route kept it; past the limit, matching can hold up the server.
+    const chat = startRun([{ id: 'many', tool: '*l*i*s*', effect: 'allow', scope: 'session' }]);
+    await chat.sendMessage({ text: TASK });
+    await settle(chat);
+    const list = call(chat, 'r1-list');
+    expect(list.state).toBe('approval-requested');
+    expect(list.approval).not.toHaveProperty('isAutomatic', true);
+  });
 });
 
 describe('live mode', () => {

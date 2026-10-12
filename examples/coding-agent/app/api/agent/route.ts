@@ -1,5 +1,5 @@
 import { convertToModelMessages, stepCountIs, streamText, validateUIMessages } from 'ai';
-import { addUsage } from 'signoff-ui/core';
+import { addUsage, parseApprovalRules } from 'signoff-ui/core';
 import { z } from 'zod';
 import { approvalFor } from '@/lib/approval';
 import { agentModel, INSTRUCTIONS } from '@/lib/model';
@@ -9,27 +9,20 @@ import { filesFromMessages } from '@/lib/workspace';
 
 export const maxDuration = 60;
 
-/** A rule as the page sends it: the person's own, for their own runs. */
-const ruleSchema = z.object({
-  id: z.string().max(200),
-  tool: z.string().max(200),
-  args: z.record(z.string(), z.string().max(500)).optional(),
-  effect: z.enum(['allow', 'deny']),
-  scope: z.enum(['session', 'always']),
-  reason: z.string().max(500).optional(),
-});
-
 const bodySchema = z.object({
   messages: z.array(z.unknown()),
   // Live only when the page asks for it: a key on the server spends nothing until a person picks the model.
   mode: z.enum(['scripted', 'live']).default('scripted'),
-  rules: z.array(ruleSchema).max(100).default([]),
+  // The person's own rules, for their own runs: parseApprovalRules keeps those within its limits
+  // (100 rules, short strings, one wildcard per pattern), so a crafted rule can't hold up matching.
+  rules: z.unknown().optional(),
 });
 
 export async function POST(req: Request) {
   const body = bodySchema.safeParse(await req.json().catch(() => undefined));
   if (!body.success) return Response.json({ error: 'Expected { messages, mode, rules }.' }, { status: 400 });
-  const { mode, rules } = body.data;
+  const { mode } = body.data;
+  const rules = parseApprovalRules(body.data.rules);
   let messages: RunMessage[];
   try {
     messages = await validateUIMessages<RunMessage>({ messages: body.data.messages });
