@@ -5,10 +5,12 @@ import remarkGfm from 'remark-gfm';
 import { slugify } from '@/lib/docs';
 import { PackageInstall } from './code';
 import { CodeBlock } from './code-block';
+import { TableScroll } from './table-scroll';
 
 /*
  * Renders a guide's Markdown on the server: headings with anchors, highlighted code with a copy
- * button, install commands as package-manager tabs, and site links through next/link.
+ * button, install commands as package-manager tabs, site links through next/link, and tables that
+ * scroll sideways in a region named after their heading.
  */
 
 /** The bit of a hast node this file reads. */
@@ -16,7 +18,7 @@ export interface HastNode {
   type: string;
   value?: string;
   tagName?: string;
-  properties?: { className?: unknown };
+  properties?: { className?: unknown; dataLabel?: unknown };
   data?: { meta?: string | null };
   children?: HastNode[];
 }
@@ -37,6 +39,43 @@ function Heading({ level, node, children }: { level: 2 | 3 | 4; node?: HastNode;
       </a>
     </Tag>
   );
+}
+
+/**
+ * Names each table for its scrolling region: after the heading before it ("Large diffs"), numbered
+ * when that heading has more than one, or after its column headers when no heading comes first.
+ */
+function labelTables() {
+  return (tree: HastNode) => {
+    const tables: Array<{ node: HastNode; heading: string }> = [];
+    let heading = '';
+    const visit = (node: HastNode) => {
+      if (/^h[2-4]$/.test(node.tagName ?? '')) heading = textOf(node).trim();
+      if (node.tagName === 'table') tables.push({ node, heading });
+      else node.children?.forEach(visit);
+    };
+    visit(tree);
+    for (const { node, heading } of tables) {
+      const same = tables.filter((t) => t.heading === heading);
+      const label = !heading
+        ? columnsOf(node)
+        : same.length > 1
+          ? `${heading} (${same.findIndex((t) => t.node === node) + 1} of ${same.length})`
+          : heading;
+      node.properties = { ...node.properties, dataLabel: label };
+    }
+  };
+}
+
+/** A table's column headers, as "Case, First render, Ready". */
+function columnsOf(table: HastNode): string {
+  const cells: string[] = [];
+  const visit = (node: HastNode) => {
+    if (node.tagName === 'th') cells.push(textOf(node).trim());
+    else if (node.tagName !== 'tbody') node.children?.forEach(visit);
+  };
+  visit(table);
+  return cells.join(', ') || 'Table';
 }
 
 /** A fenced block: highlighted code, or package-manager tabs for ```package-install. */
@@ -83,17 +122,17 @@ const components: Components = {
         {children}
       </a>
     ),
-  table: ({ children }) => (
-    <div className="table-wrap">
+  table: ({ node, children }) => (
+    <TableScroll label={String((node as HastNode | undefined)?.properties?.dataLabel ?? 'Table')}>
       <table>{children}</table>
-    </div>
+    </TableScroll>
   ),
 };
 
 export function DocMarkdown({ markdown }: { markdown: string }) {
   return (
     <div className="docs-prose">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[labelTables]} components={components}>
         {markdown}
       </Markdown>
     </div>

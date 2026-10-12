@@ -268,9 +268,17 @@ html:has(dialog:modal) {
   font-size: 0.86em;
   overflow-wrap: break-word;
 }
-/* In table cells, code breaks anywhere, so a long identifier can't widen the table past a phone. */
+/*
+ * In table cells on a phone, code breaks anywhere, so a long identifier can't widen the table past
+ * the screen. From 40rem it stays whole, and a table too wide for the page scrolls instead.
+ */
 .docs-prose :is(td, th) code:not(pre code, .code-block code) {
   overflow-wrap: anywhere;
+}
+@media (min-width: 40rem) {
+  .docs-prose :is(td, th) code:not(pre code, .code-block code) {
+    white-space: nowrap;
+  }
 }
 .docs-prose blockquote {
   padding: 0.75rem 1rem;
@@ -282,10 +290,26 @@ html:has(dialog:modal) {
 .docs-prose hr {
   border-color: var(--color-line);
 }
+/*
+ * A table scrolls sideways inside a region the keyboard can reach (components/docs/table-scroll.tsx);
+ * its right edge fades while more of it is out of view, and the frame shows the focus.
+ */
 .docs-prose .table-wrap {
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: 12px;
+}
+.docs-prose .table-wrap > [role='region'] {
+  overflow-x: auto;
+  outline: none;
+  scrollbar-width: thin;
+}
+.docs-prose .table-wrap > [data-more] {
+  mask-image: linear-gradient(to left, transparent, #000 3rem);
+}
+.docs-prose .table-wrap:has(> [role='region']:focus-visible) {
+  outline: 2px solid var(--color-cyan-soft);
+  outline-offset: 2px;
 }
 .docs-prose table {
   width: 100%;
@@ -343,6 +367,15 @@ html:has(dialog:modal) {
   font-size: 13px;
   line-height: 1.7;
   scrollbar-width: thin;
+}
+/*
+ * Without a file name, the copy button sits over the code's top-right corner. Where it always shows
+ * (phones and touch screens), the code starts below it rather than running underneath.
+ */
+@media (width < 40rem), (pointer: coarse) {
+  :is(.code-block, .code-block-bare):not(:has(> .code-title)) pre.shiki {
+    padding-top: 2.75rem;
+  }
 }
 :is(.code-block, .code-block-bare) pre.shiki:focus-visible {
   outline: 2px solid var(--color-cyan-soft);
