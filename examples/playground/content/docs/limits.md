@@ -9,7 +9,7 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `addUsage`, `estimateCost` from `/core` (for a route handler)      |   0.4 kB |
 | `toToolApproval` from `/core` (approval rules in a route handler)  |   0.9 kB |
 | ACP converters from `/acp`                                         |   1.6 kB |
-| `useApprovalPolicy` (the rules without markup)                     |   1.9 kB |
+| `useApprovalPolicy` (the rules without markup)                     |   2.2 kB |
 | `useAgUiAgent` from `/ag-ui`                                       |   2.9 kB |
 | `applyHunks`, `parseFileChange` from `/core` (with jsdiff)         |   6.6 kB |
 | `Sources`                                                          |  10.3 kB |
@@ -18,12 +18,13 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `useDiffReview` (the review without markup)                        |  15.4 kB |
 | `ApprovalCard`                                                     |  18.5 kB |
 | `ToolCallTimeline`                                                 |  21.6 kB |
-| `DiffReview`                                                       |  41.2 kB |
-| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  49.8 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.5 kB |
-| Everything in the main entry                                       | 118.3 kB |
+| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  31.5 kB |
+| `DiffReview`                                                       |  41.3 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  49.9 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.9 kB |
+| Everything in the main entry                                       | 119.7 kB |
 
-Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. Each component carries the English labels of the sections it reads, not the others.
+Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. An app with its own renderer can [import `AgentMessage` without it](/docs/components/agent-message#your-own-markdown-renderer), and CI checks that react-markdown stays out of that bundle. Each component carries the English labels of the sections it reads, not the others.
 
 `DiffReview`'s diff worker is a separate file the bundler emits, loaded only when a file is too large to diff while rendering: 18 kB minified, with jsdiff, in a Vite build.
 
@@ -67,13 +68,13 @@ Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under 
 - **Lines are commented on, not decided.** A review accepts or rejects whole hunks, or whole files. Lines can be selected to comment on, and the agent gets the comment with its lines, but a hunk cannot be applied in part.
 - **Patches without binaries.** `toPatch()` lists an accepted binary file as changed, without its contents, so `git apply` cannot apply that part; the file's own `content` in the result has it, when you passed contents.
 - **Edited arguments and signed approvals.** With AI SDK 7's `experimental_toolApprovalSecret`, the server signs the arguments it asked about and refuses any other, so arguments edited before approving fail there by design. ACP's `request_permission` has no way to answer with edited arguments, nor a session option: `allow-session` answers `allow_once` and keeps the session rule on the client.
-- **Rules from the client.** Rules made in the browser are that person's choices. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server.
+- **Rules from the client.** Rules made in the browser are that person's choices. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server. `parseApprovalRules` checks the rules a request brings, and by default leaves out a pattern with more than one `*`: each `*` more can make matching a long argument take seconds.
 - **Markdown cost while streaming.** The whole text is parsed again on every delta: about 8 ms at 5k characters, 24 ms at 20k and 67 ms at 50k (jsdom), so very long streamed answers can drop frames.
 - **Citation numbering.** `[n]` markers are numbered over the message's sources after de-duplication by URL (by source id for documents). If your prompt numbers a list of sources that contains duplicates, markers after the first duplicate point one source early. Number unique sources in the prompt.
 - **Run state comes from you.** Parts carry no signal that a run has ended, so tool calls left behind by `stop()` or an interrupted history read "Stopped" only when you pass `active={false}`. `deriveAgentState` reports such a run as `stopped`, which the quickstart's `active` condition covers.
 - **Long timelines in find-in-page.** Past 150 calls, the calls far from the screen are not on the page: find-in-page and a screen reader's reading cursor reach only those near it, and `renderExtra`'s content for the others unmounts until they come back. The arrow keys, Home and End reach every call.
 - **Sub-agents render flat.** A sub-agent's calls show inline in its parent's timeline, not as a nested run.
-- **Words for the agent stay English.** Every word a person sees or hears is a [label](/docs/labels), but what goes to the model (`reviewToolOutput`'s summary, `toToolApproval`'s reasons) is English. Right-to-left layouts have not been tested.
+- **Words for the agent stay English.** Every word a person sees or hears is a [label](/docs/labels), but what goes to the model (`reviewToolOutput`'s summary, `toToolApproval`'s reasons unless you pass its `reason`) is English. Right-to-left layouts have not been tested.
 - **Nesting in slots.** With `styles.css`, a component rendered in a slot of a component that is itself in a slot is styled up to two levels deep; deeper than that it renders unstyled.
 
 ## What's next

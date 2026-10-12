@@ -86,4 +86,28 @@ describe('useDiffReview', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(latest().decisions).toEqual({ 'app/route.ts:0': 'accepted' });
   });
+
+  it('leaves keys pressed inside a data-signoff-slot element to your controls', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    function WithToolbar(props: UseDiffReviewOptions) {
+      const review = useDiffReview(props);
+      return (
+        <section aria-label="My review" {...review.getRootProps()}>
+          <div data-signoff-slot>
+            <button type="button">Copy</button>
+          </div>
+          {review.items.map((item, index) => (
+            <div key={item.id} {...review.getItemProps(index)} />
+          ))}
+        </section>
+      );
+    }
+    render(<WithToolbar files={files} onSubmit={onSubmit} />);
+    screen.getByRole('button', { name: 'Copy' }).focus();
+    await user.keyboard('j{Shift>}A{/Shift}{Control>}{Enter}{/Control}');
+    expect(screen.getByRole('button', { name: 'Copy' })).toHaveFocus();
+    expect(screen.getAllByRole('group').every((item) => item.dataset.decision === 'pending')).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
 });

@@ -1,14 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DiffReview,
   JsonView,
+  parseFileChange,
   reviewToolOutput,
+  toPatch,
   type DiffReviewComment,
   type DiffReviewToolOutput,
   type FileChange,
+  type HunkDecision,
 } from 'signoff-ui';
+import { CheckIcon, CopyIcon } from '@/components/icons';
 import { RATELIMIT_UPSTASH, ROUTE_NEW, ROUTE_OLD } from '@/lib/scenario';
 
 const GUIDE =
@@ -35,6 +39,47 @@ const COMMENTS: DiffReviewComment[] = [
     text: 'Read the window from an env var, so staging can use a longer one.',
   },
 ];
+
+const DECISIONS: Record<string, HunkDecision> = {
+  'lib/ratelimit.ts:0': 'accepted',
+  'app/api/chat/route.ts:2': 'rejected',
+};
+
+/**
+ * The site's own button, in the review's header through `actions`: the changes accepted so far, as
+ * a patch `git apply` reads. It sits in a slot, so it keeps the site's styles and its keys.
+ */
+function CopyPatch({ decisions }: { decisions: Record<string, HunkDecision> }) {
+  const parsed = useMemo(() => FILES.map((file) => parseFileChange(file)), []);
+  const patch = toPatch(parsed, decisions);
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    if (state === 'idle') return;
+    const id = setTimeout(() => setState('idle'), 1600);
+    return () => clearTimeout(id);
+  }, [state]);
+  return (
+    <>
+      <button
+        type="button"
+        disabled={!patch}
+        onClick={() => {
+          navigator.clipboard.writeText(patch).then(
+            () => setState('copied'),
+            () => setState('failed'),
+          );
+        }}
+        className="border-line focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {state === 'copied' ? <CheckIcon className="text-cyan-soft size-3.5" /> : <CopyIcon className="size-3.5" />}
+        Copy as a patch
+      </button>
+      <span className="sr-only" aria-live="polite">
+        {state === 'copied' ? 'Patch copied' : state === 'failed' ? 'Copying failed' : ''}
+      </span>
+    </>
+  );
+}
 
 const rows = (count: number, name: (i: number) => string) =>
   Array.from({ length: count }, (_, i) => name(i)).join('\n') + '\n';
@@ -70,6 +115,7 @@ const EXAMPLES = [
 export function DiffReviewDemo() {
   const [example, setExample] = useState<(typeof EXAMPLES)[number][0]>('review');
   const [output, setOutput] = useState<DiffReviewToolOutput>();
+  const [decisions, setDecisions] = useState(DECISIONS);
   const large = useMemo(() => (example === 'large' ? largeFiles() : undefined), [example]);
   return (
     <div className="flex flex-col gap-3">
@@ -82,6 +128,7 @@ export function DiffReviewDemo() {
             onClick={() => {
               setExample(id);
               setOutput(undefined);
+              setDecisions(DECISIONS);
             }}
             className="focus-visible:outline-cyan-soft text-fg-muted hover:text-fg aria-pressed:bg-line aria-pressed:text-fg cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1"
           >
@@ -96,8 +143,10 @@ export function DiffReviewDemo() {
           <DiffReview
             key="review"
             files={FILES}
-            defaultDecisions={{ 'lib/ratelimit.ts:0': 'accepted', 'app/api/chat/route.ts:2': 'rejected' }}
+            decisions={decisions}
+            onDecisionsChange={setDecisions}
             defaultComments={COMMENTS}
+            actions={<CopyPatch decisions={decisions} />}
             // What the agent gets back: decisions, rejected hunks with their lines, and every comment.
             onSubmit={(result) => setOutput(reviewToolOutput(result, { contents: false }))}
           />

@@ -74,11 +74,13 @@ export {
   fromAcpPermissionResponse,
   globToRegExp,
   matchesGlob,
+  parseApprovalRules,
   ruleFromDecision,
   ruleMatches,
   setToolInput,
   suggestArgs,
   toAcpPermissionResponse,
+  toPlainRules,
   toToolApproval,
   toToolApprovalResponse,
   type AcpPermissionOption,
@@ -88,8 +90,10 @@ export {
   type ApprovalDecision,
   type ApprovalRequest,
   type ApprovalRule,
+  type ApprovalRuleLimits,
   type RuleMatch,
   type ToolApprovalStatusLike,
+  type ToToolApprovalOptions,
 } from './lib/policy';
 export { addUsage, estimateCost, type CostBreakdown, type ModelPricing } from './lib/usage';
 export { cn, type HeadingLevel } from './lib/utils';

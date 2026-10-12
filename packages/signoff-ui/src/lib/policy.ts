@@ -65,6 +65,25 @@ function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
 
+/* A glob's parts: a character, as its code, or one of these. */
+const ONE = -1; // ?
+const STAR = -2; // *
+const ANY = -3; // ** (or more)
+
+/** A pattern in parts: `\` and the character it makes literal, a run of `*`, or one character. */
+const globParts = (pattern: string) =>
+  (pattern.match(/\\[\s\S]|\*+|[\s\S]/g) ?? []).map((part) =>
+    part[0] === '\\' && part[1]
+      ? part.charCodeAt(1)
+      : part[1]
+        ? ANY
+        : part === '*'
+          ? STAR
+          : part === '?'
+            ? ONE
+            : part.charCodeAt(0),
+  );
+
 /**
  * A glob as a regular expression over the whole value:
  * - `*` matches any run of characters but shell control characters (`;`, `&`, `|`, `` ` ``, `<`,
@@ -72,39 +91,46 @@ function escapeRegExp(text: string) {
  * - `?` matches one such character;
  * - `**` matches any run of characters at all;
  * - `\` makes the next character literal; everything else is literal.
+ *
+ * The expression backtracks: with a few `*` and a long value it doesn't match, a test can take
+ * seconds. `matchesGlob` gives the same answers without backtracking.
  */
 export function globToRegExp(pattern: string): RegExp {
   const safe = `(?:(?!\\$\\()[^${escapeRegExp(SHELL_CONTROL)}])`;
-  let source = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i]!;
-    if (char === '\\' && i + 1 < pattern.length) {
-      source += escapeRegExp(pattern[++i]!);
-    } else if (char === '*' && pattern[i + 1] === '*') {
-      source += '[\\s\\S]*';
-      while (pattern[i + 1] === '*') i++;
-    } else if (char === '*') {
-      source += `${safe}*`;
-    } else if (char === '?') {
-      source += safe;
-    } else {
-      source += escapeRegExp(char);
-    }
-  }
-  return new RegExp(`^${source}$`);
+  const source = globParts(pattern).map((part) =>
+    part === ANY
+      ? '[\\s\\S]*'
+      : part === STAR
+        ? `${safe}*`
+        : part === ONE
+          ? safe
+          : escapeRegExp(String.fromCharCode(part)),
+  );
+  return new RegExp(`^${source.join('')}$`);
 }
 
-const compiled = new Map<string, RegExp>();
-
-/** Whether a whole value matches a glob (see `globToRegExp`). */
+/**
+ * Whether a whole value matches a glob (see `globToRegExp`). It reads the value once, keeping the
+ * places in the pattern that match so far, so its time grows with the value's length times the
+ * pattern's, and no more: a long argument written by a model can't hold up the server or the page.
+ */
 export function matchesGlob(value: string, pattern: string): boolean {
-  let regexp = compiled.get(pattern);
-  if (!regexp) {
-    regexp = globToRegExp(pattern);
-    if (compiled.size > 500) compiled.clear();
-    compiled.set(pattern, regexp);
+  const parts = globParts(pattern);
+  let places = new Set([0]);
+  for (let i = 0; ; i++) {
+    // A `*` or `**` can match nothing, so the place after it is reached too (the loop visits what it adds).
+    for (const place of places) if (parts[place]! < ONE) places.add(place + 1);
+    if (i === value.length) return places.has(parts.length);
+    // What a single `*` or `?` may match: no shell control character, and no `$` that starts `$(`.
+    const safe = !SHELL_CONTROL.includes(value[i]!) && !value.startsWith('$(', i);
+    const next = new Set<number>();
+    for (const place of places) {
+      const part = parts[place];
+      if (part === ANY || (part === STAR && safe)) next.add(place);
+      else if (part === value.charCodeAt(i) || (part === ONE && safe)) next.add(place + 1);
+    }
+    places = next;
   }
-  return regexp.test(value);
 }
 
 /** An argument by name, dotted names reading nested objects: `'options.cwd'`. */
@@ -254,26 +280,45 @@ export type ToolApprovalStatusLike =
   | 'user-approval'
   | { type: 'approved' | 'denied' | 'user-approval'; reason?: string };
 
+/** How `toToolApproval` answers: for the calls no rule covers, and in the reason a rule gives. */
+export interface ToToolApprovalOptions {
+  /**
+   * What a call no rule covers gets. Default `'user-approval'`: a person decides.
+   * `'not-applicable'` leaves the call to another `toolApproval`, such as a second set of rules.
+   */
+  otherwise?: ToolApprovalStatusLike | undefined;
+  /**
+   * The reason for a call a rule decides, which the approval keeps as `approval.reason`: say whose
+   * rules these are, so a page can tell the server's from the person's. Default: "Allowed by a
+   * rule: …" or "Denied by a rule: …", the rule in words (`describeRule`), then its own reason.
+   */
+  reason?: ((match: RuleMatch) => string) | undefined;
+}
+
+/** The reason `toToolApproval` gives unless told otherwise: "Denied by a rule: rm * (No deletes)". */
+function ruleReason({ effect, rule }: RuleMatch) {
+  return `${effect === 'allow' ? 'Allowed' : 'Denied'} by a rule: ${describeRule(rule)}${
+    rule.reason ? ` (${rule.reason})` : ''
+  }`;
+}
+
 /**
  * Rules as AI SDK 7's generic `toolApproval` function: a matching rule approves or denies the call
- * on the server, with the rule in the reason, and any other call gets `otherwise` (by default
- * `'user-approval'`, a person decides). The SDK checks it again on the approved call before it
- * runs, edited arguments included.
+ * on the server, with the rule in the reason (`reason` words it), and any other call gets
+ * `otherwise` (by default `'user-approval'`, a person decides). The SDK checks it again on the
+ * approved call before it runs, edited arguments included.
  *
  * Rules a client sends are the choices of the person using it: take them for that person's own
  * runs only, and keep rules that protect others on the server.
  */
 export function toToolApproval(
   rules: readonly ApprovalRule[] | (() => readonly ApprovalRule[]),
-  { otherwise = 'user-approval' }: { otherwise?: ToolApprovalStatusLike } = {},
+  { otherwise = 'user-approval', reason = ruleReason }: ToToolApprovalOptions = {},
 ): (options: { toolCall: { toolName: string; input: unknown } }) => ToolApprovalStatusLike {
   return ({ toolCall }) => {
     const match = evaluateRules(typeof rules === 'function' ? rules() : rules, toolCall.toolName, toolCall.input);
     if (!match) return otherwise;
-    const reason = `${match.effect === 'allow' ? 'Allowed' : 'Denied'} by a rule: ${describeRule(match.rule)}${
-      match.rule.reason ? ` (${match.rule.reason})` : ''
-    }`;
-    return { type: match.effect === 'allow' ? 'approved' : 'denied', reason };
+    return { type: match.effect === 'allow' ? 'approved' : 'denied', reason: reason(match) };
   };
 }
 
@@ -312,6 +357,85 @@ export function setToolInput<M extends { parts: readonly unknown[] }>(
     parts[index] = { ...(parts[index] as object), input };
     return { ...message, parts };
   });
+}
+
+/* A person's rules with each request: plain data from the page, checked again on the server. */
+
+/**
+ * Rules as plain data, to send with a request: copies, as JSON carries them. A rule with a `when`
+ * is left out, since `when` is code and without it the rule would cover more calls than it does on
+ * the page; the page still applies it when the server asks.
+ */
+export function toPlainRules(rules: readonly ApprovalRule[]): ApprovalRule[] {
+  return JSON.parse(JSON.stringify(rules.filter((rule) => !rule.when))) as ApprovalRule[];
+}
+
+/** What `parseApprovalRules` accepts from a client. */
+export interface ApprovalRuleLimits {
+  /** How many rules are read: those after the first `maxRules` are left out. Default 100. */
+  maxRules?: number | undefined;
+  /** Argument patterns in one rule. Default 20. */
+  maxArgs?: number | undefined;
+  /** Characters in one string: an id, a tool, an argument's name or pattern, a reason. Default 500. */
+  maxLength?: number | undefined;
+  /**
+   * `*` wildcards in one pattern, `**` counting as one. Default 1: with each one more, matching a
+   * long argument takes much longer, enough to hold up the server.
+   */
+  maxWildcards?: number | undefined;
+}
+
+/** The `*` wildcards in a pattern: a run of them counts once, an escaped one not at all. */
+function wildcards(pattern: string) {
+  let count = 0;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '\\') i++;
+    else if (pattern[i] === '*') {
+      count++;
+      while (pattern[i + 1] === '*') i++;
+    }
+  }
+  return count;
+}
+
+/**
+ * The rules a client sent, such as a request body's `rules`, checked on the server: each field of
+ * the right type and within `limits`, other fields dropped. A rule that fails a check is left out,
+ * and so is everything when `value` is not an array. A rule left out still holds on the page, which
+ * answers the call when the server asks.
+ */
+export function parseApprovalRules(
+  value: unknown,
+  { maxRules = 100, maxArgs = 20, maxLength = 500, maxWildcards = 1 }: ApprovalRuleLimits = {},
+): ApprovalRule[] {
+  if (!Array.isArray(value)) return [];
+  const text = (v: unknown): v is string => typeof v === 'string' && v.length <= maxLength;
+  const pattern = (v: unknown): v is string => text(v) && wildcards(v) <= maxWildcards;
+  const rules: ApprovalRule[] = [];
+  for (const item of value.slice(0, maxRules)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const { id, tool, args, effect, scope, createdAt, reason } = item as Record<string, unknown>;
+    if (!text(id) || !pattern(tool)) continue;
+    if ((effect !== 'allow' && effect !== 'deny') || (scope !== 'session' && scope !== 'always')) continue;
+    if ((createdAt !== undefined && !Number.isFinite(createdAt)) || (reason !== undefined && !text(reason))) continue;
+    let checked: Record<string, string> | undefined;
+    if (args !== undefined) {
+      if (!args || typeof args !== 'object' || Array.isArray(args)) continue;
+      const entries = Object.entries(args);
+      if (entries.length > maxArgs || !entries.every(([name, glob]) => text(name) && pattern(glob))) continue;
+      checked = Object.fromEntries(entries) as Record<string, string>;
+    }
+    rules.push({
+      id,
+      tool,
+      ...(checked ? { args: checked } : {}),
+      effect,
+      scope,
+      ...(createdAt !== undefined ? { createdAt: createdAt as number } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    });
+  }
+  return rules;
 }
 
 /* Agent Client Protocol: `session/request_permission`, typed here so nothing new is installed. */

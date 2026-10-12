@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   decisionEffect,
   evaluateRules,
   ruleFromDecision,
+  toPlainRules,
   type ApprovalDecision,
   type ApprovalRequest,
   type ApprovalRule,
@@ -22,45 +23,62 @@ export type { ApprovalDecision, ApprovalRequest, ApprovalRule, RuleMatch } from 
 export interface ApprovalRuleStorage {
   load(): readonly ApprovalRule[] | PromiseLike<readonly ApprovalRule[]>;
   save(rules: readonly ApprovalRule[]): void | PromiseLike<void>;
+  /**
+   * The ids of `always` default rules the person removed, so they stay removed on the next load.
+   * Optional: without this and `saveRemovedDefaults`, a removed default comes back on each load.
+   */
+  loadRemovedDefaults?(): readonly string[] | PromiseLike<readonly string[]>;
+  saveRemovedDefaults?(ids: readonly string[]): void | PromiseLike<void>;
 }
 
 /** Rules kept in memory, for this page only: the default. */
 export function memoryRuleStorage(initial: readonly ApprovalRule[] = []): ApprovalRuleStorage {
   let rules = [...initial];
+  let removed: string[] = [];
   return {
     load: () => rules,
     save: (next) => {
       rules = [...next];
     },
+    loadRemovedDefaults: () => removed,
+    saveRemovedDefaults: (ids) => {
+      removed = [...ids];
+    },
   };
 }
 
 /**
- * Rules kept in `localStorage` (or another `Storage`) as JSON under `key`. A rule's `when` is code
- * and is not kept. Nothing is read or written on the server.
+ * Rules kept in `localStorage` (or another `Storage`) as JSON under `key`, and the ids of default
+ * rules the person removed under `<key>:removed-defaults`. A rule's `when` is code and is not kept.
+ * Nothing is read or written on the server.
  */
 export function webStorageRules(
   key = 'signoff-ui:approval-rules',
   storage: () => Storage | undefined = () => (typeof window === 'undefined' ? undefined : window.localStorage),
 ): ApprovalRuleStorage {
+  const read = (name: string): unknown[] => {
+    try {
+      const text = storage()?.getItem(name);
+      const parsed: unknown = text ? JSON.parse(text) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const write = (name: string, value: unknown) => {
+    try {
+      storage()?.setItem(name, JSON.stringify(value));
+    } catch {
+      // Full or blocked storage: the rules still hold for this page.
+    }
+  };
+  const removedKey = `${key}:removed-defaults`;
   return {
-    load() {
-      try {
-        const text = storage()?.getItem(key);
-        const parsed: unknown = text ? JSON.parse(text) : [];
-        return Array.isArray(parsed) ? (parsed as ApprovalRule[]).filter(isRule) : [];
-      } catch {
-        return [];
-      }
-    },
-    save(rules) {
-      try {
-        // JSON leaves out a rule's `when`, which is code.
-        storage()?.setItem(key, JSON.stringify(rules));
-      } catch {
-        // Full or blocked storage: the rules still hold for this page.
-      }
-    },
+    load: () => read(key).filter(isRule),
+    // JSON leaves out a rule's `when`, which is code.
+    save: (rules) => write(key, rules),
+    loadRemovedDefaults: () => read(removedKey).filter((id): id is string => typeof id === 'string'),
+    saveRemovedDefaults: (ids) => write(removedKey, ids),
   };
 }
 
@@ -110,7 +128,11 @@ export interface ApprovalOutcome {
 export interface UseApprovalPolicyOptions {
   /** Controlled rules. */
   rules?: readonly ApprovalRule[] | undefined;
-  /** Rules to start with, before any the storage loads. */
+  /**
+   * Rules to start with, before any the storage loads. An `always` default the person removes stays
+   * removed on later loads, with a storage that keeps removed defaults (`webStorageRules` and
+   * `memoryRuleStorage` do). A default you add later appears, removed ones aside.
+   */
   defaultRules?: readonly ApprovalRule[] | undefined;
   onRulesChange?: ((rules: ApprovalRule[]) => void) | undefined;
   /** Where `always` rules are loaded from and saved to. Default: memory, for this page. */
@@ -126,6 +148,12 @@ export interface UseApprovalPolicyOptions {
 
 export interface ApprovalPolicy {
   rules: readonly ApprovalRule[];
+  /**
+   * The rules as they are now, as plain data to send with a request (see `toPlainRules`: a rule
+   * with a `when` stays on the page). The same function for the policy's life, so a transport made
+   * once can call it in `body`, and it has a rule a decision just made before the page re-renders.
+   */
+  getRules(): ApprovalRule[];
   /** The storage has loaded: after the first render, or once an async storage's promise settles. */
   ready: boolean;
   /** The rule that decides a call, if one does. */
@@ -177,20 +205,29 @@ export function useApprovalPolicy({
     latest.current = rules;
   }, [rules]);
   const outcomes = useRef(new Map<string, ApprovalOutcome>());
+  // The ids of `always` defaults the person removed, as last loaded or saved.
+  const removedDefaults = useRef<readonly string[]>([]);
 
   // Loaded once, from the storage the policy started with: an inline storage object (a new one on
   // every render) does not reload it. Saves go to the current one.
   const [loadFrom] = useState(storage);
   useEffect(() => {
     let live = true;
-    const apply = (loaded: readonly ApprovalRule[]) => {
+    const apply = ([loaded, removed]: readonly [readonly ApprovalRule[], readonly string[]]) => {
       if (!live) return;
-      setOwn((current) => merge(current, loaded));
+      removedDefaults.current = removed;
+      // The defaults, less the ones the person removed, then the saved rules, which win.
+      const gone = new Set(removed);
+      setOwn((current) => merge(gone.size ? current.filter((r) => !gone.has(r.id)) : current, loaded));
       setReady(true);
     };
     const loaded = loadFrom.load();
-    if (isThenable(loaded)) loaded.then(apply, () => live && setReady(true));
-    else apply(loaded);
+    const removed = loadFrom.loadRemovedDefaults?.() ?? [];
+    if (isThenable(loaded) || isThenable(removed)) {
+      // Removed defaults that fail to load leave the defaults as they are; the saved rules still load.
+      const removedOrNone = Promise.resolve(removed).then(undefined, () => []);
+      Promise.all([loaded, removedOrNone]).then(apply, () => live && setReady(true));
+    } else apply([loaded, removed]);
     return () => {
       live = false;
     };
@@ -202,15 +239,27 @@ export function useApprovalPolicy({
     if (rulesProp === undefined) setOwn(next);
     onRulesChange?.(next);
     void storage.save(next.filter((r) => r.scope === 'always'));
+    if (storage.saveRemovedDefaults) {
+      // An `always` default missing from the rules was removed; one that is back was restored.
+      const kept = new Set(next.map((r) => r.id));
+      const defaults = defaultRules.filter((r) => r.scope === 'always').map((r) => r.id);
+      const removed = [...new Set([...removedDefaults.current, ...defaults])].filter((id) => !kept.has(id));
+      if (removed.join('\n') !== removedDefaults.current.join('\n')) {
+        removedDefaults.current = removed;
+        void storage.saveRemovedDefaults(removed);
+      }
+    }
   };
 
   const record = (outcome: ApprovalOutcome) => {
     outcomes.current.set(outcome.id, outcome);
     return outcome;
   };
+  const getRules = useCallback(() => toPlainRules(latest.current), []);
 
   return {
     rules,
+    getRules,
     ready,
     match: (toolName, input) => evaluateRules(latest.current, toolName, input),
     decide(request, decision, { reason, input, args } = {}) {

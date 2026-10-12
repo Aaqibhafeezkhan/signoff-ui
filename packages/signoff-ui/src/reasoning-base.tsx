@@ -1,0 +1,130 @@
+'use client';
+
+import * as Collapsible from '@radix-ui/react-collapsible';
+import { useState, type ComponentPropsWithoutRef } from 'react';
+import { useActivityWindow } from './lib/hooks';
+import { reasoningLabels, formatLabels, type SignoffLabelsInput } from './lib/labels';
+import { useLabels } from './labels';
+import { ChevronIcon, SparkIcon } from './lib/icons';
+import { cn } from './lib/utils';
+import { CustomMarkdown, useMarkdownRenderer, type BuiltInMarkdown, type MarkdownRenderer } from './markdown-renderer';
+
+/** The labels' sections this module reads. */
+const LABELS = { reasoning: reasoningLabels, format: formatLabels };
+
+export interface ReasoningProps extends Omit<ComponentPropsWithoutRef<'div'>, 'children'> {
+  text: string;
+  /** The model is still reasoning. The panel opens while streaming and closes when done. */
+  streaming?: boolean;
+  /** Known reasoning duration in ms. Measured client-side when omitted. */
+  durationMs?: number | undefined;
+  defaultOpen?: boolean;
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
+  /** Where images in the reasoning may load from: host names, `'self'` or `'*'`. See `MarkdownProps.allowedImageHosts`. */
+  allowedImageHosts?: readonly string[] | undefined;
+  /**
+   * Renders the reasoning's text instead of the built-in `Markdown`, as `AgentMessage`'s
+   * `renderMarkdown` does. Overrides `MarkdownRendererProvider`.
+   */
+  renderMarkdown?: MarkdownRenderer | undefined;
+  /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */
+  labels?: SignoffLabelsInput | undefined;
+}
+
+/** `Reasoning`, with the renderer it falls back to: `Markdown`, or plain text in `signoff-ui/custom-markdown`. */
+export function ReasoningBase({
+  builtInMarkdown: BuiltIn,
+  text,
+  streaming = false,
+  durationMs,
+  defaultOpen,
+  open: openProp,
+  onOpenChange,
+  allowedImageHosts,
+  renderMarkdown,
+  labels,
+  className,
+  ...props
+}: ReasoningProps & { builtInMarkdown: BuiltInMarkdown }) {
+  const L = useLabels(LABELS, labels);
+  const renderer = useMarkdownRenderer(renderMarkdown);
+  const [openState, setOpenState] = useState(defaultOpen ?? streaming);
+  const [touched, setTouched] = useState(false);
+  const [prevStreaming, setPrevStreaming] = useState(streaming);
+  // Follow the stream (adjusting state during render, not in an effect).
+  if (prevStreaming !== streaming) {
+    setPrevStreaming(streaming);
+    if (!touched) setOpenState(streaming);
+  }
+  const open = openProp ?? openState;
+  const activity = useActivityWindow(streaming);
+  const measured =
+    activity.startedAt !== undefined && activity.endedAt !== undefined
+      ? activity.endedAt - activity.startedAt
+      : undefined;
+  const duration = durationMs ?? measured;
+  const label = streaming
+    ? L.reasoning.thinking
+    : duration !== undefined
+      ? L.reasoning.thoughtFor(L.format.duration(duration))
+      : L.reasoning.reasoning;
+
+  return (
+    <Collapsible.Root
+      data-signoff
+      data-slot="signoff-reasoning"
+      data-streaming={streaming || undefined}
+      open={open}
+      onOpenChange={(next) => {
+        setTouched(true);
+        if (openProp === undefined) setOpenState(next);
+        onOpenChange?.(next);
+      }}
+      className={cn('font-signoff-sans', className)}
+      {...props}
+    >
+      <Collapsible.Trigger className="group/trigger text-signoff-fg-muted hover:text-signoff-fg focus-visible:outline-signoff-ring inline-flex cursor-pointer items-center gap-1.5 rounded-md py-1 pr-1.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2">
+        <SparkIcon size={14} className={cn('text-signoff-accent', streaming && 'motion-safe:animate-pulse')} />
+        <span
+          className={cn(
+            'font-medium',
+            streaming &&
+              'motion-safe:animate-signoff-shimmer motion-safe:bg-[linear-gradient(90deg,var(--signoff-fg-muted)_0%,var(--signoff-fg-muted)_40%,var(--signoff-accent-fg)_50%,var(--signoff-fg-muted)_60%,var(--signoff-fg-muted)_100%)] motion-safe:bg-[length:200%_100%] motion-safe:bg-clip-text motion-safe:text-transparent',
+          )}
+        >
+          {label}
+        </span>
+        <ChevronIcon
+          size={13}
+          className="transition-transform duration-200 group-data-[state=open]/trigger:rotate-90 motion-reduce:transition-none"
+        />
+      </Collapsible.Trigger>
+      <Collapsible.Content className="data-[state=closed]:motion-safe:animate-signoff-collapse data-[state=open]:motion-safe:animate-signoff-expand overflow-hidden">
+        <div className="border-signoff-border-strong mt-1.5 mb-1 border-l-2 py-0.5 pl-3.5">
+          {renderer ? (
+            <CustomMarkdown
+              render={renderer}
+              streaming={streaming}
+              citations={0}
+              citationPrefix="source"
+              allowedImageHosts={allowedImageHosts}
+              className="text-signoff-fg-muted text-[13px] leading-relaxed"
+            >
+              {text}
+            </CustomMarkdown>
+          ) : (
+            <BuiltIn
+              streaming={streaming}
+              allowedImageHosts={allowedImageHosts}
+              labels={labels}
+              className="text-signoff-fg-muted text-[13px] leading-relaxed"
+            >
+              {text}
+            </BuiltIn>
+          )}
+        </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}

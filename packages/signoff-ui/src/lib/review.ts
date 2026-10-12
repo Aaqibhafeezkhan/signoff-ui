@@ -345,6 +345,8 @@ export interface DiffReviewToolOutput {
     oldPath?: string;
     status: FileStatus;
     decision: FileDecision;
+    /** `true` on a file the reviewer marked "Viewed", and absent on the others. */
+    viewed?: true;
     /** With `contents` (the default): the file with only the accepted hunks applied. */
     content?: string;
   }>;
@@ -383,9 +385,10 @@ function summarize(result: DiffReviewResult) {
 }
 
 /**
- * A review result shaped for the agent: a one-line summary, each file's decision (and contents, by
- * default), the rejected hunks with their lines, and every comment with its lines. JSON, so it is
- * an AI SDK tool output as it is: `addToolOutput({ tool, toolCallId, output: reviewToolOutput(result) })`.
+ * A review result shaped for the agent: a one-line summary, each file's decision (with its contents
+ * by default, and `viewed: true` when the reviewer marked it viewed), the rejected hunks with their
+ * lines, and every comment with its lines. JSON, so it is an AI SDK tool output as it is:
+ * `addToolOutput({ tool, toolCallId, output: reviewToolOutput(result) })`.
  * The summary is written in English for the model, whatever language the UI is in.
  */
 export function reviewToolOutput(
@@ -402,6 +405,7 @@ export function reviewToolOutput(
       ...(file.oldPath ? { oldPath: file.oldPath } : {}),
       status: file.status,
       decision: file.decision,
+      ...(file.viewed ? { viewed: true as const } : {}),
       ...(contents && file.content !== undefined ? { content: file.content } : {}),
     })),
     rejectedHunks: result.rejectedHunks.map(({ path, header, diff }) => ({ path, header, diff })),

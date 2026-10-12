@@ -6,7 +6,30 @@ Approval rules: what a person decided once, applied to the calls that follow. A 
 
 **Where rules are kept.** Session rules stay in memory until the page reloads or `clearSession()` runs. `always` rules go to `storage`: by default in memory, `webStorageRules()` for `localStorage`, or your own `{ load, save }`, which may be async. A rule's `when` is code, and is never saved. Rules are loaded after the first render, so a server render and the hydrating client agree. A call that arrives before they load is shown to a person.
 
+**Default rules.** `defaultRules` are the rules a person starts with, such as allowing reads. On a first visit, with nothing saved, they are the rules. An `always` default the person removes stays removed on later visits, and a default your app adds in a later version still appears. `webStorageRules()` keeps the removed ids under `<key>:removed-defaults`. A storage of your own keeps them with the optional `loadRemovedDefaults()` and `saveRemovedDefaults(ids)`; without these, a removed default comes back on the next load. Adding a rule with a removed default's id, as a "Reset" button would, brings it back. A `session` default is a session rule: it comes back with each page load.
+
 **On the server.** The same rules, as AI SDK 7's `toolApproval`: `streamText({ toolApproval: toToolApproval(rules) })` approves or denies a call a rule covers, and asks a person about the rest. The SDK checks it again on an approved call before running it, with edited arguments too. Rules a client sends are the choices of the person using it, so apply them to that person's runs only. Keep rules that protect other people on the server.
+
+A call a rule decides carries a reason, which the approval keeps as `approval.reason`: by default "Allowed by a rule: …" or "Denied by a rule: …", with the rule in words. When the server's rules and the person's both decide, give each set its own `reason`, so the page can tell whose rule it was. The server's rules go first, and `otherwise: 'not-applicable'` hands the calls they don't cover to the person's:
+
+```ts
+const server = toToolApproval(SERVER_RULES, {
+  otherwise: 'not-applicable',
+  reason: (match) =>
+    `${match.effect === 'allow' ? 'Allowed' : 'Denied'} by the server's rule: ${describeRule(match.rule)}`,
+});
+const yours = toToolApproval(rules);
+
+streamText({
+  // model, messages, tools…
+  toolApproval: (options) => {
+    const decided = server(options);
+    return decided === 'not-applicable' ? yours(options) : decided;
+  },
+});
+```
+
+`reason` gets the match: `effect` and the `rule`, with the rule's own `reason` if it has one. It is not called for a call no rule covers, which gets `otherwise`.
 
 **AG-UI and ACP.** With `useAgUiAgent`, an approval's resume payload is `{ approved, reason?, input? }`. For the Agent Client Protocol's `session/request_permission`:
 
@@ -15,3 +38,60 @@ Approval rules: what a person decided once, applied to the calls that follow. A 
 - `fromAcpPermissionRequest(request)` turns the request into the card's.
 
 ACP has no session option, so `allow-session` answers `allow_once` and leaves the session rule on the client. These helpers are types and functions only, with no ACP package to install.
+
+**Sending a person's rules with each request.** For the route to decide with the person's own rules, the page sends them with every request. The transport is made once and the rules change between requests, so `body` is a function, called as each request goes out. `policy.getRules()` returns the rules as they are at that moment, as plain data. It is the same function for the policy's life, so the transport is still made once. A "For this session" rule is in it as soon as the person chooses it, so the rule goes out with the request that carries that approval, and the server decides the run's next calls with it. Reading a ref in `body` would work too, but `react-hooks/refs` reports it.
+
+The page:
+
+```tsx
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
+import { useMemo } from 'react';
+import { AgentMessage, useApprovalPolicy, webStorageRules } from 'signoff-ui';
+
+const storage = webStorageRules(); // once, outside the component
+
+export function Run() {
+  const policy = useApprovalPolicy({ storage });
+  const { getRules } = policy;
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: '/api/chat', body: () => ({ rules: getRules() }) }),
+    [getRules],
+  );
+  const { messages, addToolApprovalResponse } = useChat({
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
+  return messages.map((m) => (
+    <AgentMessage key={m.id} message={m} approvalPolicy={policy} onToolApproval={addToolApprovalResponse} />
+  ));
+}
+```
+
+The route, `app/api/chat/route.ts`:
+
+```ts
+import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
+import { parseApprovalRules, toToolApproval } from 'signoff-ui/core';
+
+export async function POST(req: Request) {
+  const { messages, rules }: { messages: UIMessage[]; rules?: unknown } = await req.json();
+  const result = streamText({
+    model,
+    messages: await convertToModelMessages(messages, { tools }),
+    tools,
+    // This person's rules, for this person's run.
+    toolApproval: toToolApproval(parseApprovalRules(rules)),
+    stopWhen: stepCountIs(10),
+  });
+  return result.toUIMessageStreamResponse({ originalMessages: messages });
+}
+```
+
+**The server's rules win.** Rules the server keeps for everyone, such as one that denies `git push`, go first. Make them with `toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' })`, and ask the person's `toToolApproval(parseApprovalRules(rules))` only when that returns `'not-applicable'`. A rule a client sends then can't approve a call the server's rules deny.
+
+The route gets whatever the client sent, so `parseApprovalRules` checks it: each field and its type, at most 100 rules, 20 argument patterns in a rule, 500 characters in a string, and one `*` in a pattern, `**` counting as one. Each `*` more can make a pattern take seconds to match a long argument, which would hold up the server. Other limits go in the second argument, such as `parseApprovalRules(rules, { maxWildcards: 2 })`. A rule that fails a check is left out.
+
+A rule the server doesn't get still holds on the page: the server asks, and the policy answers without showing anyone a card. That covers rules with a `when`, which `getRules()` leaves out: `when` is code, and without it the rule would cover more calls than it does. `toPlainRules(rules)` does the same for rules kept outside the hook.

@@ -144,12 +144,18 @@ function script(prompt: Prompt): Chunk[] {
   ];
 }
 
-export const mockModel = new MockLanguageModelV4({
-  doStream: async ({ prompt }) => ({
-    stream: simulateReadableStream({
-      chunks: [{ type: 'stream-start', warnings: [] }, ...script(prompt)],
-      initialDelayInMs: 300,
-      chunkDelayInMs: 40,
+/**
+ * A new scripted model for each request. The mock keeps every call it gets (`doStreamCalls`), so one
+ * model kept for the server's lifetime would hold every run's prompt.
+ */
+export function createMockModel() {
+  return new MockLanguageModelV4({
+    doStream: async ({ prompt }) => ({
+      stream: simulateReadableStream({
+        chunks: [{ type: 'stream-start', warnings: [] }, ...script(prompt)],
+        initialDelayInMs: 300,
+        chunkDelayInMs: 40,
+      }),
     }),
-  }),
-});
+  });
+}
