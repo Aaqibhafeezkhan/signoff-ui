@@ -13,7 +13,7 @@ import { pageMetadata } from '@/lib/metadata';
 export const metadata = pageMetadata({
   title: 'Components · signoff-ui',
   description:
-    'Every signoff-ui component in isolation: diff review and approval card first, then tool call timeline, status, run meter, sources, theming, labels in Portuguese, markdown, reasoning, a whole message, an AG-UI agent and an ACP turn, with npm and shadcn install snippets.',
+    'Every signoff-ui component in isolation, from diff review and approval rules to an AG-UI agent and an ACP turn, with npm and shadcn install snippets.',
   path: '/gallery',
 });
 
@@ -23,7 +23,7 @@ interface GallerySection {
   /** The component's docs slug; without one, `guide` says where the section's docs are. */
   slug?: string;
   heading: string;
-  description: string;
+  description: ReactNode;
   guide?: { href: string; name: string; link: string; Demo: ComponentType };
 }
 
@@ -116,8 +116,13 @@ const SECTIONS: GallerySection[] = [
     id: 'ag-ui',
     slug: 'use-ag-ui-agent',
     heading: 'useAgUiAgent(agent)',
-    description:
-      'AG-UI agents (LangGraph, CrewAI, Mastra, Pydantic AI) through the same components. This one is a real @ag-ui/client agent replaying a LangGraph-style run: steps, streamed tool arguments, and an interrupt that resumes the run when you answer it.',
+    description: (
+      <>
+        AG-UI agents (LangGraph, CrewAI, Mastra, Pydantic AI) through the same components. This one is a real{' '}
+        <span className="whitespace-nowrap">@ag-ui/client</span> agent replaying a LangGraph-style run: steps, streamed
+        tool arguments, and an interrupt that resumes the run when you answer it.
+      </>
+    ),
   },
   {
     id: 'acp',

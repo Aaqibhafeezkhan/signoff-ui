@@ -9,6 +9,6 @@ export default function Image() {
     eyebrow: 'Components',
     title: 'Every component, live',
     description:
-      'Tool timelines, approvals, per-hunk diff review, run telemetry, sources and an AG-UI agent, each with its install command.',
+      'Per-hunk diff review, approvals and their rules, tool timelines, run telemetry, sources, an AG-UI agent and an ACP turn, each with its install command.',
   });
 }

@@ -1,4 +1,4 @@
-signoff-ui is a set of React components for the step where a person signs off on what an agent does: reviewing the edits it proposes, across files and hunk by hunk, and approving or denying the calls that need a person. The result goes back to the agent as something it can act on: each file with only the accepted hunks applied, the hunks rejected and the reviewer's comments on lines, or an approval with the reason for a denial. The components render the message parts the AI SDK's `useChat` already gives you, and AG-UI agents through an adapter, inside the chat UI you already have.
+signoff-ui is a set of React components for the step where a person signs off on what an agent does: reviewing the edits it proposes, across files and hunk by hunk, and approving or denying the calls that need a person. The result goes back to the agent as something it can act on: each file with only the accepted hunks applied, the hunks rejected and the reviewer's comments on lines, or an approval with the reason for a denial. The components render the message parts the AI SDK's `useChat` already gives you, AG-UI agents and Agent Client Protocol (ACP) turns through adapters, and assistant-ui's tool calls through a binding of their own, inside the chat UI you already have.
 
 It works with any model and costs nothing extra. The kit calls no model, needs no API key and makes no network requests of its own. Your backend picks the model and holds the keys: OpenAI GPT, Anthropic Claude, Google Gemini, xAI Grok, Mistral or a local model through any AI SDK provider, or an agent on any AG-UI framework (LangGraph, CrewAI, Mastra and the rest). Switching providers is [one line in your route](/docs/getting-started#choosing-a-model); the components don't change.
 
@@ -16,23 +16,27 @@ The chat kits most teams use stop short of the first two: assistant-ui's reviewa
 
 For review and approval:
 
-| Export                             | What it renders                                                                                                                                                                                             |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DiffReview`                       | Unified or split review of edits across files, from their contents or a patch, with word-level highlights; returns each file with only the accepted hunks applied, the rejected hunks and comments on lines |
-| `ApprovalCard`, `ToolApprovalCard` | Human-in-the-loop approval with a preview of what will run, a risk level when given, deny with a reason, and automatic decisions shown as such                                                              |
+| Export                             | What it renders                                                                                                                                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DiffReview`                       | Unified or split review of edits across files, from their contents or a patch, with word-level highlights; returns each file with only the accepted hunks applied, the rejected hunks and comments on lines. Your own controls go in its header (`actions`) |
+| `useDiffReview`                    | The same review without its markup: its state, keyboard and result, for your own design system                                                                                                                                                              |
+| `ApprovalCard`, `ToolApprovalCard` | Human-in-the-loop approval with a preview of what will run, a risk level when given, deny with a reason, and automatic decisions shown as such                                                                                                              |
+| `useApprovalPolicy`                | Approval rules: once, for the session or always, by tool and argument pattern, with storage and an audit trail. `getRules` sends them with each request, and `parseApprovalRules` from `signoff-ui/core` checks them in the route                           |
 
 Supporting pieces:
 
-| Export             | What it renders                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `AgentMessage`     | A whole assistant message: reasoning, streaming markdown, consecutive tool calls as one timeline, approvals inline, files and sources |
-| `ToolCallTimeline` | Every tool call with its state, a measured duration and a waterfall; errors inline, input and output on demand                        |
-| `RunMeter`         | Tokens, estimated cost, time to first token, active time and prompt-cache hit rate                                                    |
-| `AgentStatus`      | The run's state in one pill, announced to screen readers                                                                              |
-| `Sources`          | Citations as chips or cards, linked from `[n]` markers in the text                                                                    |
-| `useAgUiAgent`     | An AG-UI agent's run as AI SDK messages, status, usage and approvals                                                                  |
+| Export             | What it renders                                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AgentMessage`     | A whole assistant message: reasoning, streaming markdown, consecutive tool calls as one timeline, approvals inline, files and sources                                  |
+| `ToolCallTimeline` | Every tool call with its state, a measured duration and a waterfall, and sub-agents nested under the call that started them; errors inline, input and output on demand |
+| `RunMeter`         | Tokens, estimated cost, time to first token, active time and prompt-cache hit rate                                                                                     |
+| `AgentStatus`      | The run's state in one pill, announced to screen readers                                                                                                               |
+| `Sources`          | Citations as chips or cards, linked from `[n]` markers in the text                                                                                                     |
+| `useAgUiAgent`     | An AG-UI agent's run as AI SDK messages, status, usage and approvals                                                                                                   |
+| `signoff-ui/acp`   | An ACP prompt turn as a message, its permission requests as approval cards and its edits as `DiffReview` files                                                         |
+| `signoffTools`     | assistant-ui tool UIs, from `signoff-ui/assistant-ui`: a `DiffReview` for review tools and the approval card at an approval gate                                       |
 
-`Markdown`, `Reasoning` and `JsonView` are exported on their own too, with hooks such as `useRunTiming` and pure helpers such as `deriveAgentState`, `addUsage`, `estimateCost` and `applyHunks`. The helpers are also in `signoff-ui/core`, which has no React, for Route Handlers and Server Components.
+`Markdown`, `Reasoning` and `JsonView` are exported on their own too. `AgentMessage` and `Reasoning` can render text with your own Markdown renderer (`renderMarkdown`), and `signoff-ui/custom-markdown` exports them without react-markdown. There are also hooks such as `useRunTiming` and pure helpers such as `deriveAgentState`, `addUsage`, `estimateCost` and `applyHunks`. The helpers are also in `signoff-ui/core`, which has no React, for Route Handlers and Server Components.
 
 Every word the components show or announce is a label: `SignoffLabelsProvider` takes a translation of them all, or a few, and [Labels and translations](/docs/labels) has a complete one in Portuguese.
 
@@ -83,4 +87,7 @@ The [playground](/) doesn't fake any of this. Its scripted agent is a `ChatTrans
 - [Getting started](/docs/getting-started): install, styles, a first run in Next.js with a review and an approval, AI SDK 6 or 7, and theming.
 - [Inside your chat UI](/docs/chat-ui): with assistant-ui, AI Elements or your own components.
 - [AG-UI agents](/docs/ag-ui): LangGraph, CrewAI, Mastra and other AG-UI agents through `useAgUiAgent`.
+- [Agent Client Protocol](/docs/acp): an ACP prompt turn, its permission requests and its edits, through `signoff-ui/acp`.
+- [useApprovalPolicy](/docs/components/use-approval-policy): approval rules on the page and in your route.
+- [useDiffReview](/docs/components/use-diff-review): the review in your own markup.
 - [Components](/gallery): each component in isolation, with install snippets.

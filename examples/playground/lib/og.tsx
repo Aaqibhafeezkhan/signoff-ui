@@ -98,7 +98,7 @@ export function ogImage({
         }}
       >
         <span>signoff-ui.vercel.app</span>
-        <span style={{ color: '#c9d1d9' }}>AI SDK 6 & 7 · AG-UI</span>
+        <span style={{ color: '#c9d1d9' }}>AI SDK 6 & 7 · AG-UI · ACP · assistant-ui</span>
       </div>
     </div>,
     {
