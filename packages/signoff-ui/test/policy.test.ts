@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   decisionEffect,
   decisionsFromAcpOptions,
@@ -16,6 +16,7 @@ import {
   toToolApprovalResponse,
   type AcpPermissionOption,
   type ApprovalRule,
+  type RuleMatch,
 } from '../src/lib/policy';
 import { memoryRuleStorage, webStorageRules } from '../src/use-approval-policy';
 
@@ -245,6 +246,90 @@ describe('AI SDK mappings', () => {
     expect(fromStore({ toolCall: { toolName: 'run_command', input: { command: 'npm test' } } })).toMatchObject({
       type: 'approved',
     });
+  });
+
+  it('keeps the default reason when no reason is given', () => {
+    const call = (command: string) => ({ toolCall: { toolName: 'run_command', input: { command } } });
+    const withoutOwnReason = [...rules, rule({ id: 'g', effect: 'deny', args: { command: 'git push*' } })];
+    for (const toolApproval of [
+      toToolApproval(withoutOwnReason),
+      toToolApproval(withoutOwnReason, {}),
+      toToolApproval(withoutOwnReason, { reason: undefined }),
+      toToolApproval(withoutOwnReason, { otherwise: 'not-applicable' }),
+    ]) {
+      expect(toolApproval(call('npm test'))).toEqual({
+        type: 'approved',
+        reason: 'Allowed by a rule: run_command with command npm test*',
+      });
+      expect(toolApproval(call('rm -r x'))).toEqual({
+        type: 'denied',
+        reason: 'Denied by a rule: run_command with command rm * (No deletes)',
+      });
+      expect(toolApproval(call('git push'))).toEqual({
+        type: 'denied',
+        reason: 'Denied by a rule: run_command with command git push*',
+      });
+    }
+  });
+
+  it('words the reason of each set of rules its own way', () => {
+    const call = (toolName: string, input: unknown = {}) => ({ toolCall: { toolName, input } });
+    const serverReason = vi.fn(
+      (match: RuleMatch) =>
+        `${match.effect === 'allow' ? 'Allowed' : 'Denied'} by the server's rule: ${describeRule(match.rule)}`,
+    );
+    const server = toToolApproval(
+      [
+        rule({ id: 's:push', effect: 'deny', args: { command: 'git push*' }, reason: 'A person pushes' }),
+        rule({ id: 's:status', args: { command: 'git status' } }),
+      ],
+      { otherwise: 'not-applicable', reason: serverReason },
+    );
+    const yours = toToolApproval(
+      [
+        rule({ id: 'y:read', tool: 'read_file' }),
+        rule({ id: 'y:rm', effect: 'deny', args: { command: 'rm *' }, reason: 'No deletes' }),
+      ],
+      {
+        reason: ({ effect, rule: { reason } }) =>
+          `${effect === 'allow' ? 'Allowed' : 'Denied'} by your rule${reason ? `: ${reason}` : ''}`,
+      },
+    );
+    // The server's rules first; the calls they don't cover go to the person's.
+    const both = (options: { toolCall: { toolName: string; input: unknown } }) => {
+      const decided = server(options);
+      return decided === 'not-applicable' ? yours(options) : decided;
+    };
+
+    expect(both(call('run_command', { command: 'git push origin main' }))).toEqual({
+      type: 'denied',
+      reason: "Denied by the server's rule: run_command with command git push*",
+    });
+    expect(serverReason).toHaveBeenLastCalledWith({
+      effect: 'deny',
+      rule: expect.objectContaining({ id: 's:push', reason: 'A person pushes' }),
+    });
+    expect(both(call('run_command', { command: 'git status' }))).toEqual({
+      type: 'approved',
+      reason: "Allowed by the server's rule: run_command with command git status",
+    });
+    expect(both(call('read_file', { path: 'a.ts' }))).toEqual({ type: 'approved', reason: 'Allowed by your rule' });
+    expect(both(call('run_command', { command: 'rm -r x' }))).toEqual({
+      type: 'denied',
+      reason: 'Denied by your rule: No deletes',
+    });
+
+    // No rule covers it: `otherwise`, and no reason is worded.
+    serverReason.mockClear();
+    expect(server(call('write_file'))).toBe('not-applicable');
+    expect(both(call('write_file'))).toBe('user-approval');
+    expect(serverReason).not.toHaveBeenCalled();
+    const reason = vi.fn(() => 'unused');
+    expect(toToolApproval([], { reason })(call('write_file'))).toBe('user-approval');
+    expect(
+      toToolApproval([], { reason, otherwise: { type: 'user-approval', reason: 'Writes a file.' } })(call('x')),
+    ).toEqual({ type: 'user-approval', reason: 'Writes a file.' });
+    expect(reason).not.toHaveBeenCalled();
   });
 
   it('answers useChat with approved and the reason', () => {

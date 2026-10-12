@@ -1,9 +1,44 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApprovalRule } from '../src/lib/policy';
-import { memoryRuleStorage, useApprovalPolicy, type ApprovalAuditEvent } from '../src/use-approval-policy';
+import {
+  memoryRuleStorage,
+  useApprovalPolicy,
+  webStorageRules,
+  type ApprovalAuditEvent,
+  type ApprovalRuleStorage,
+} from '../src/use-approval-policy';
 
 const request = (command: string, id = `a-${command}`) => ({ id, toolName: 'run_command', input: { command } });
+
+const READ: ApprovalRule = { id: 'default:read', tool: 'read_file', effect: 'allow', scope: 'always' };
+const LIST: ApprovalRule = { id: 'default:list', tool: 'list_files', effect: 'allow', scope: 'always' };
+const COMMIT: ApprovalRule = {
+  id: 'default:commit',
+  tool: 'run_command',
+  args: { command: 'git commit*' },
+  effect: 'allow',
+  scope: 'always',
+};
+
+/** localStorage as a Map, to look inside. */
+function fakeStorage() {
+  const items = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => items.get(k) ?? null,
+    setItem: (k: string, v: string) => void items.set(k, v),
+  } as Storage;
+  return { items, storage };
+}
+
+/** A page load: the hook with these defaults, once the storage has loaded. */
+async function load(storage: ApprovalRuleStorage, defaultRules: readonly ApprovalRule[]) {
+  const hook = renderHook(() => useApprovalPolicy({ storage, defaultRules }));
+  await waitFor(() => expect(hook.result.current.ready).toBe(true));
+  return hook;
+}
+const ids = (hook: { result: { current: { rules: readonly ApprovalRule[] } } }) =>
+  hook.result.current.rules.map((r) => r.id);
 
 describe('useApprovalPolicy', () => {
   it('remembers session and always decisions as rules, and answers the next call from them', async () => {
@@ -90,6 +125,88 @@ describe('useApprovalPolicy', () => {
     await act(async () => resolve([{ id: 'saved', tool: 'run_command', effect: 'deny', scope: 'always' }]));
     expect(result.current.ready).toBe(true);
     expect(result.current.rules.map((r) => r.id)).toEqual(['preset', 'saved']);
+  });
+
+  it('keeps a removed default removed across loads, and shows a default added later', async () => {
+    const { items, storage: local } = fakeStorage();
+    const storage = webStorageRules('rules', () => local);
+
+    // A first visit: nothing saved, so the defaults.
+    const first = await load(storage, [READ, LIST]);
+    expect(ids(first)).toEqual(['default:read', 'default:list']);
+    act(() => first.result.current.removeRule('default:read'));
+    expect(ids(first)).toEqual(['default:list']);
+    first.unmount();
+    expect(JSON.parse(items.get('rules:removed-defaults')!)).toEqual(['default:read']);
+
+    // The next visit: still removed.
+    const second = await load(storage, [READ, LIST]);
+    expect(ids(second)).toEqual(['default:list']);
+    second.unmount();
+
+    // A later version of the app adds a default: it appears, and the removed one stays removed.
+    const third = await load(storage, [READ, LIST, COMMIT]);
+    expect(ids(third)).toEqual(['default:list', 'default:commit']);
+    expect(third.result.current.match('read_file', { path: 'a.ts' })).toBeUndefined();
+  });
+
+  it('keeps every default removed once all are, and brings one back when it is added again', async () => {
+    const storage = memoryRuleStorage();
+    const first = await load(storage, [READ, LIST]);
+    act(() => {
+      first.result.current.removeRule('default:read');
+      first.result.current.removeRule('default:list');
+    });
+    first.unmount();
+    const second = await load(storage, [READ, LIST]);
+    expect(ids(second)).toEqual([]);
+
+    // "Reset": the default added back, as the app's own rule.
+    act(() => second.result.current.addRule({ ...READ }));
+    second.unmount();
+    const third = await load(storage, [READ, LIST]);
+    expect(ids(third)).toEqual(['default:read']);
+  });
+
+  it('keeps rules saved before removed defaults were kept, and brings back session defaults', async () => {
+    const { items, storage: local } = fakeStorage();
+    // Saved by an earlier version: always rules, no removed defaults.
+    items.set('rules', JSON.stringify([LIST, { id: 'mine', tool: 'run_command', effect: 'deny', scope: 'always' }]));
+    const session: ApprovalRule = { id: 'default:session', tool: 'search', effect: 'allow', scope: 'session' };
+    const storage = webStorageRules('rules', () => local);
+    const first = await load(storage, [READ, LIST, session]);
+    expect(ids(first)).toEqual(['default:read', 'default:list', 'default:session', 'mine']);
+
+    // Clearing the session's rules removes no default for good.
+    act(() => first.result.current.clearSession());
+    expect(ids(first)).toEqual(['default:read', 'default:list', 'mine']);
+    first.unmount();
+    expect(items.has('rules:removed-defaults')).toBe(false);
+    const second = await load(storage, [READ, LIST, session]);
+    expect(ids(second)).toEqual(['default:read', 'default:list', 'default:session', 'mine']);
+  });
+
+  it('brings a removed default back with a storage that keeps no removed defaults', async () => {
+    const saved = memoryRuleStorage();
+    const storage: ApprovalRuleStorage = { load: () => saved.load(), save: (rules) => saved.save(rules) };
+    const first = await load(storage, [READ, LIST]);
+    act(() => first.result.current.removeRule('default:read'));
+    first.unmount();
+    expect(ids(await load(storage, [READ, LIST]))).toEqual(['default:read', 'default:list']);
+  });
+
+  it('loads removed defaults from an async storage, and the rules when they fail to load', async () => {
+    const saved = memoryRuleStorage([LIST]);
+    const removed = vi.fn(() => Promise.resolve(['default:read']));
+    const storage: ApprovalRuleStorage = {
+      load: () => saved.load(),
+      save: (rules) => saved.save(rules),
+      loadRemovedDefaults: removed,
+      saveRemovedDefaults: vi.fn(),
+    };
+    expect(ids(await load(storage, [READ, LIST]))).toEqual(['default:list']);
+    removed.mockImplementation(() => Promise.reject(new Error('offline')));
+    expect(ids(await load(storage, [READ, LIST]))).toEqual(['default:read', 'default:list']);
   });
 
   it('is ready after a storage that fails to load', async () => {

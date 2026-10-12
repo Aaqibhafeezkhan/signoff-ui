@@ -1,7 +1,7 @@
 import { convertToModelMessages, jsonSchema, readUIMessageStream, streamText, tool, type UIMessage } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it } from 'vitest';
-import { setToolInput, toToolApproval, type ApprovalRule } from '../src/lib/policy';
+import { describeRule, setToolInput, toToolApproval, type ApprovalRule } from '../src/lib/policy';
 import { AI_SDK_MAJOR } from './utils';
 
 const usage = {
@@ -41,7 +41,7 @@ function model(command: string) {
   });
 }
 
-function setup(rules: ApprovalRule[], command: string) {
+function setup(rules: ApprovalRule[], command: string, toolApproval = toToolApproval(rules)) {
   const ran: string[] = [];
   const tools = {
     run_command: tool({
@@ -62,7 +62,7 @@ function setup(rules: ApprovalRule[], command: string) {
       model: llm,
       messages: await convertToModelMessages(messages, { tools }),
       tools,
-      toolApproval: toToolApproval(rules),
+      toolApproval,
     }).toUIMessageStream({ originalMessages: messages });
     let last: UIMessage | undefined;
     for await (const message of readUIMessageStream({ stream })) last = message;
@@ -111,8 +111,67 @@ describe.skipIf(AI_SDK_MAJOR < 7)('approval rules with AI SDK 7', () => {
       'rm -rf /',
     );
     const message = await run([user]);
-    expect(message.parts.find((p) => p.type === 'tool-run_command')).toMatchObject({ state: 'output-denied' });
+    expect(message.parts.find((p) => p.type === 'tool-run_command')).toMatchObject({
+      state: 'output-denied',
+      approval: { isAutomatic: true, approved: false, reason: 'Denied by a rule: run_command with command rm *' },
+    });
     expect(ran).toEqual([]);
+  });
+
+  describe('with the server’s rules and the person’s, each giving its own reason', () => {
+    const server = toToolApproval(
+      [{ id: 's', tool: 'run_command', args: { command: 'git push*' }, effect: 'deny', scope: 'always' }],
+      {
+        otherwise: 'not-applicable',
+        reason: (match) => `Denied by the server's rule: ${describeRule(match.rule)}`,
+      },
+    );
+    const yours = (rules: ApprovalRule[]) => {
+      const approval = toToolApproval(rules, {
+        reason: (match) => `Allowed by your rule: ${describeRule(match.rule)}`,
+      });
+      return (options: { toolCall: { toolName: string; input: unknown } }) => {
+        const decided = server(options);
+        return decided === 'not-applicable' ? approval(options) : decided;
+      };
+    };
+    const allowAll: ApprovalRule[] = [{ id: 'y', tool: 'run_command', effect: 'allow', scope: 'session' }];
+
+    it('denies with the server’s reason, whatever the person’s rules allow', async () => {
+      const { ran, run } = setup(allowAll, 'git push origin main', yours(allowAll));
+      const message = await run([user]);
+      expect(message.parts.find((p) => p.type === 'tool-run_command')).toMatchObject({
+        state: 'output-denied',
+        approval: {
+          isAutomatic: true,
+          approved: false,
+          reason: "Denied by the server's rule: run_command with command git push*",
+        },
+      });
+      expect(ran).toEqual([]);
+    });
+
+    it('approves with the person’s reason what the server leaves to them', async () => {
+      const { ran, run } = setup(allowAll, 'npm test', yours(allowAll));
+      const message = await run([user]);
+      expect(message.parts.find((p) => p.type === 'tool-run_command')).toMatchObject({
+        state: 'output-available',
+        approval: { isAutomatic: true, approved: true, reason: 'Allowed by your rule: run_command, any arguments' },
+      });
+      expect(ran).toEqual(['npm test']);
+    });
+
+    it('asks a person about what neither set covers', async () => {
+      const { ran, run } = setup([], 'npm test', yours([]));
+      const message = await run([user]);
+      const part = message.parts.find((p) => p.type === 'tool-run_command') as {
+        state: string;
+        approval?: { reason?: string };
+      };
+      expect(part.state).toBe('approval-requested');
+      expect(part.approval?.reason).toBeUndefined();
+      expect(ran).toEqual([]);
+    });
   });
 
   it('runs the arguments a person edited before approving', async () => {

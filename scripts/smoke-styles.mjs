@@ -179,10 +179,11 @@ try {
 
   // The app's content inside a component is the app's: a Tailwind v4 app whose theme doubles the
   // spacing (`--spacing: .5rem`) and changes text-sm and rounded-lg renders its own markup in
-  // renderData, renderTool, an approval card's preview and a timeline's renderOutput, two
-  // components deep. That markup keeps the app's values; before, styles.css set --spacing on every
-  // component and its own `.p-4` won, so the app's p-4 read 16px instead of 32px. The components
-  // in those slots, and the kit's own elements, compute what they compute with styles.css alone.
+  // renderData, renderTool, an approval card's preview, a timeline's renderOutput and a review's
+  // actions, two components deep. That markup keeps the app's values; before, styles.css set
+  // --spacing on every component and its own `.p-4` won, so the app's p-4 read 16px instead of
+  // 32px. The components in those slots, and the kit's own elements, compute what they compute
+  // with styles.css alone.
   {
     const { compile } = require('tailwindcss');
     const twDir = join(dirname(require.resolve('tailwindcss')), '..');
@@ -232,6 +233,11 @@ try {
             mine('renderTool'),
             card({ preview: mine('preview'), 'data-ref': 'card' }),
             h('div', { 'data-ref': 'timeline' }, timeline()),
+            h(kit.DiffReview, {
+              files: [{ path: 'a.ts', oldContent: 'a\n', newContent: 'b\n' }],
+              readOnly: true,
+              actions: mine('actions'),
+            }),
           ),
       }),
     );
@@ -281,7 +287,7 @@ try {
       'margin-top': '0px',
     };
     const problems = [];
-    for (const name of ['renderData', 'renderTool', 'preview', 'renderOutput']) {
+    for (const name of ['renderData', 'renderTool', 'preview', 'renderOutput', 'actions']) {
       const actual = inApp.app[name];
       if (!actual) problems.push(`${name}: not rendered`);
       else

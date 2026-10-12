@@ -103,7 +103,7 @@ export const COMPONENTS: ComponentDoc[] = [
     accessibility: [
       'A `<section>` named by its title. Hunks use a roving tabindex, so the whole review is one tab stop that J, K and the arrows move through.',
       'Each hunk is a group named like "Hunk 2 of 4, app/api/chat/route.ts, lines 12 to 20, accepted"; a file decided as a whole, like "Change 5 of 6, logo.png, binary file, not reviewed".',
-      'Every shortcut is also a button: "Accept hunk 2", "Reject hunk 2", "Reset hunk 2" with `aria-pressed`, "Comment on hunk 2", "Accept file app/route.ts", the "Viewed app/route.ts" checkbox, the layout toggle and Apply. Shortcuts only work while focus is inside the review.',
+      'Every shortcut is also a button: "Accept hunk 2", "Reject hunk 2", "Reset hunk 2" with `aria-pressed`, "Comment on hunk 2", "Accept file app/route.ts", the "Viewed app/route.ts" checkbox, the layout toggle and Apply. Shortcuts only work while focus is inside the review, and not on your own controls in `actions`.',
       'Selected lines are announced as they change, line by line: "Added: const ip = … Lines 15 to 17 selected." The comment editor is a labelled text area ("Comment on lines 15 to 17, for the agent") that takes focus, and focus returns to the hunk when it closes.',
       'The file list is a navigation landmark ("Files in this review") with one tab stop: the arrow keys, Home and End move through it, and each entry reads its path, how many changes are decided and whether it is viewed. A folded file has an expand button with `aria-expanded`.',
       'Line numbers and the buttons that show unchanged lines are clickable but out of the tab order (Shift and the arrows select lines, E shows context); the numbers are hidden from screen readers, which read the lines themselves.',
@@ -241,6 +241,7 @@ export const COMPONENTS: ComponentDoc[] = [
       'ApprovalOutcome',
       'ApprovalAuditEvent',
       'ApprovalRuleStorage',
+      'ToToolApprovalOptions',
     ],
     imports: {
       npm: npm('useApprovalPolicy, webStorageRules, setToolInput'),
