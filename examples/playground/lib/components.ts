@@ -236,6 +236,7 @@ export const COMPONENTS: ComponentDoc[] = [
     api: [{ name: 'useApprovalPolicy', parameters: 'UseApprovalPolicyOptions', returns: 'ApprovalPolicy' }],
     types: [
       'ApprovalRule',
+      'ApprovalRuleLimits',
       'ApprovalDecision',
       'ApprovalRequest',
       'ApprovalOutcome',

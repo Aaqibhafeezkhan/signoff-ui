@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   decisionEffect,
   evaluateRules,
   ruleFromDecision,
+  toPlainRules,
   type ApprovalDecision,
   type ApprovalRequest,
   type ApprovalRule,
@@ -147,6 +148,12 @@ export interface UseApprovalPolicyOptions {
 
 export interface ApprovalPolicy {
   rules: readonly ApprovalRule[];
+  /**
+   * The rules as they are now, as plain data to send with a request (see `toPlainRules`: a rule
+   * with a `when` stays on the page). The same function for the policy's life, so a transport made
+   * once can call it in `body`, and it has a rule a decision just made before the page re-renders.
+   */
+  getRules(): ApprovalRule[];
   /** The storage has loaded: after the first render, or once an async storage's promise settles. */
   ready: boolean;
   /** The rule that decides a call, if one does. */
@@ -248,9 +255,11 @@ export function useApprovalPolicy({
     outcomes.current.set(outcome.id, outcome);
     return outcome;
   };
+  const getRules = useCallback(() => toPlainRules(latest.current), []);
 
   return {
     rules,
+    getRules,
     ready,
     match: (toolName, input) => evaluateRules(latest.current, toolName, input),
     decide(request, decision, { reason, input, args } = {}) {
