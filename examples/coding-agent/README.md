@@ -30,9 +30,9 @@ The task: `slugify('Crème brûlée')` returns `cr-me-br-l-e`, and should return
 2. It asks to run `npm test`. The approval card offers once, for this session or always, for the command's pattern (`npm test*`), and an edit of the command first. "For this session" leaves a rule.
 3. It proposes a fix across three files. In `DiffReview` you accept or reject each hunk or a whole file, comment on lines and mark files viewed. `reviewToolOutput` sends the agent each file as applied, the hunks you rejected and your comments.
 4. It quotes your comments and proposes a revision, built on the files as you applied them. The scripted agent revises whatever the comment says; a real model reads it.
-5. It runs the tests again on your session rule, commits on a default rule, and tries to push. The server's rule denies `git push*`, and the card says so.
+5. It runs the tests again on your session rule, commits on a default rule, and tries to push. The server's rule denies `git push*`, and the card says it was the server's rule, not yours.
 
-Beside the run: the agent's status and the run meter (tokens, estimated cost, time to first token), your rules (remove one, clear the session's, or reset them), every decision with who or which rule made it, and the files the run changed. At the end, the run's changes as one review, and a patch to copy.
+Beside the run: the agent's status and the run meter (tokens, estimated cost, time to first token), your rules (remove one, clear the session's, or reset them; a default rule you remove stays removed), every decision with who or which rule made it, and the files the run changed. At the end, the run's changes as one review, with a button in its header that copies them as a patch.
 
 ## How it works
 
@@ -41,23 +41,23 @@ Beside the run: the agent's status and the run meter (tokens, estimated cost, ti
 | [`app/api/agent/route.ts`](app/api/agent/route.ts)     | The route: `streamText` with the tools, `toolApproval` from the rules, usage as message metadata                 |
 | [`lib/approval.ts`](lib/approval.ts)                   | `toToolApproval`: the server's rules first, then yours (sent with each request), and a person decides the rest   |
 | [`lib/rules.ts`](lib/rules.ts)                         | The server's rule (no pushes) and your default rules                                                             |
-| [`lib/transport.ts`](lib/transport.ts)                 | What each request carries besides the messages: the agent to use, and your rules                                 |
+| [`lib/transport.ts`](lib/transport.ts)                 | What each request carries besides the messages: the agent to use, and your rules from `policy.getRules()`        |
 | [`lib/tools.ts`](lib/tools.ts)                         | `list_files`, `read_file`, `run_command`, and `review_changes` with no `execute`: the page answers it            |
 | [`lib/shell.ts`](lib/shell.ts)                         | `npm test`, `git status`, `git diff`, `git commit` and `git push`, simulated over the files                      |
 | [`lib/workspace.ts`](lib/workspace.ts)                 | The repository as the reviews left it, rebuilt from the messages on every request                                |
 | [`lib/scripted-agent.ts`](lib/scripted-agent.ts)       | The scripted agent: a language model that reads where the run is from the tool results and streams the next step |
 | [`lib/model.ts`](lib/model.ts)                         | The scripted agent, or `openai(OPENAI_MODEL)` for a live run, and the agent's instructions                       |
 | [`lib/project.ts`](lib/project.ts)                     | The repository the agent works in, and the task. The scripted agent plays this task; a real model takes any      |
-| [`components/agent-app.tsx`](components/agent-app.tsx) | The page: `useChat`, `useApprovalPolicy`, `AgentMessage`, `AgentStatus`, `RunMeter`                              |
+| [`components/agent-app.tsx`](components/agent-app.tsx) | The page: `useChat`, `useApprovalPolicy` with your default rules, `AgentMessage`, `AgentStatus`, `RunMeter`      |
 | [`components/review.tsx`](components/review.tsx)       | `review_changes` as a `DiffReview`, then what was applied                                                        |
-| [`components/panels.tsx`](components/panels.tsx)       | Your rules, the decisions, the files, and the run's changes with `toPatch`                                       |
+| [`components/panels.tsx`](components/panels.tsx)       | Your rules, the decisions, the files, and the run's changes, with "Copy as a patch" (`toPatch`) in the review    |
 
-Nothing touches your disk or runs in a shell: the repository lives in memory, the commands are simulated, and each review's result carries the files as applied, so the server keeps no state between requests. Rules from the page are the person's own choices for their run; the server's rules hold whatever the page sends.
+Nothing touches your disk or runs in a shell: the repository lives in memory, the commands are simulated, and each review's result carries the files as applied, so the server keeps no state between requests. Rules from the page are the person's own choices for their run; the server's rules hold whatever the page sends. The page sends its rules as plain data (`getRules()` uses `toPlainRules`): a rule with a `when` is code, so it stays on the page, which answers the calls it covers when the server asks.
 
 The scripts build with webpack (`next dev --webpack`), so the app also builds where Next.js has no native compiler for the platform and uses its WebAssembly one, which Turbopack can't run on.
 
 ## Tests
 
-`npm test` plays the whole scripted run headless, through AI SDK's `Chat` against the route, and checks the rules and the simulated commands. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine, and a key on the server alone never starts it.
+`npm test` plays the whole scripted run headless, through AI SDK's `Chat` and the page's transport against the route, and checks the rules, the simulated commands, and what the page sends and keeps. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine, and a key on the server alone never starts it.
 
 In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`). CI runs its tests and [`scripts/smoke-coding-agent.mjs`](../../scripts/smoke-coding-agent.mjs), which builds a copy of it against the packed package and drives the run in Chrome, on a desktop and a phone, with axe. Copied on its own, it installs `signoff-ui` from npm at the range in `package.json`, which each release moves to the version it publishes.

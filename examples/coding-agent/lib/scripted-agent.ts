@@ -119,7 +119,8 @@ function summary(state: RunState, outcome: { commit?: string; push?: ToolOutput;
   if (push?.type === 'execution-denied') {
     lines.push(
       '',
-      push.reason?.startsWith('Denied by a rule')
+      // The reason lib/approval.ts gives a call the server's rules deny.
+      push.reason?.startsWith("Denied by the server's rule")
         ? `A rule on the server blocks ${code('git push')}, so the branch stays local: push it and open the pull request when you're ready.`
         : 'You denied the push, so the branch stays local.',
     );

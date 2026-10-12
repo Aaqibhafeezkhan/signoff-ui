@@ -18,7 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PRICING } from '@/lib/config';
 import { BRANCH, REPO, TASK } from '@/lib/project';
 import { ruleStorage } from '@/lib/rule-storage';
-import { setOutgoing, transport } from '@/lib/transport';
+import { DEFAULT_RULES } from '@/lib/rules';
+import { agentTransport } from '@/lib/transport';
 import type { Mode, RunMessage } from '@/lib/types';
 import { filesFromMessages } from '@/lib/workspace';
 import { SparkIcon } from './icons';
@@ -44,12 +45,10 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
   const [reply, setReply] = useState('');
 
   // Your approval rules: the cards record them, and each request takes them to the server.
-  const policy = useApprovalPolicy({
-    storage: ruleStorage,
-    // A person's "for this session" goes out with the approval itself: send the new rule with it.
-    onRulesChange: (rules) => setOutgoing({ rules }),
-  });
-  useEffect(() => setOutgoing({ mode, rules: policy.rules }), [mode, policy.rules]);
+  const policy = useApprovalPolicy({ storage: ruleStorage, defaultRules: DEFAULT_RULES });
+  // getRules is read as each request goes out: a "For this session" goes with the approval that made it.
+  const { getRules } = policy;
+  const transport = useMemo(() => agentTransport(mode, getRules), [mode, getRules]);
 
   const { messages, status, error, sendMessage, setMessages, stop, addToolOutput, addToolApprovalResponse } =
     useChat<RunMessage>({
@@ -99,7 +98,6 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
   };
   const switchMode = (next: Mode) => {
     if (running) void stop();
-    setOutgoing({ mode: next });
     setMode(next);
     setRun((n) => n + 1);
   };

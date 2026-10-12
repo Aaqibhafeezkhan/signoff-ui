@@ -1,6 +1,5 @@
 import { Chat } from '@ai-sdk/react';
 import {
-  DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
   lastAssistantMessageIsCompleteWithToolCalls,
   type LanguageModel,
@@ -10,44 +9,53 @@ import {
   getToolParts,
   parseFileChange,
   reviewToolOutput,
+  toPlainRules,
   type ApprovalRule,
   type DiffReviewComment,
   type DiffHunk,
   type HunkDecision,
 } from 'signoff-ui/core';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '../app/api/agent/route';
 import { INSTRUCTIONS } from '../lib/model';
 import { DEFAULT_RULES } from '../lib/rules';
 import type { CommandResult } from '../lib/shell';
 import type { ProposedFiles } from '../lib/tools';
+import { agentTransport } from '../lib/transport';
 import type { Mode, RunMessage } from '../lib/types';
 import { filesFromMessages } from '../lib/workspace';
 import { TASK } from '../lib/project';
 
 /*
  * The whole run, headless: AI SDK's own Chat (what useChat wraps) against the route, with the
- * page's sendAutomaticallyWhen. The tests play the person: approve, review, comment. No waiting
- * (lib/pace is stubbed), and no network: the live model is a stub.
+ * page's transport and sendAutomaticallyWhen. The tests play the person: approve, review, comment.
+ * No waiting (lib/pace is stubbed), and no network: fetch goes to the route, and the live model is a stub.
  */
 
 vi.mock('../lib/pace', () => ({ pause: () => Promise.resolve() }));
 const openai = vi.hoisted(() => vi.fn());
 vi.mock('@ai-sdk/openai', () => ({ openai }));
 
+beforeEach(() => {
+  vi.stubGlobal('fetch', (input: string, init?: RequestInit) =>
+    POST(new Request(new URL(input, 'http://localhost'), init)),
+  );
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   openai.mockReset();
 });
 
+/**
+ * A run on the page's transport. `rules` stands in for the policy's: the transport reads them as
+ * each request goes out, as plain data (what `policy.getRules()` returns), so a rule pushed onto
+ * them goes with the next request.
+ */
 function startRun(rules: ApprovalRule[], mode: Mode = 'scripted') {
   return new Chat<RunMessage>({
-    transport: new DefaultChatTransport<RunMessage>({
-      api: 'http://localhost/api/agent',
-      // Read at send time, as the page does: a rule added a moment ago goes with the next request.
-      body: () => ({ mode, rules }),
-      fetch: (input, init) => POST(new Request(input, init)),
-    }),
+    transport: agentTransport(mode, () => toPlainRules(rules)),
     sendAutomaticallyWhen: (chat) =>
       lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
   });
@@ -128,6 +136,7 @@ describe('the scripted run', () => {
       expect(part.state).toBe('output-available');
       expect(part.approval).toMatchObject({ approved: true, isAutomatic: true });
     }
+    expect(call(chat, 'r1-list').approval?.reason).toBe('Allowed by your rule: list_files, any arguments');
     const test1 = call(chat, 'r1-test-1');
     expect(test1.state).toBe('approval-requested');
     expect(test1.input).toEqual({ command: 'npm test' });
@@ -176,7 +185,10 @@ describe('the scripted run', () => {
     const push = call(chat, 'r1-push');
     expect(push.state).toBe('output-denied');
     expect(push.approval).toMatchObject({ approved: false, isAutomatic: true });
-    expect(push.approval?.reason).toContain('git push*');
+    // The card says whose rule it was: the server's, not the person's.
+    expect(push.approval?.reason).toBe(
+      "Denied by the server's rule: run_command with command git push* (A person pushes and opens the pull request.)",
+    );
 
     const answer = lastText(chat);
     expect(answer).toContain("`slugify('Crème brûlée')` now returns `creme-brulee`");
@@ -238,6 +250,23 @@ describe('the scripted run', () => {
     const list = call(chat, 'r1-list');
     expect(list.state).toBe('approval-requested');
     expect(list.approval).not.toHaveProperty('isAutomatic', true);
+  });
+
+  it('leaves a rule with a `when` on the page, so the server asks about the call', async () => {
+    // Sent without its `when`, this rule would allow every command on the server.
+    const narrowed: ApprovalRule = {
+      id: 'tests-only',
+      tool: 'run_command',
+      effect: 'allow',
+      scope: 'session',
+      when: (input) => (input as { command?: string }).command === 'npm test',
+    };
+    const chat = startRun([...DEFAULT_RULES, narrowed]);
+    await chat.sendMessage({ text: TASK });
+    await settle(chat);
+    const test1 = call(chat, 'r1-test-1');
+    expect(test1.state).toBe('approval-requested');
+    expect(test1.approval).not.toHaveProperty('isAutomatic', true);
   });
 
   it('leaves out a rule from the page with more wildcards than parseApprovalRules allows', async () => {

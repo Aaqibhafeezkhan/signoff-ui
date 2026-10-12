@@ -1,22 +1,7 @@
-import { webStorageRules, type ApprovalRuleStorage } from 'signoff-ui';
-import { DEFAULT_RULES } from './rules';
-
-const KEY = 'coding-agent:approval-rules';
-const saved = webStorageRules(KEY);
-
-function hasSaved() {
-  try {
-    return window.localStorage.getItem(KEY) !== null;
-  } catch {
-    return false;
-  }
-}
+import { webStorageRules } from 'signoff-ui';
 
 /**
- * Your "always" rules, in localStorage: the defaults until you change them, then yours, even when
- * you remove them all. Session rules are never saved.
+ * Your "always" rules, in localStorage, and the default rules you removed, so they stay removed.
+ * Session rules are never saved. `useApprovalPolicy` starts from the defaults (`DEFAULT_RULES`).
  */
-export const ruleStorage: ApprovalRuleStorage = {
-  load: () => (hasSaved() ? saved.load() : DEFAULT_RULES),
-  save: (rules) => saved.save(rules),
-};
+export const ruleStorage = webStorageRules('coding-agent:approval-rules');

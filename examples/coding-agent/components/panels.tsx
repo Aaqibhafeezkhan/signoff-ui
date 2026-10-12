@@ -241,23 +241,31 @@ export function ChangesCard({ files }: { files: Files }) {
   };
   return (
     <section className="panel changes" aria-labelledby="changes-heading">
-      <div className="changes-head">
-        <h2 id="changes-heading" className="changes-title">
-          What the run changed on <span className="mono">{BRANCH}</span>
-        </h2>
-        <button type="button" className="button button-small" onClick={copy}>
-          Copy as a patch
-        </button>
-        <span className="sr-only" role="status">
-          {copied === 'copied' ? 'Patch copied' : copied === 'failed' ? 'Copying was blocked by the browser' : ''}
-        </span>
-      </div>
-      {copied && (
-        <p className="panel-note" aria-hidden="true">
-          {copied === 'copied' ? 'Copied: git apply reads it.' : 'The browser blocked copying.'}
-        </p>
-      )}
-      <DiffReview files={changes} readOnly defaultDecisions={decisions} title="Changes since main" />
+      <h2 id="changes-heading" className="changes-title">
+        What the run changed on <span className="mono">{BRANCH}</span>
+      </h2>
+      <DiffReview
+        files={changes}
+        readOnly
+        defaultDecisions={decisions}
+        title="Changes since main"
+        // In the review's header, next to the layout toggle.
+        actions={
+          <>
+            <button type="button" className="button button-small" onClick={copy}>
+              Copy as a patch
+            </button>
+            {copied && (
+              <span className="copy-note" aria-hidden="true">
+                {copied === 'copied' ? 'Copied: git apply reads it.' : 'The browser blocked copying.'}
+              </span>
+            )}
+            <span className="sr-only" role="status">
+              {copied === 'copied' ? 'Patch copied' : copied === 'failed' ? 'Copying was blocked by the browser' : ''}
+            </span>
+          </>
+        }
+      />
     </section>
   );
 }
