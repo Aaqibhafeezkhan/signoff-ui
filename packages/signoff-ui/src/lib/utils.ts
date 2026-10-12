@@ -19,6 +19,21 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return false;
 }
 
+/**
+ * True for a key pressed on the app's own content inside a component: an element in a
+ * `data-signoff-slot` within it (such as `ApprovalCard`'s `preview`), or a portal rendered from
+ * there, such as a menu, whose keys reach the component through React but come from outside its
+ * element. A component that is itself in another component's slot still gets its keys, since that
+ * slot is outside it.
+ */
+export function fromSlot(event: { target: EventTarget | null; currentTarget: Element }): boolean {
+  const { target, currentTarget } = event;
+  if (!(target instanceof Element)) return false;
+  if (!currentTarget.contains(target)) return true;
+  const slot = target.closest('[data-signoff-slot]');
+  return slot !== null && currentTarget.contains(slot);
+}
+
 /** True for a promise or any other thenable, e.g. what an async event handler returns. */
 export function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (

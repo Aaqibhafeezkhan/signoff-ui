@@ -14,6 +14,7 @@ import { Reasoning } from '../src/reasoning';
 import { RunMeter } from '../src/run-meter';
 import { Sources } from '../src/sources';
 import { ToolCallTimeline } from '../src/tool-call-timeline';
+import * as customMarkdown from '../src/custom-markdown';
 import { ROUTE_NEW, ROUTE_OLD } from './fixtures';
 import { assistant, toolPart } from './utils';
 
@@ -74,6 +75,16 @@ const cases: Array<[string, ReactElement]> = [
     </Markdown>,
   ],
   ['Reasoning, streaming', <Reasoning key="11" text="Thinking" streaming />],
+  [
+    'AgentMessage from custom-markdown, with a renderer',
+    <customMarkdown.AgentMessage
+      key="13"
+      message={assistant(parts)}
+      streaming
+      renderMarkdown={({ children }) => <p>{children}</p>}
+    />,
+  ],
+  ['Reasoning from custom-markdown, as plain text', <customMarkdown.Reasoning key="14" text="Thinking" streaming />],
   ['useRunTiming', <Timed key="12" status="streaming" />],
 ];
 

@@ -1,7 +1,7 @@
 import { addUsage } from 'signoff-ui/core';
 import { convertToModelMessages, stepCountIs, streamText, tool, type LanguageModelUsage, type UIMessage } from 'ai';
 import { z } from 'zod';
-import { mockModel } from '@/lib/mock-model';
+import { createMockModel } from '@/lib/mock-model';
 
 type Message = UIMessage<{ usage?: LanguageModelUsage }>;
 
@@ -37,7 +37,7 @@ const tools = {
 export async function POST(req: Request) {
   const { messages }: { messages: Message[] } = await req.json();
   const result = streamText({
-    model: mockModel, // Scripted, no API key needed. For a real run: openai('gpt-5.4-mini') from @ai-sdk/openai.
+    model: createMockModel(), // Scripted, no API key needed. For a real run: openai('gpt-5.4-mini') from @ai-sdk/openai.
     messages: await convertToModelMessages(messages, { tools }),
     tools,
     // Ask before running commands. The reason shows on the approval card.

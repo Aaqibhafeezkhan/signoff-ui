@@ -144,6 +144,29 @@ describe('the assistant-ui entry', () => {
     expect(pkg.peerDependenciesMeta['@assistant-ui/react']).toEqual({ optional: true });
   });
 });
+describe('the custom-markdown entry', () => {
+  it('has its own export path', () => {
+    expect(pkg.exports['./custom-markdown']).toEqual({
+      types: './dist/custom-markdown.d.ts',
+      default: './dist/custom-markdown.js',
+    });
+  });
+
+  it('never imports the built-in Markdown renderer, which the main entry keeps', () => {
+    const markdownPackages = (file: string) => /from '(react-markdown|remark-gfm|remend)'/.test(code(file));
+    const files = closure('custom-markdown.tsx');
+    expect(files).toEqual(expect.arrayContaining(['agent-message-base.tsx', 'reasoning-base.tsx']));
+    expect(files).not.toContain('markdown.tsx');
+    expect(files.filter(markdownPackages)).toEqual([]);
+    for (const entry of ['agent-message.tsx', 'reasoning.tsx']) expect(closure(entry)).toContain('markdown.tsx');
+  });
+
+  it('is a client module: it exports components and types only', () => {
+    expect(isClient('custom-markdown.tsx')).toBe(true);
+    expect(code('custom-markdown.tsx')).not.toMatch(/from '\.\/(core|lib\/)/);
+  });
+});
+
 // npm publishes the repository's README (scripts/npm-readme.mjs).
 const readmes = [readFileSync(join(src, '../../../README.md'), 'utf8')];
 

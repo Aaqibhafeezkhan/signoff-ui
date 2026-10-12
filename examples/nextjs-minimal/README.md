@@ -17,6 +17,6 @@ Send any message: the scripted model ignores it and plays the same run every tim
 | [`lib/mock-model.ts`](lib/mock-model.ts)         | The scripted model (`MockLanguageModelV4` from `ai/test`)                                                   |
 | [`app/static/page.tsx`](app/static/page.tsx)     | A finished run rendered from a Server Component. `next build` fails if a component is not safe to prerender |
 
-For a real model, install a provider (`pnpm add @ai-sdk/openai`), set its API key, and replace `mockModel` in the route with `openai('gpt-5.4-mini')`.
+For a real model, install a provider (`pnpm add @ai-sdk/openai`), set its API key, and replace `createMockModel()` in the route with `openai('gpt-5.4-mini')`.
 
 In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`); CI builds it and runs [`scripts/smoke-nextjs-minimal.mjs`](../../scripts/smoke-nextjs-minimal.mjs), which applies the review and approves the command in Chrome and waits for the final answer. Copied on its own, it installs the latest `signoff-ui` from npm.

@@ -37,7 +37,7 @@ export function AgentRun() {
 
   return (
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
-    <div className="bg-signoff-bg text-signoff-fg mx-auto flex max-w-2xl flex-col gap-4 p-6">
+    <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
       <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
       {last && (
         <AgentMessage

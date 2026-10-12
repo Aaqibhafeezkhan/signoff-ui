@@ -56,6 +56,12 @@ export interface DiffReviewProps
     Omit<UseDiffReviewOptions, 'readOnly' | 'context' | 'maxEditLength' | 'autoAdvance' | 'collapseViewed'> {
   /** Heading. Default "Review changes" (`labels.diffReview.title`). */
   title?: ReactNode;
+  /**
+   * Your own controls in the header, next to the layout toggle, e.g. a "Copy as a patch" button.
+   * Your content, like `AgentMessage`'s `renderTool`: it sits in a `data-signoff-slot` element, and
+   * keys pressed in it are yours, not the review's shortcuts.
+   */
+  actions?: ReactNode;
   view?: DiffViewMode | undefined;
   defaultView?: DiffViewMode;
   onViewChange?: ((view: DiffViewMode) => void) | undefined;
@@ -176,6 +182,7 @@ interface ReviewActions {
 export function DiffReview({
   files,
   title: titleProp,
+  actions: actionsProp,
   view: viewProp,
   defaultView = 'unified',
   onViewChange,
@@ -290,6 +297,7 @@ export function DiffReview({
   const deletions = review.files.reduce((n, f) => n + (f.parsed?.deletions ?? 0), 0);
   const hunkCount = items.filter((item) => item.hunk).length;
   const viewedCount = review.files.filter((f) => f.viewed).length;
+  const hasActions = actionsProp !== undefined && actionsProp !== null && actionsProp !== false;
   const label = submitLabel ?? T.apply(counts.accepted, counts.total);
   const mod = L.common.modKey(isMac);
   const indexOf = useMemo(() => new Map(items.map((item, i) => [item.id, i])), [items]);
@@ -310,7 +318,8 @@ export function DiffReview({
         {...props}
       >
         <div className="border-signoff-border flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3">
-          <div className="min-w-0 flex-1">
+          {/* With actions, the title keeps 12rem: past that, the controls wrap under it. */}
+          <div className={cn('min-w-0 flex-1', hasActions && 'basis-48')}>
             <Heading className="text-signoff-fg text-sm font-semibold">{title}</Heading>
             <p className="font-signoff-mono text-signoff-fg-subtle mt-0.5 text-xs">
               {T.files(review.files.length)} · {T.hunks(hunkCount, comparing)} ·{' '}
@@ -318,6 +327,11 @@ export function DiffReview({
               <span className="text-signoff-hot-fg">−{deletions}</span>
             </p>
           </div>
+          {hasActions && (
+            <div data-signoff-slot className="flex flex-wrap items-center gap-2">
+              {actionsProp}
+            </div>
+          )}
           <ToggleGroup.Root
             type="single"
             value={view}
