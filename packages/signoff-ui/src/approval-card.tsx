@@ -25,7 +25,7 @@ import { useScrollRegion } from './lib/scroll-region';
 import { BanIcon, CheckIcon, ShieldIcon, TerminalIcon } from './lib/icons';
 import { JsonView, Kbd, LiveRegion } from './lib/primitives';
 import { useIsMac } from './lib/hooks';
-import { cn, hasModifier, isPromiseLike, isTypingTarget, type HeadingLevel } from './lib/utils';
+import { cn, fromSlot, hasModifier, isPromiseLike, isTypingTarget, type HeadingLevel } from './lib/utils';
 import type { RiskLevel, ToolMeta } from './tool-call-timeline';
 import type { ApprovalOutcome, ApprovalPolicy } from './use-approval-policy';
 import { useLabels, WithLabels } from './labels';
@@ -63,7 +63,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   risk?: RiskLevel | undefined;
   /**
    * Custom arguments preview. Defaults to a command line for `{ command }` inputs, else JSON.
-   * Your content, like `AgentMessage`'s `renderTool`.
+   * Your content, like `AgentMessage`'s `renderTool`: keys pressed in it, or in a menu it opens in
+   * a portal, are yours, not the card's shortcuts.
    */
   preview?: ReactNode;
   /**
@@ -113,7 +114,10 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
    * argument patterns, and the decision comes without `args`.
    */
   ruleScope?: boolean;
-  /** Y / N shortcuts while focus is inside the card (and S, A, Shift+N when offered). Default `true`. */
+  /**
+   * Y / N shortcuts while focus is inside the card (and S, A, Shift+N when offered), but not in a
+   * custom `preview`. Default `true`.
+   */
   shortcuts?: boolean;
   /** Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending. Default `false`. */
   globalShortcut?: boolean;
@@ -508,7 +512,8 @@ export function ApprovalCard({
   }, [globalShortcut, pending]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (!pending || !shortcuts) return;
+    // Keys on your controls in `preview`, or in a menu it opens in a portal, are theirs.
+    if (!pending || !shortcuts || fromSlot(event)) return;
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
