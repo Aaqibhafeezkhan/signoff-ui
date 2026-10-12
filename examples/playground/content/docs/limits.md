@@ -21,7 +21,7 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `DiffReview`                                                       |  41.2 kB |
 | `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  49.8 kB |
 | `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.5 kB |
-| Everything in the main entry                                       | 118.3 kB |
+| Everything in the main entry                                       | 118.7 kB |
 
 Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. Each component carries the English labels of the sections it reads, not the others.
 
@@ -67,7 +67,7 @@ Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under 
 - **Lines are commented on, not decided.** A review accepts or rejects whole hunks, or whole files. Lines can be selected to comment on, and the agent gets the comment with its lines, but a hunk cannot be applied in part.
 - **Patches without binaries.** `toPatch()` lists an accepted binary file as changed, without its contents, so `git apply` cannot apply that part; the file's own `content` in the result has it, when you passed contents.
 - **Edited arguments and signed approvals.** With AI SDK 7's `experimental_toolApprovalSecret`, the server signs the arguments it asked about and refuses any other, so arguments edited before approving fail there by design. ACP's `request_permission` has no way to answer with edited arguments, nor a session option: `allow-session` answers `allow_once` and keeps the session rule on the client.
-- **Rules from the client.** Rules made in the browser are that person's choices. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server.
+- **Rules from the client.** Rules made in the browser are that person's choices. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server. `parseApprovalRules` checks the rules a request brings, and by default leaves out a pattern with more than one `*`: each `*` more can make matching a long argument take seconds.
 - **Markdown cost while streaming.** The whole text is parsed again on every delta: about 8 ms at 5k characters, 24 ms at 20k and 67 ms at 50k (jsdom), so very long streamed answers can drop frames.
 - **Citation numbering.** `[n]` markers are numbered over the message's sources after de-duplication by URL (by source id for documents). If your prompt numbers a list of sources that contains duplicates, markers after the first duplicate point one source early. Number unique sources in the prompt.
 - **Run state comes from you.** Parts carry no signal that a run has ended, so tool calls left behind by `stop()` or an interrupted history read "Stopped" only when you pass `active={false}`. `deriveAgentState` reports such a run as `stopped`, which the quickstart's `active` condition covers.
