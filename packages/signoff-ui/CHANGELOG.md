@@ -2,6 +2,38 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.7.0
+
+### Minor Changes
+
+- [#84](https://github.com/dgesteves/signoff-ui/pull/84) [`cb0bae9`](https://github.com/dgesteves/signoff-ui/commit/cb0bae9e9dc5e9d1cd5249a65c926e27956850df) Thanks [@dgesteves](https://github.com/dgesteves)! - `AgentMessage` and `Reasoning` can render text with your own Markdown renderer, such as Streamdown, through a `renderMarkdown` prop or `MarkdownRendererProvider`, and `signoff-ui/custom-markdown` exports them without react-markdown, so it stays out of your bundle.
+
+- [#85](https://github.com/dgesteves/signoff-ui/pull/85) [`2420e62`](https://github.com/dgesteves/signoff-ui/commit/2420e62f0ae1c7e0349bcfdb8ac8bcf3da6039f7) Thanks [@dgesteves](https://github.com/dgesteves)! - `DiffReview` takes an `actions` prop: your own controls, such as a "Copy as a patch" button, in its header next to the layout toggle. They sit in a `data-signoff-slot` element, so `styles.css` leaves them to your CSS, and keys pressed on them don't trigger the review's shortcuts.
+
+- [#83](https://github.com/dgesteves/signoff-ui/pull/83) [`70c341a`](https://github.com/dgesteves/signoff-ui/commit/70c341a7fb876029fe194635803dc7fea16eb8bf) Thanks [@dgesteves](https://github.com/dgesteves)! - `reviewToolOutput` and `reviewResumeEntry` now tell the agent which files the reviewer marked viewed: each such file has `viewed: true`, and the others have no `viewed` key.
+
+- [#86](https://github.com/dgesteves/signoff-ui/pull/86) [`d29ff27`](https://github.com/dgesteves/signoff-ui/commit/d29ff27b95513aba315d83a380e610313bae6570) Thanks [@dgesteves](https://github.com/dgesteves)! - To send a person's approval rules with each request, `policy.getRules()` returns the latest rules as plain data for the transport's `body`, and `parseApprovalRules(rules)` from `signoff-ui/core` checks them in the route before `toToolApproval`.
+
+  `getRules` is a new member of the `ApprovalPolicy` interface. Code that builds its own `ApprovalPolicy` object, rather than using `useApprovalPolicy`, needs to add it.
+
+- [#72](https://github.com/dgesteves/signoff-ui/pull/72) [`5972edc`](https://github.com/dgesteves/signoff-ui/commit/5972edcfae15ae9660d0e8e3702dc04c504033b7) Thanks [@dgesteves](https://github.com/dgesteves)! - Sub-agents nest in the timeline. The AG-UI adapter maps `SUBAGENT_STARTED`, `SUBAGENT_FINISHED` and `SUBAGENT_ERROR`, and the messages and events that carry a `subagentRunId`, into one `data-signoff-subagent` part on the parent message, after the call that started it: `{ subagentRunId, parentToolCallId, name, status, parts }`, with the sub-agent's tool calls and text in the same shapes as the parent's. `ToolCallTimeline`, in `AgentMessage` too, shows it under that call as a collapsed row with its name, its number of calls and its state, which opens to its calls, with the same keys, names and announcements as the others. A sub-agent's call can wait on approval like any: its row opens to the card, `deriveAgentState` reads `awaiting-approval` and "Approve all" includes it. The run state lists the sub-agents (`subagents`), events may arrive in any order, and the part's types (`SubagentPart`, `SubagentData`, `SubagentStatus`) and `isSubagentPart` are exported, so other sources can stream their own. The labels gain `toolCallTimeline.subagent`.
+
+- [#82](https://github.com/dgesteves/signoff-ui/pull/82) [`7a0aa14`](https://github.com/dgesteves/signoff-ui/commit/7a0aa14add2c990c07f643e3d5c747acf4faaa70) Thanks [@dgesteves](https://github.com/dgesteves)! - `toToolApproval(rules, { reason })` words the reason for a call a rule decides, so the server's rules and a person's own can each say whose rule it was; without `reason`, the reason is the same as before.
+
+### Patch Changes
+
+- [#92](https://github.com/dgesteves/signoff-ui/pull/92) [`1e9ad7d`](https://github.com/dgesteves/signoff-ui/commit/1e9ad7d1a7a260e3988fd19fa94738612c2a0894) Thanks [@dgesteves](https://github.com/dgesteves)! - `ApprovalCard` (and `ToolApprovalCard`, and the cards in `AgentMessage` through `approvalProps`) no longer approves or denies when Y, S, A, N, Shift+N or ⌘/Ctrl+Enter is pressed on a control in a custom `preview`, or in a menu that `preview` opens in a portal. Those keys go to the control. With `globalShortcut`, ⌘/Ctrl+Enter still approves from anywhere on the page.
+
+- [#81](https://github.com/dgesteves/signoff-ui/pull/81) [`ad50100`](https://github.com/dgesteves/signoff-ui/commit/ad5010039dcc7ac5d5ae7f0cbb680538d5a0f112) Thanks [@dgesteves](https://github.com/dgesteves)! - `useApprovalPolicy`: an `always` rule from `defaultRules` that a person removes now stays removed after a reload, instead of coming back on every load. A default your app adds in a later version still appears. `webStorageRules()` keeps the removed ids under `<key>:removed-defaults` and `memoryRuleStorage()` keeps them in memory; a storage of your own can keep them with the new optional `loadRemovedDefaults()` and `saveRemovedDefaults(ids)`. Rules saved by earlier versions load as before.
+
+- [#94](https://github.com/dgesteves/signoff-ui/pull/94) [`9d8d48a`](https://github.com/dgesteves/signoff-ui/commit/9d8d48a5316585e8606a2b8891d5750533a8c4e5) Thanks [@dgesteves](https://github.com/dgesteves)! - `DiffReview` renders no actions slot for `actions={true}` or `actions=""`, as for `undefined`, `null` and `false`: React renders nothing for them, and the empty slot narrowed the title.
+
+- [#91](https://github.com/dgesteves/signoff-ui/pull/91) [`bcfda1c`](https://github.com/dgesteves/signoff-ui/commit/bcfda1c2ecaac4a8fe255f0d22bc8a41bf7223e2) Thanks [@dgesteves](https://github.com/dgesteves)! - Approval rules match an argument in time proportional to its length times the pattern's. `matchesGlob`, and with it `evaluateRules`, `toToolApproval` and `useApprovalPolicy`, used a regular expression that backtracked: a pattern with a few `*`, such as `*a*a*a*b`, took seconds on an argument of a few hundred characters that it didn't match, and held up the server or the page meanwhile. It now reads the value once and gives the same answers. `globToRegExp` still returns the same `RegExp`, which backtracks.
+
+- [#69](https://github.com/dgesteves/signoff-ui/pull/69) [`34ff527`](https://github.com/dgesteves/signoff-ui/commit/34ff5277c3d2d171e068915be1541d3035cb60a0) Thanks [@dgesteves](https://github.com/dgesteves)! - npm's homepage link for the package is now the website, signoff-ui.vercel.app, instead of the GitHub README.
+
+- [#66](https://github.com/dgesteves/signoff-ui/pull/66) [`89e4314`](https://github.com/dgesteves/signoff-ui/commit/89e431417cccac21571edf21914bb5facc4f4f17) Thanks [@dgesteves](https://github.com/dgesteves)! - `RunMeter` no longer shows a negative number for a moment as a value animates, such as "↑ -89" or "$-0.0002" at the start of a run. A frame that began before the animation counts as its start.
+
 ## 0.6.0
 
 ### Minor Changes
