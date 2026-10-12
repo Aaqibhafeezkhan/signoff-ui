@@ -103,7 +103,7 @@ export const COMPONENTS: ComponentDoc[] = [
     accessibility: [
       'A `<section>` named by its title. Hunks use a roving tabindex, so the whole review is one tab stop that J, K and the arrows move through.',
       'Each hunk is a group named like "Hunk 2 of 4, app/api/chat/route.ts, lines 12 to 20, accepted"; a file decided as a whole, like "Change 5 of 6, logo.png, binary file, not reviewed".',
-      'Every shortcut is also a button: "Accept hunk 2", "Reject hunk 2", "Reset hunk 2" with `aria-pressed`, "Comment on hunk 2", "Accept file app/route.ts", the "Viewed app/route.ts" checkbox, the layout toggle and Apply. Shortcuts only work while focus is inside the review.',
+      'Every shortcut is also a button: "Accept hunk 2", "Reject hunk 2", "Reset hunk 2" with `aria-pressed`, "Comment on hunk 2", "Accept file app/route.ts", the "Viewed app/route.ts" checkbox, the layout toggle and Apply. Shortcuts only work while focus is inside the review, and not on your own controls in `actions`.',
       'Selected lines are announced as they change, line by line: "Added: const ip = … Lines 15 to 17 selected." The comment editor is a labelled text area ("Comment on lines 15 to 17, for the agent") that takes focus, and focus returns to the hunk when it closes.',
       'The file list is a navigation landmark ("Files in this review") with one tab stop: the arrow keys, Home and End move through it, and each entry reads its path, how many changes are decided and whether it is viewed. A folded file has an expand button with `aria-expanded`.',
       'Line numbers and the buttons that show unchanged lines are clickable but out of the tab order (Shift and the arrows select lines, E shows context); the numbers are hidden from screen readers, which read the lines themselves.',
@@ -215,7 +215,7 @@ export const COMPONENTS: ComponentDoc[] = [
     ],
     accessibility: [
       'A group named by its title and described by its description and a visually hidden line that spells out the shortcuts on offer. It is not a landmark, so a run with many approvals doesn’t fill landmark navigation; pass `role="region"` to make it one.',
-      'Every choice is a button with its key in `aria-keyshortcuts`. Y, S, A, N and Shift+N only work while focus is inside the card, with no other modifier and not while typing, which keeps them within WCAG 2.1.4.',
+      'Every choice is a button with its key in `aria-keyshortcuts`. Y, S, A, N and Shift+N only work while focus is inside the card, with no other modifier, not while typing and not on the controls of a custom `preview`, which keeps them within WCAG 2.1.4.',
       'A lasting choice says what it will cover, in a labelled group: the tool, and a text field per argument pattern ("command matches"), or "Any arguments".',
       'Editing arguments opens a form with a labelled field per argument, or a JSON text area; JSON that does not parse is marked `aria-invalid`, its error is the field’s description, and approving says "The arguments are not valid JSON." instead of approving.',
       '`critical` actions need a second press of the same choice within four seconds, and say so: "Critical action. Press approve again to confirm." Approve all asks for one when any of the calls is critical.',
@@ -241,6 +241,7 @@ export const COMPONENTS: ComponentDoc[] = [
       'ApprovalOutcome',
       'ApprovalAuditEvent',
       'ApprovalRuleStorage',
+      'ToToolApprovalOptions',
     ],
     imports: {
       npm: npm('useApprovalPolicy, webStorageRules, setToolInput'),
@@ -272,16 +273,17 @@ function Run() {
     summary: 'A whole assistant message: reasoning, streaming markdown, tool calls, approvals and sources.',
     galleryId: 'agent-message',
     item: 'agent-message',
-    file: 'agent-message.tsx',
+    file: 'agent-message-base.tsx',
     stateTypes: { 'data-role': 'the message’s role: assistant, user or system' },
     api: [
       {
         name: 'AgentMessage',
         props: 'AgentMessageProps',
-        defaults: { file: 'agent-message.tsx', functions: ['AgentMessage'] },
+        defaults: { file: 'agent-message-base.tsx', functions: ['AgentMessageBase'] },
       },
+      { name: 'MarkdownRendererProvider', props: 'MarkdownRendererProviderProps' },
     ],
-    types: ['ToolMeta', 'ToolApprovalResponse'],
+    types: ['ToolMeta', 'ToolApprovalResponse', 'MarkdownRenderer', 'MarkdownRendererProps'],
     imports: { npm: npm('AgentMessage'), shadcn: shadcn('AgentMessage', 'agent-message') },
     usage: `const { messages, status, addToolApprovalResponse } = useChat();
 const last = messages.findLast((m) => m.role === 'assistant');
@@ -472,10 +474,14 @@ const { state, detail } = deriveAgentState({
     summary: 'The model’s reasoning: open while it thinks, then one line, "Thought for 3.2s".',
     galleryId: 'reasoning',
     item: 'reasoning',
-    file: 'reasoning.tsx',
+    file: 'reasoning-base.tsx',
     stateTypes: { 'data-streaming': 'set while the model is thinking' },
     api: [
-      { name: 'Reasoning', props: 'ReasoningProps', defaults: { file: 'reasoning.tsx', functions: ['Reasoning'] } },
+      {
+        name: 'Reasoning',
+        props: 'ReasoningProps',
+        defaults: { file: 'reasoning-base.tsx', functions: ['ReasoningBase'] },
+      },
     ],
     imports: { npm: npm('Reasoning'), shadcn: shadcn('Reasoning', 'reasoning') },
     usage: `<Reasoning text={part.text} streaming={part.state === 'streaming'} />`,

@@ -386,6 +386,23 @@ describe('reviewToolOutput and reviewResumeEntry', () => {
     });
   });
 
+  it('says which files the reviewer marked viewed, and nothing on the others', () => {
+    const added = parseFileChange({ path: 'lib/ratelimit.ts', oldContent: '', newContent: 'export {};\n' });
+    const viewed = computeReviewResult(
+      [file, added],
+      { [added.hunks[0]!.id]: 'accepted' },
+      { viewed: { [added.id]: true } },
+    );
+    const files = [
+      { path: 'app/route.ts', status: 'modified', decision: 'pending' },
+      { path: 'lib/ratelimit.ts', status: 'added', decision: 'accepted', viewed: true },
+    ];
+    // Strict: a file not viewed has no `viewed` key at all, not `viewed: false` or `undefined`.
+    expect(reviewToolOutput(viewed, { contents: false }).files).toStrictEqual(files);
+    expect(reviewResumeEntry('int-2', viewed, { contents: false }).payload.files).toStrictEqual(files);
+    expect(reviewToolOutput(viewed).files[1]).toMatchObject({ viewed: true, content: 'export {};\n' });
+  });
+
   it('says when nothing was decided', () => {
     expect(reviewToolOutput(computeReviewResult([file], {})).summary).toBe('Applied 0 of 3 changes, left 3 undecided.');
   });

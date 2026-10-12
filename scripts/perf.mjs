@@ -6,12 +6,14 @@
 // calls: the first render, appending a call until the frame that shows it is painted, the frames
 // while a call runs, and the calls it renders.
 //
-// Each metric has a budget, a few times what a laptop measures so CI runners pass with room; CI
-// fails when a case goes over. The old behaviour (a 5,000-line rewrite blocking for 3 s, 260k DOM
+// Chrome runs with the GPU off (scripts/perf/chrome.ts). Every case runs three times, each pass in a
+// browser of its own, and each metric is the median of the three; CI fails when one goes over its
+// budget (scripts/perf/cases.ts). The old behaviour (a 5,000-line rewrite blocking for 3 s, 260k DOM
 // nodes) is far outside every budget.
 //
 //   pnpm build:lib && pnpm perf
 //   node scripts/perf.mjs --dist <other checkout>/packages/signoff-ui/dist --no-budget   # compare
+//   node scripts/perf.mjs --passes 1    # one pass, a third of the time
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire, SourceMap } from 'node:module';
@@ -19,18 +21,21 @@ import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { build } from 'rolldown';
+import { CASES, TIMELINE_CASES } from './perf/cases.ts';
+import { launchOptions, onTheGpu } from './perf/chrome.ts';
 import { runCases, within } from './perf/deadline.ts';
+import { interleave, medianOfPasses, overBudget } from './perf/passes.ts';
 import { chromeThreads } from './perf/threads.ts';
 
-// Each case runs in a browser of its own, with a minute a try and two more tries in a new browser
-// when it stalls (scripts/perf/deadline.ts): under four minutes for a case that stalls every time.
-// A case took 26 s at most on the slowest runner seen, tracing it again included when it went over
-// budget. This is the backstop: however the browser behaves, the check ends before the CI job's
-// clock does.
+// Each pass runs in a browser of its own, with a minute a try and two more tries in a new browser
+// when it stalls (scripts/perf/deadline.ts): four minutes at most for a pass that stalls every time.
+// On the slowest runner seen a pass took 26 s at most, and one pass over every case 48 to 74 s, so
+// three passes take under four minutes there. This is the backstop: however the browser behaves, the
+// check ends before the CI job's clock (10 minutes) does.
 setTimeout(() => {
-  console.error('perf: no result after 8 minutes');
+  console.error('perf: no result after 9 minutes');
   process.exit(1);
-}, 8 * 60_000).unref();
+}, 9 * 60_000).unref();
 
 const arg = (name) => {
   const at = process.argv.indexOf(name);
@@ -39,54 +44,11 @@ const arg = (name) => {
 const dist = resolve(arg('--dist') ?? join(import.meta.dirname, '../packages/signoff-ui/dist'));
 const enforce = !process.argv.includes('--no-budget');
 const json = process.argv.includes('--json');
-
-// [label, query, budgets]. Times in ms; DOM in elements. A local edit renders its hunks in its first
-// task (20 and 100 of them, each with decision and comment buttons and the bar of unchanged lines
-// around it): about 70 and 90 ms on a laptop, and up to about 310 ms on a shared CI runner.
-//
-// Scrolling a screen per frame, a frame's work is mostly rendering the rows coming into view: the
-// split view renders two lines a row, so its frames take about twice as long (a laptop's p95: 17 ms
-// unified, 30 ms split; CI runners: 21 to 38 ms and 46 to 68 ms, and one slow runner 73 to 85 ms and
-// 119 to 143 ms). Its budget is the same multiple of what a laptop measures as the unified view's.
-const SCROLL = { scrollFrameP95Ms: 120, scrollLongestTaskMs: 250 };
-const CASES = [
-  [
-    'local edit, 1,000 lines',
-    's=local&n=1000',
-    { readyMs: 400, longestTaskMs: 400, domNodes: 15_000, keyMs: 40, ...SCROLL },
-  ],
-  [
-    'local edit, 5,000 lines',
-    's=local&n=5000',
-    { readyMs: 800, longestTaskMs: 400, domNodes: 20_000, keyMs: 40, ...SCROLL },
-  ],
-  [
-    'full rewrite, 2,000 lines',
-    's=rewrite&n=2000',
-    { readyMs: 1000, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL },
-  ],
-  [
-    'full rewrite, 5,000 lines',
-    's=rewrite&n=5000',
-    { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL },
-  ],
-  [
-    'full rewrite, 5,000 lines, split',
-    's=rewrite&n=5000&view=split',
-    { readyMs: 1500, longestTaskMs: 250, domNodes: 15_000, keyMs: 40, ...SCROLL, scrollFrameP95Ms: 200 },
-  ],
-];
-// [label, query, budgets] for the timeline page (scripts/perf/timeline.mjs). Before the timeline
-// rendered only the calls near the screen, appending a call took about 105 ms and a running call's
-// frames 45 to 52 ms on a laptop; now about 2.5 ms and 17 ms, and 12 ms and 18 ms with the CPU six
-// times slower. The append budget is the one the timeline is held to: under a frame.
-const TIMELINE_CASES = [
-  [
-    'tool call timeline, 2,000 calls',
-    'n=2000',
-    { mountMs: 400, appendMs: 16, runningFrameP95Ms: 40, domNodes: 5_000, renderedCalls: 200 },
-  ],
-];
+const passes = Number(arg('--passes') ?? 3);
+if (!Number.isInteger(passes) || passes < 1) {
+  console.error(`perf: --passes takes a whole number from 1, not ${arg('--passes')}`);
+  process.exit(1);
+}
 
 // Bundle the harness against the built package, with the React that package resolves.
 const pkg = createRequire(join(dist, '../package.json'));
@@ -145,27 +107,36 @@ const server = createServer((req, res) => {
 await new Promise((done) => server.listen(0, done));
 const base = `http://localhost:${server.address().port}`;
 
+let described = false;
+
 /**
- * Chrome, in a process the check can kill. Playwright's `browser.close()` waits for the browser to
- * exit and has no timeout of its own, so a browser that stops answering would hang it.
+ * Chrome with the GPU off, in a process the check can kill. Playwright's `browser.close()` waits for
+ * the browser to exit and has no timeout of its own, so a browser that stops answering would hang it.
  */
 async function launch() {
-  const server = await chromium.launchServer({ channel: 'chrome' });
-  const browser = await chromium.connect(server.wsEndpoint());
+  const server = await chromium.launchServer(launchOptions);
   const chrome = server.process();
-  return {
-    browser,
-    pid: chrome.pid,
-    close: () => server.close(),
-    kill() {
-      // Its renderers too: Playwright starts Chrome as the leader of a process group.
-      try {
-        process.kill(-chrome.pid, 'SIGKILL');
-      } catch {
-        chrome.kill('SIGKILL');
-      }
-    },
+  const kill = () => {
+    // Its renderers too: Playwright starts Chrome as the leader of a process group.
+    try {
+      process.kill(-chrome.pid, 'SIGKILL');
+    } catch {
+      chrome.kill('SIGKILL');
+    }
   };
+  const browser = await chromium.connect(server.wsEndpoint());
+  // The budgets are for a page drawn in software: a browser that draws on the GPU does not measure.
+  const { gpu } = await (await browser.newBrowserCDPSession()).send('SystemInfo.getInfo');
+  const onGpu = onTheGpu(gpu.featureStatus);
+  if (onGpu) {
+    kill();
+    throw new Error(`perf: ${onGpu}; the budgets are for a page drawn in software`);
+  }
+  if (!described) {
+    described = true;
+    console.error(`perf: Chrome ${browser.version()}, with the GPU off: it draws in software`);
+  }
+  return { browser, pid: chrome.pid, close: () => server.close(), kill };
 }
 
 /** What a case's page and its worker report, a line each, timed from the start of the case. */
@@ -301,9 +272,10 @@ async function diagnose({ pid }) {
   return [...lines, ...(await chromeThreads(pid))];
 }
 
-/** One case: its measurements, the budgets they go over, and if any, where the time went. */
-async function measure({ browser }, { label, query, budgets, timeline }, log) {
-  const url = timeline ? `${base}/timeline.html?${query}` : `${base}/?${query}`;
+const urlOf = ({ query, timeline }) => (timeline ? `${base}/timeline.html?${query}` : `${base}/?${query}`);
+
+/** One pass over one case: what the page measured. */
+async function measure({ browser }, { item, label }, log) {
   const started = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   // With the debugger on from the start, a stalled case can be paused even inside a long script
@@ -319,7 +291,7 @@ async function measure({ browser }, { label, query, budgets, timeline }, log) {
   const errors = [];
   record(page, log);
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(url, { waitUntil: 'commit' });
+  await page.goto(urlOf(item), { waitUntil: 'commit' });
   await page.waitForFunction(() => window.__perf, null, { polling: 100 });
   const result = await page.evaluate(() => window.__perf);
   await page.close();
@@ -327,53 +299,60 @@ async function measure({ browser }, { label, query, budgets, timeline }, log) {
   if (errors.length || result.error)
     throw new Error([...new Set([result.error, ...errors])].filter(Boolean).join('; '));
   console.error(`perf: ${label} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-  const over = Object.entries(budgets)
-    .filter(([metric, limit]) => result[metric] > limit)
-    .map(([metric, limit]) => `${label}: ${metric} ${Math.round(result[metric])}, budget ${limit}`);
-  const breakdown = enforce && over.length ? `${label}: ${await whereTimeWent(browser, url)}` : undefined;
-  return { result: { label, timeline, ...result, budgets }, over, breakdown };
+  return { item, metrics: result };
 }
 
-let measured;
+const cases = [...CASES, ...TIMELINE_CASES];
+const options = {
+  launch,
+  deadlineMs: 60_000,
+  retries: 2,
+  // Playwright's own timeouts, and a crashed page, count as a stuck browser too: worth another try.
+  stalled: (error) => error.name === 'TimeoutError' || /crashed/i.test(error.message),
+  diagnose,
+  diagnoseMs: 20_000,
+};
+let results;
+let over = [];
+let breakdowns = [];
 try {
-  measured = await runCases(
-    [
-      ...CASES.map(([label, query, budgets]) => ({ label, query, budgets })),
-      ...TIMELINE_CASES.map(([label, query, budgets]) => ({ label, query, budgets, timeline: true })),
-    ],
-    {
-      launch,
-      run: measure,
-      deadlineMs: 60_000,
-      retries: 2,
-      // Playwright's own timeouts, and a crashed page, count as a stuck browser too: worth another try.
-      stalled: (error) => error.name === 'TimeoutError' || /crashed/i.test(error.message),
-      diagnose,
-      diagnoseMs: 20_000,
-    },
-  );
+  const measured = await runCases(interleave(cases, passes), { ...options, run: measure });
+  results = cases.map((item) => {
+    const runs = measured.filter((m) => m.item === item).map((m) => m.metrics);
+    return { label: item.label, timeline: item.timeline, ...medianOfPasses(runs), budgets: item.budgets, passes: runs };
+  });
+  const overByCase = results.map((r) => overBudget(r.label, r, r.budgets));
+  over = overByCase.flat();
+  // A case over budget is loaded once more with a trace, so a CI failure says what to look at.
+  const traced = cases.filter((_, i) => overByCase[i].length);
+  if (enforce && traced.length) {
+    breakdowns = await runCases(traced, {
+      ...options,
+      retries: 0,
+      diagnose: undefined,
+      run: async ({ browser }, item) => `${item.label}: ${await whereTimeWent(browser, urlOf(item))}`,
+    }).catch((error) => [`could not trace: ${error.message}`]);
+  }
 } catch (error) {
   console.error(error.message);
 } finally {
   server.close();
   rmSync(out, { recursive: true, force: true });
 }
-if (!measured) process.exit(1);
-const results = measured.map((m) => m.result);
-const over = measured.flatMap((m) => m.over);
-const breakdowns = measured.map((m) => m.breakdown).filter(Boolean);
+if (!results) process.exit(1);
 
 const ms = (value) => `${Math.round(value)} ms`;
 const count = (value) => value.toLocaleString('en-US');
 if (json) console.log(JSON.stringify(results, null, 2));
 else {
+  console.log(`Each value is the median of ${passes} ${passes === 1 ? 'pass' : 'passes'}.\n`);
   console.log(
-    '| Case | First render | Ready | Longest task | DOM nodes | Keypress | Scroll p95 frame | DOM after scrolling |',
+    '| Case | First render | Ready | Longest task | DOM nodes | Keypress | Scroll p95 frame | Longest task, scrolling | DOM after scrolling |',
   );
-  console.log('| --- | --: | --: | --: | --: | --: | --: | --: |');
+  console.log('| --- | --: | --: | --: | --: | --: | --: | --: | --: |');
   for (const r of results.filter((r) => !r.timeline)) {
     console.log(
-      `| ${r.label} | ${ms(r.mountMs)} | ${ms(r.readyMs)} | ${ms(r.longestTaskMs)} | ${count(r.domNodes)} | ${r.keyMs.toFixed(1)} ms | ${ms(r.scrollFrameP95Ms)} | ${count(r.domNodesAfterScroll)} |`,
+      `| ${r.label} | ${ms(r.mountMs)} | ${ms(r.readyMs)} | ${ms(r.longestTaskMs)} | ${count(r.domNodes)} | ${r.keyMs.toFixed(1)} ms | ${ms(r.scrollFrameP95Ms)} | ${ms(r.scrollLongestTaskMs)} | ${count(r.domNodesAfterScroll)} |`,
     );
   }
   console.log(
@@ -388,7 +367,7 @@ else {
 }
 if (enforce && over.length) {
   console.error(
-    `\nOver budget (raise it in scripts/perf.mjs only if the slowdown is worth it):\n  ${over.join('\n  ')}`,
+    `\nOver budget (raise it in scripts/perf/cases.ts only if the slowdown is worth it):\n  ${over.join('\n  ')}`,
   );
   if (breakdowns.length)
     console.error(`\nWhere the main thread's time went, loading each again:\n  ${breakdowns.join('\n  ')}`);
