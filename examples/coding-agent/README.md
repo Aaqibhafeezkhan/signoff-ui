@@ -4,6 +4,8 @@ The signoff-ui reference app: a coding agent working in the background on a smal
 
 [Open in StackBlitz](https://stackblitz.com/github/dgesteves/signoff-ui/tree/main/examples/coding-agent)
 
+As of October 2026, StackBlitz opens the code but the preview fails: its WebContainers render no App Router page on Next.js 15 or later (Next.js stops with "Expected workStore to be initialized"), whatever the app, while Next.js 14 renders. Locally, and copied with `create-next-app`, the app runs as it is.
+
 ```bash
 npm install
 npm run dev   # http://localhost:3400
@@ -49,7 +51,7 @@ Beside the run: the agent's status and the run meter (tokens, estimated cost, ti
 
 Nothing touches your disk or runs in a shell: the repository lives in memory, the commands are simulated, and each review's result carries the files as applied, so the server keeps no state between requests. Rules from the page are the person's own choices for their run; the server's rules hold whatever the page sends.
 
-The scripts build with webpack (`next dev --webpack`): Turbopack needs native bindings, which StackBlitz's WebContainers don't have.
+The scripts build with webpack (`next dev --webpack`): Turbopack needs native bindings, which StackBlitz's WebContainers don't have. Left to itself StackBlitz starts `next dev`, with Turbopack, so `.stackblitzrc` has it start `npm run dev`.
 
 ## Tests
 
