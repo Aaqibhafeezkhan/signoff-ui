@@ -4,7 +4,17 @@ Review what your agent changed and approve what it may do: React components for 
 
 [![CI](https://img.shields.io/github/actions/workflow/status/dgesteves/signoff-ui/ci.yml?branch=main&label=CI&labelColor=0d0f12&color=22d3ee)](https://github.com/dgesteves/signoff-ui/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=22d3ee)](https://www.npmjs.com/package/signoff-ui)
+[![Types: included](https://img.shields.io/badge/types-included-22d3ee?labelColor=0d0f12&logo=typescript&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22d3ee?labelColor=0d0f12)](./LICENSE)
+
+[![shadcn: @signoff-ui](https://img.shields.io/badge/shadcn-%40signoff--ui-0d0f12?logo=shadcnui&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#with-the-shadcn-cli)
+
+**Works with**
+[![AI SDK 6 | 7](https://img.shields.io/badge/AI_SDK_6_%7C_7-0d0f12?logo=vercel&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#ai-sdk-6-or-7)
+[![AI Elements](https://img.shields.io/badge/AI_Elements-0d0f12?logo=vercel&logoColor=white)](https://signoff-ui.vercel.app/docs/chat-ui#ai-elements)
+[![assistant-ui](https://img.shields.io/badge/assistant--ui-0d0f12)](https://signoff-ui.vercel.app/docs/chat-ui#assistant-ui)
+[![AG-UI](https://img.shields.io/badge/AG--UI-0d0f12)](https://signoff-ui.vercel.app/docs/ag-ui)
+[![ACP](https://img.shields.io/badge/ACP-0d0f12)](https://signoff-ui.vercel.app/docs/acp)
 
 **Website and docs:** [signoff-ui.vercel.app](https://signoff-ui.vercel.app), with a playground where a scripted coding agent asks for a review and an approval, driven from the keyboard, with no API key.
 

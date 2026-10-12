@@ -143,4 +143,26 @@ describe('README top', () => {
     const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
     expect(top).toMatch(/^\*\*Website and docs:\*\* \[signoff-ui\.vercel\.app\]\(https:\/\/signoff-ui\.vercel\.app\)/m);
   });
+
+  it('links each badge to a docs page and heading that exist', () => {
+    const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
+    const links = [...top.matchAll(/\]\(https:\/\/signoff-ui\.vercel\.app\/docs\/([\w-]+)(?:#([\w-]+))?\)/g)];
+    expect(links.length).toBeGreaterThan(5);
+    for (const [, page, anchor] of links) {
+      const file = join(root, 'examples/playground/content/docs', `${page ?? ''}.md`);
+      expect(existsSync(file), page).toBe(true);
+      if (!anchor) continue;
+      const slugs = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => /^#{2,3} /.test(line))
+        .map((line) =>
+          line
+            .replace(/^#+ /, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9 -]/g, '')
+            .replace(/ /g, '-'),
+        );
+      expect(slugs, `${page ?? ''}#${anchor}`).toContain(anchor);
+    }
+  });
 });
