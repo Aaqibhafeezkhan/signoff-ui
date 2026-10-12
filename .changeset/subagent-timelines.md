@@ -1,5 +1,0 @@
----
-'signoff-ui': minor
----
-
-Sub-agents nest in the timeline. The AG-UI adapter maps `SUBAGENT_STARTED`, `SUBAGENT_FINISHED` and `SUBAGENT_ERROR`, and the messages and events that carry a `subagentRunId`, into one `data-signoff-subagent` part on the parent message, after the call that started it: `{ subagentRunId, parentToolCallId, name, status, parts }`, with the sub-agent's tool calls and text in the same shapes as the parent's. `ToolCallTimeline`, in `AgentMessage` too, shows it under that call as a collapsed row with its name, its number of calls and its state, which opens to its calls, with the same keys, names and announcements as the others. A sub-agent's call can wait on approval like any: its row opens to the card, `deriveAgentState` reads `awaiting-approval` and "Approve all" includes it. The run state lists the sub-agents (`subagents`), events may arrive in any order, and the part's types (`SubagentPart`, `SubagentData`, `SubagentStatus`) and `isSubagentPart` are exported, so other sources can stream their own. The labels gain `toolCallTimeline.subagent`.
