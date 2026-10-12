@@ -241,6 +241,7 @@ export const COMPONENTS: ComponentDoc[] = [
       'ApprovalOutcome',
       'ApprovalAuditEvent',
       'ApprovalRuleStorage',
+      'ToToolApprovalOptions',
     ],
     imports: {
       npm: npm('useApprovalPolicy, webStorageRules, setToolInput'),

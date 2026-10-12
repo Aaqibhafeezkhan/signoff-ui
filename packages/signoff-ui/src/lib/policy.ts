@@ -254,26 +254,45 @@ export type ToolApprovalStatusLike =
   | 'user-approval'
   | { type: 'approved' | 'denied' | 'user-approval'; reason?: string };
 
+/** How `toToolApproval` answers: for the calls no rule covers, and in the reason a rule gives. */
+export interface ToToolApprovalOptions {
+  /**
+   * What a call no rule covers gets. Default `'user-approval'`: a person decides.
+   * `'not-applicable'` leaves the call to another `toolApproval`, such as a second set of rules.
+   */
+  otherwise?: ToolApprovalStatusLike | undefined;
+  /**
+   * The reason for a call a rule decides, which the approval keeps as `approval.reason`: say whose
+   * rules these are, so a page can tell the server's from the person's. Default: "Allowed by a
+   * rule: …" or "Denied by a rule: …", the rule in words (`describeRule`), then its own reason.
+   */
+  reason?: ((match: RuleMatch) => string) | undefined;
+}
+
+/** The reason `toToolApproval` gives unless told otherwise: "Denied by a rule: rm * (No deletes)". */
+function ruleReason({ effect, rule }: RuleMatch) {
+  return `${effect === 'allow' ? 'Allowed' : 'Denied'} by a rule: ${describeRule(rule)}${
+    rule.reason ? ` (${rule.reason})` : ''
+  }`;
+}
+
 /**
  * Rules as AI SDK 7's generic `toolApproval` function: a matching rule approves or denies the call
- * on the server, with the rule in the reason, and any other call gets `otherwise` (by default
- * `'user-approval'`, a person decides). The SDK checks it again on the approved call before it
- * runs, edited arguments included.
+ * on the server, with the rule in the reason (`reason` words it), and any other call gets
+ * `otherwise` (by default `'user-approval'`, a person decides). The SDK checks it again on the
+ * approved call before it runs, edited arguments included.
  *
  * Rules a client sends are the choices of the person using it: take them for that person's own
  * runs only, and keep rules that protect others on the server.
  */
 export function toToolApproval(
   rules: readonly ApprovalRule[] | (() => readonly ApprovalRule[]),
-  { otherwise = 'user-approval' }: { otherwise?: ToolApprovalStatusLike } = {},
+  { otherwise = 'user-approval', reason = ruleReason }: ToToolApprovalOptions = {},
 ): (options: { toolCall: { toolName: string; input: unknown } }) => ToolApprovalStatusLike {
   return ({ toolCall }) => {
     const match = evaluateRules(typeof rules === 'function' ? rules() : rules, toolCall.toolName, toolCall.input);
     if (!match) return otherwise;
-    const reason = `${match.effect === 'allow' ? 'Allowed' : 'Denied'} by a rule: ${describeRule(match.rule)}${
-      match.rule.reason ? ` (${match.rule.reason})` : ''
-    }`;
-    return { type: match.effect === 'allow' ? 'approved' : 'denied', reason };
+    return { type: match.effect === 'allow' ? 'approved' : 'denied', reason: reason(match) };
   };
 }
 
