@@ -140,6 +140,31 @@ describe('parseApprovalRules', () => {
     expect(parseApprovalRules([rule({ tool: 'mcp_*_*' })])).toEqual([]);
     expect(parseApprovalRules([rule({ tool: 'mcp_github_*' })])).toHaveLength(1);
   });
+
+  it('lets no rule a client sends approve a call the server’s rules deny', () => {
+    const SERVER_RULES = [rule({ id: 'server:push', args: { command: 'git push*' }, effect: 'deny' })];
+    // The widest rules a client can send: any tool, and any command under the server rule's own id.
+    const sent = parseApprovalRules(
+      overTheWire([rule({ id: 'mine', tool: '*' }), rule({ id: 'server:push', args: { command: '**' } })]),
+    );
+    const call = (command: string) => ({ toolCall: { toolName: 'run_command', input: { command } } });
+    const yours = toToolApproval(sent);
+    expect(sent).toHaveLength(2);
+    expect(yours(call('git push origin main'))).toMatchObject({ type: 'approved' });
+
+    // As the docs show it: the server's rules first, the person's for the calls they leave open.
+    const server = toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' });
+    const both = (options: ReturnType<typeof call>) => {
+      const decided = server(options);
+      return decided === 'not-applicable' ? yours(options) : decided;
+    };
+    expect(both(call('git push origin main'))).toMatchObject({ type: 'denied' });
+    expect(both(call('npm test'))).toMatchObject({ type: 'approved' });
+    // In one list too, whatever the order: a deny rule wins over an allow rule.
+    expect(toToolApproval([...sent, ...SERVER_RULES])(call('git push origin main'))).toMatchObject({
+      type: 'denied',
+    });
+  });
 });
 
 describe('policy.getRules', () => {
