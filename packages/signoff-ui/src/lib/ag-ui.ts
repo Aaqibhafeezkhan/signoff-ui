@@ -6,7 +6,7 @@
  */
 import type { ChatStatus, DynamicToolUIPart, UIMessage } from 'ai';
 import { addUsage } from './usage';
-import type { RunUsage } from './ai';
+import type { RunUsage, SubagentPart, SubagentStatus } from './ai';
 
 /** An AG-UI event. Only `type` is required here; the fields each event type carries are read as needed. */
 export interface AgUiEvent {
@@ -34,6 +34,8 @@ export interface AgUiMessage {
   toolCallId?: string;
   error?: string;
   activityType?: string;
+  /** The sub-agent that wrote it. Absent for the agent's own messages. */
+  subagentRunId?: string;
 }
 
 /** A pause for human input (AG-UI `Interrupt`). `toolCallId` binds it to a tool call to approve. */
@@ -73,6 +75,21 @@ export interface AgUiApproval {
   requestReason?: string | undefined;
 }
 
+/** A sub-agent the runs started (`SUBAGENT_STARTED`), and how it ended. */
+export interface AgUiSubagent {
+  subagentRunId: string;
+  /** Undefined until its `SUBAGENT_STARTED` arrives. */
+  name?: string | undefined;
+  /** The tool call that started it, which it nests under. */
+  parentToolCallId?: string | undefined;
+  /** The sub-agent that started it, when one did. */
+  parentSubagentRunId?: string | undefined;
+  /** `running` from its start or its first event, then `done` or `suspended` (`SUBAGENT_FINISHED`), or `error`. */
+  status: SubagentStatus;
+  /** From `SUBAGENT_ERROR`. */
+  error?: { message: string; code?: string | undefined } | undefined;
+}
+
 /** What the event stream says about runs, beyond the messages themselves. */
 export interface AgUiRunState {
   /** `useChat`-style: `submitted` until content streams, `ready` once the run ends, `error` after `RUN_ERROR`. */
@@ -93,11 +110,20 @@ export interface AgUiRunState {
    * with a `cancelled` outcome) leaves them as they were, cut off, until the next run starts.
    */
   streaming: { messages: string[]; toolCalls: string[] };
+  /** Sub-agents, in the order they were first seen. Kept across runs. */
+  subagents?: AgUiSubagent[] | undefined;
 }
 
 export function createAgUiRun(interrupts: readonly AgUiInterrupt[] = []): AgUiRunState {
   return withInterrupts(
-    { status: 'ready', interrupts: [], answers: {}, approvals: {}, streaming: { messages: [], toolCalls: [] } },
+    {
+      status: 'ready',
+      interrupts: [],
+      answers: {},
+      approvals: {},
+      streaming: { messages: [], toolCalls: [] },
+      subagents: [],
+    },
     interrupts,
   );
 }
@@ -121,10 +147,26 @@ interface EventFields {
   code?: string;
   usage?: readonly AgUiTokenUsage[];
   outcome?: { type: string; interrupts?: readonly AgUiInterrupt[] };
+  subagentRunId?: string;
+  name?: string;
+  parentToolCallId?: string;
+  parentSubagentRunId?: string;
 }
 
 const add = (list: string[], id: string | undefined) => (id === undefined || list.includes(id) ? list : [...list, id]);
 const remove = (list: string[], id: string | undefined) => (list.includes(id!) ? list.filter((x) => x !== id) : list);
+
+const ended = (status: SubagentStatus) => status === 'done' || status === 'error';
+
+/** The run with sub-agent `id` changed, or added first (running) when it is new. */
+function withSubagent(run: AgUiRunState, id: string, change: (subagent: AgUiSubagent) => AgUiSubagent) {
+  const list = run.subagents ?? [];
+  const at = list.findIndex((s) => s.subagentRunId === id);
+  const current = list[at] ?? { subagentRunId: id, status: 'running' };
+  const next = change(current);
+  if (next === current && at !== -1) return run;
+  return { ...run, subagents: at === -1 ? [...list, next] : list.map((s, i) => (i === at ? next : s)) };
+}
 
 /**
  * Fold one AG-UI event into the run state. Pure, so it fits `useReducer` or any store;
@@ -132,6 +174,30 @@ const remove = (list: string[], id: string | undefined) => (list.includes(id!) ?
  */
 export function reduceAgUiRun(run: AgUiRunState, event: AgUiEvent): AgUiRunState {
   const e = event as EventFields;
+  const id = e.subagentRunId;
+  if (id !== undefined) {
+    switch (e.type) {
+      case 'SUBAGENT_STARTED':
+        return withSubagent(run, id, (s) => ({
+          ...s,
+          name: e.name,
+          parentToolCallId: e.parentToolCallId,
+          parentSubagentRunId: e.parentSubagentRunId,
+          // An end that arrived first stands; a suspended sub-agent starts again.
+          status: ended(s.status) ? s.status : 'running',
+        }));
+      case 'SUBAGENT_FINISHED':
+        return withSubagent(run, id, (s) =>
+          ended(s.status) ? s : { ...s, status: e.outcome?.type === 'suspended' ? 'suspended' : 'done' },
+        );
+      case 'SUBAGENT_ERROR':
+        return withSubagent(run, id, (s) =>
+          ended(s.status) ? s : { ...s, status: 'error', error: { message: e.message ?? '', code: e.code } },
+        );
+    }
+    // Its work, maybe before its start event: it is running.
+    run = withSubagent(run, id, (s) => (s.status === 'suspended' ? { ...s, status: 'running' } : s));
+  }
   const { messages, toolCalls } = run.streaming;
   const streaming = (next: Partial<AgUiRunState['streaming']>): AgUiRunState => ({
     ...run,
@@ -257,12 +323,23 @@ export function getAgUiResume(run: AgUiRunState): AgUiResumeEntry[] | undefined 
 
 type Part = UIMessage['parts'][number];
 
+/** A sub-agent's messages, its part, and the parts its first message would have joined. */
+interface Gathered {
+  messages: AgUiMessage[];
+  part: SubagentPart;
+  at?: Part[];
+}
+
 /**
  * AG-UI messages as AI SDK `UIMessage`s: each user message, then the assistant, reasoning, tool and
  * activity messages after it grouped into one assistant message, the way the AI SDK groups a
  * multi-step run. Tool calls become dynamic tool parts with their results; with the run state,
  * streaming flags and tool-call interrupts (as approvals) are applied too. Activity messages become
  * `data-${activityType}` parts. System and developer messages are left out.
+ *
+ * A sub-agent's messages become one `data-signoff-subagent` part, after the tool call that started
+ * it (`SUBAGENT_STARTED`'s `parentToolCallId`), which may be another sub-agent's, or else where its
+ * first message was. `ToolCallTimeline` nests its calls under that call.
  */
 export function fromAgUiMessages(messages: readonly AgUiMessage[], run?: AgUiRunState): UIMessage[] {
   const out: UIMessage[] = [];
@@ -278,36 +355,101 @@ export function fromAgUiMessages(messages: readonly AgUiMessage[], run?: AgUiRun
     }
     return group.parts;
   };
+  // Sub-agents in the order they started, then any known only from their messages.
+  const known = run?.subagents ?? [];
+  const subagents = new Map<string, Gathered>();
+  const gather = (id: string) => {
+    if (!subagents.has(id))
+      subagents.set(id, { messages: [], part: { type: 'data-signoff-subagent', id } as SubagentPart });
+    return subagents.get(id)!;
+  };
+  for (const subagent of known) gather(subagent.subagentRunId);
 
-  for (const message of messages) {
+  /** Adds an assistant, reasoning or activity message's parts. */
+  const convert = (message: AgUiMessage, parts: () => Part[]) => {
     switch (message.role) {
-      case 'user':
-        group = undefined;
-        out.push({ id: message.id, role: 'user', parts: userParts(message.content) });
-        break;
       case 'assistant': {
-        const parts = assistant(message.id);
+        const into = parts();
         const text = typeof message.content === 'string' ? message.content : '';
-        if (text) parts.push({ type: 'text', text, state: streaming(message.id) ? 'streaming' : 'done' });
-        for (const call of message.toolCalls ?? []) parts.push(toolPart(call, results.get(call.id), run));
+        if (text) into.push({ type: 'text', text, state: streaming(message.id) ? 'streaming' : 'done' });
+        for (const call of message.toolCalls ?? []) into.push(toolPart(call, results.get(call.id), run));
         break;
       }
       case 'reasoning': {
         const text = typeof message.content === 'string' ? message.content : '';
-        if (text)
-          assistant(message.id).push({ type: 'reasoning', text, state: streaming(message.id) ? 'streaming' : 'done' });
+        if (text) parts().push({ type: 'reasoning', text, state: streaming(message.id) ? 'streaming' : 'done' });
         break;
       }
       case 'activity':
-        assistant(message.id).push({
+        parts().push({
           type: `data-${message.activityType ?? 'activity'}`,
           id: message.id,
           data: message.content,
         } as Part);
         break;
     }
+  };
+
+  for (const message of messages) {
+    if (message.role === 'user') {
+      group = undefined;
+      out.push({ id: message.id, role: 'user', parts: userParts(message.content) });
+    } else if (message.subagentRunId === undefined) {
+      convert(message, () => assistant(message.id));
+    } else if (message.role !== 'tool') {
+      const found = gather(message.subagentRunId);
+      if (!found.at) {
+        found.at = assistant(message.id);
+        found.at.push(found.part);
+      }
+      found.messages.push(message);
+    }
+  }
+
+  for (const [id, { messages: own, part }] of subagents) {
+    const parts: Part[] = [];
+    for (const message of own) convert(message, () => parts);
+    const state = known.find((s) => s.subagentRunId === id);
+    part.data = {
+      subagentRunId: id,
+      parentToolCallId: state?.parentToolCallId,
+      name: state?.name,
+      // Without its events (history from before this page), it is running while one of its calls is.
+      status:
+        state?.status ??
+        (parts.some((p) => p.type === 'dynamic-tool' && !p.state.startsWith('output')) ? 'running' : 'done'),
+      errorText: state?.error?.message || undefined,
+      parts,
+    };
+  }
+
+  // Each goes after the call that started it, in the turn or in another sub-agent, never in itself.
+  const homes = [...out.map((m) => m.parts), ...[...subagents.values()].map((found) => found.part.data.parts)];
+  const holds = (part: SubagentPart, parts: Part[]): boolean =>
+    part.data.parts === parts ||
+    part.data.parts.some((p) => p.type === 'data-signoff-subagent' && holds(p as SubagentPart, parts));
+  for (const { part, at } of subagents.values()) {
+    for (const parts of homes) {
+      let index = afterCall(parts, part.data.parentToolCallId);
+      if (index === -1 || holds(part, parts)) continue;
+      const from = at?.indexOf(part) ?? -1;
+      if (from !== -1) {
+        at!.splice(from, 1);
+        if (at === parts && from < index) index--;
+      }
+      parts.splice(index, 0, part);
+      break;
+    }
   }
   return out;
+}
+
+/** Where a sub-agent started by `callId` goes in `parts`: after it and the sub-agents it started before. */
+function afterCall(parts: readonly Part[], callId: string | undefined): number {
+  let at = parts.findIndex((p) => p.type === 'dynamic-tool' && p.toolCallId === callId);
+  if (at === -1) return -1;
+  while ((parts[at + 1] as SubagentPart | undefined)?.data?.parentToolCallId === callId) at++;
+  return at + 1;
 }
 
 function userParts(content: unknown): Part[] {

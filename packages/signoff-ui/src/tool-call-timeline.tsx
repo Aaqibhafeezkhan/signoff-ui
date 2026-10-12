@@ -15,13 +15,16 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  getAllToolParts,
   getToolPartName,
   getToolPhase,
   isAutomaticApproval,
   isInterruptibleToolPart,
   isSettledPhase,
+  isSubagentPart,
   isToolPart,
   type AnyUIPart,
+  type SubagentPart,
   type ToolPart,
   type ToolPhase,
 } from './lib/ai';
@@ -55,7 +58,10 @@ export interface ToolMeta {
 }
 
 export interface ToolCallTimelineProps extends Omit<ComponentPropsWithoutRef<'div'>, 'children'> {
-  /** Tool parts, or every part of a message: non-tool parts are ignored. */
+  /**
+   * Tool parts, or every part of a message: other parts are ignored, except a sub-agent's
+   * (`data-signoff-subagent`), whose calls nest under the call that started it.
+   */
   parts: readonly AnyUIPart[];
   tools?: Record<string, ToolMeta> | undefined;
   /** Externally measured timings by `toolCallId`. Measured client-side when omitted. */
@@ -98,6 +104,16 @@ const PHASE_TEXT: Record<ToolPhase, string> = {
   error: 'text-signoff-hot-fg',
   denied: 'text-signoff-fg-subtle',
 };
+
+/** Shared by calls and sub-agents. */
+const TRIGGER =
+  'group/trigger hover:bg-signoff-surface-2/70 focus-visible:outline-signoff-ring flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-0';
+const CHEVRON =
+  'text-signoff-fg-subtle transition-transform duration-200 group-data-[state=open]/trigger:rotate-90 motion-reduce:transition-none';
+const ERROR_LINE = 'font-signoff-mono text-signoff-hot-fg mt-0.5 mb-1 line-clamp-2 px-2 text-xs leading-5 break-words';
+const CONTENT =
+  'data-[state=closed]:motion-safe:animate-signoff-collapse data-[state=open]:motion-safe:animate-signoff-expand overflow-hidden';
+const NAME = 'text-signoff-fg min-w-0 truncate text-[13px] font-medium';
 
 function StatusNode({ phase, interrupted }: { phase: ToolPhase; interrupted: boolean }) {
   const base = 'relative z-10 flex size-6 items-center justify-center rounded-full border';
@@ -240,6 +256,43 @@ function createCallObserver(): CallObserver {
 /** Calls that settle within this window are announced together, once it has passed. */
 const ANNOUNCE_DELAY_MS = 300;
 
+/** One level of a timeline: its calls, and the sub-agents each call started. */
+interface Level {
+  calls: ToolPart[];
+  subagents: Map<string, SubagentPart[]>;
+}
+
+/**
+ * The calls in `parts`, with each sub-agent under the call that started it. A sub-agent whose call is
+ * not among them (it gave none, or it is not in this timeline) has its calls shown in its place.
+ */
+function collectCalls(parts: readonly AnyUIPart[]): Level {
+  const level: Level = { calls: [], subagents: new Map() };
+  const ids = new Set(parts.filter(isToolPart).map((part) => part.toolCallId));
+  const under = (id: string, subagents: SubagentPart[]) =>
+    level.subagents.set(id, [...(level.subagents.get(id) ?? []), ...subagents]);
+  for (const part of parts) {
+    if (isToolPart(part)) level.calls.push(part);
+    else if (!isSubagentPart(part)) continue;
+    else if (ids.has(part.data.parentToolCallId!)) under(part.data.parentToolCallId!, [part]);
+    else {
+      const inner = collectCalls(part.data.parts);
+      level.calls.push(...inner.calls);
+      for (const [id, subagents] of inner.subagents) under(id, subagents);
+    }
+  }
+  return level;
+}
+
+/** Which of a timeline's sub-agents are open, and which a person closed. */
+interface SubagentsOpen {
+  open: ReadonlySet<string>;
+  closed: ReadonlySet<string>;
+}
+
+const TRIGGERS = '[data-slot="signoff-tool-call-trigger"], [data-slot="signoff-subagent-trigger"]';
+const CALL = '[data-slot="signoff-tool-call"]';
+
 /** When the last of these calls settled, or -Infinity. */
 function lastEnd(parts: readonly ToolPart[], timings: ToolTimings): number {
   let last = -Infinity;
@@ -250,7 +303,8 @@ function lastEnd(parts: readonly ToolPart[], timings: ToolTimings): number {
 /**
  * A vertical timeline of tool calls with live states, durations, a waterfall,
  * and expandable input/output. Follows the WAI-ARIA disclosure pattern; Arrow
- * Up/Down, Home and End move between calls.
+ * Up/Down, Home and End move between calls. A sub-agent's calls nest, collapsed,
+ * under the call that started it.
  */
 export function ToolCallTimeline({
   parts,
@@ -271,11 +325,14 @@ export function ToolCallTimeline({
 }: ToolCallTimelineProps) {
   const L = useLabels(LABELS, labels);
   const T = L.toolCallTimeline;
-  const toolParts = useMemo(() => parts.filter(isToolPart), [parts]);
-  const measured = useToolTimings(toolParts);
+  const level = useMemo(() => collectCalls(parts), [parts]);
+  const toolParts = level.calls;
+  // Every call, its sub-agents' included: their timings, the waterfall and the announcements.
+  const allParts = useMemo(() => getAllToolParts(parts), [parts]);
+  const measured = useToolTimings(parts);
   const timings = timingsProp ?? measured;
   const anyActive =
-    active && toolParts.some((p) => !isSettledPhase(getToolPhase(p)) && getToolPhase(p) !== 'awaiting-approval');
+    active && allParts.some((p) => !isSettledPhase(getToolPhase(p)) && getToolPhase(p) !== 'awaiting-approval');
   const now = useNow(anyActive, 100);
   const hydrated = useHydrated();
   // Unsettled calls freeze when the run stops; restored history (never active here) has no end time.
@@ -307,13 +364,28 @@ export function ToolCallTimeline({
   });
   const [onOpenChange] = useState(() => (part: ToolPart, open: boolean) => latestSetOpen.current(part, open));
 
+  // Sub-agents start collapsed. One with a call waiting on approval opens, unless the person closed it.
+  const [subagentsOpen, setSubagentsOpen] = useState<SubagentsOpen>(() => ({ open: new Set(), closed: new Set() }));
+  const isSubagentOpen = (part: SubagentPart) => {
+    const id = part.data.subagentRunId;
+    if (subagentsOpen.open.has(id)) return true;
+    return !subagentsOpen.closed.has(id) && getAllToolParts([part]).some(isWaiting);
+  };
+  const setSubagentOpen = (id: string, open: boolean) =>
+    setSubagentsOpen(({ open: opened, closed }) => {
+      const [nextOpen, nextClosed] = [new Set(opened), new Set(closed)];
+      (open ? nextOpen : nextClosed).add(id);
+      (open ? nextClosed : nextOpen).delete(id);
+      return { open: nextOpen, closed: nextClosed };
+    });
+
   // Waterfall bounds span every call that has timing information. Each call places its bar from its
   // own times and the span set on the list, so while a call runs and the span grows, the others do
   // not render again.
   const bounds = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
-    for (const part of toolParts) {
+    for (const part of allParts) {
       const t = timings[part.toolCallId];
       const end = t?.endedAt ?? clock;
       if (!t?.startedAt || end === undefined) continue;
@@ -321,15 +393,15 @@ export function ToolCallTimeline({
       max = Math.max(max, end);
     }
     return Number.isFinite(min) && max > min ? { min, span: max - min } : undefined;
-  }, [toolParts, timings, clock]);
+  }, [allParts, timings, clock]);
 
   // Calls that settled since the last announcement, in the order they settled. Calls settled before
   // the timeline mounted (restored history) are never announced.
-  const [announced, setAnnounced] = useState(() => ({ text: '', through: lastEnd(toolParts, timings) }));
+  const [announced, setAnnounced] = useState(() => ({ text: '', through: lastEnd(allParts, timings) }));
   const announcedThrough = announced.through;
   const pending = useMemo(() => {
     const settled: Array<{ part: ToolPart; at: number }> = [];
-    for (const part of toolParts) {
+    for (const part of allParts) {
       const at = timings[part.toolCallId]?.endedAt;
       if (at !== undefined && at > announcedThrough) settled.push({ part, at });
     }
@@ -344,7 +416,7 @@ export function ToolCallTimeline({
     const text =
       sentences.length > 1 ? sentences.map((s) => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ') : (sentences[0] ?? '');
     return { text, through: settled.at(-1)?.at ?? announcedThrough };
-  }, [toolParts, timings, tools, announcedThrough, T, L.format]);
+  }, [allParts, timings, tools, announcedThrough, T, L.format]);
   // Wait a moment, so that calls finishing together (parallel calls) are read out as one.
   const { text: pendingText, through: pendingThrough } = pending;
   useEffect(() => {
@@ -363,62 +435,75 @@ export function ToolCallTimeline({
   const [initial] = useState(() => ({ virtualized, chunks: Math.ceil(count / CHUNK_CALLS) }));
   const [callHeight, setCallHeight] = useState(CALL_HEIGHT);
   // A call slides in when it is new: at the first render, or arriving after it. Not when a chunk that
-  // has scrolled back near the screen renders its calls again.
-  const [entering] = useState(() => createEntering(toolParts.map((part) => part.toolCallId)));
+  // has scrolled back near the screen renders its calls again, or a sub-agent opens.
+  const [entering] = useState(() => createEntering(allParts.map((part) => part.toolCallId)));
   useEffect(() => entering.mounted(), [entering]);
   // The chunk holding focus stays rendered; a call the keyboard moves to renders, then takes focus.
   const [focusChunk, setFocusChunk] = useState<number>();
-  const [focusTarget, setFocusTarget] = useState<number>();
-  const triggerAt = (index: number) =>
-    listRef.current?.querySelector<HTMLButtonElement>(
-      `[data-slot="signoff-tool-call"][aria-posinset="${index + 1}"] [data-slot="signoff-tool-call-trigger"]`,
-    );
+  const [focusTarget, setFocusTarget] = useState<{ index: number; last: boolean }>();
+  /** The top-level calls rendered, as list items. */
+  const callItems = () =>
+    Array.from(listRef.current?.children ?? []).filter((el): el is HTMLElement => el.matches(CALL));
+  const callAt = (index: number) =>
+    virtualized ? callItems().find((el) => el.getAttribute('aria-posinset') === String(index + 1)) : callItems()[index];
+  const reveal = (trigger: HTMLElement | undefined) => {
+    if (!trigger) return;
+    // In a long timeline the call may be off screen; a short one is all on the page, as it scrolls.
+    if (virtualized) trigger.scrollIntoView?.({ block: 'nearest' });
+    trigger.focus({ preventScroll: virtualized });
+  };
+  /** A call's first trigger, or its last: a sub-agent's, or a call in an open sub-agent. */
+  const triggerIn = (item: Element, last: boolean) => {
+    const triggers = item.querySelectorAll<HTMLElement>(TRIGGERS);
+    return last ? triggers[triggers.length - 1] : triggers[0];
+  };
+  // Arrow keys move through what is on screen: each call's trigger, then those of its sub-agents and
+  // of their calls while open. In a long timeline they go from call to call by index, rendering the
+  // one they reach.
   const onKeyDown = (event: KeyboardEvent<HTMLOListElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const triggers = Array.from(
-      listRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="signoff-tool-call-trigger"]') ?? [],
-    );
-    const index = triggers.indexOf(document.activeElement as HTMLButtonElement);
-    if (index === -1) return;
+    const list = listRef.current;
+    const focused = document.activeElement;
+    if (!list || !(focused instanceof HTMLElement) || !focused.matches(TRIGGERS)) return;
+    let item = focused.closest(CALL);
+    while (item && item.parentElement !== list) item = item.parentElement!.closest(CALL);
+    if (!item) return;
     event.preventDefault();
-    // In a long timeline, by index over every call; otherwise between the triggers, all rendered.
-    const total = virtualized ? count : triggers.length;
+    const triggers = Array.from(item.querySelectorAll<HTMLElement>(TRIGGERS));
+    const at = triggers.indexOf(focused);
+    if (event.key === 'ArrowDown' && at < triggers.length - 1) return reveal(triggers[at + 1]);
+    if (event.key === 'ArrowUp' && at > 0) return reveal(triggers[at - 1]);
     const from = virtualized
-      ? Number(triggers[index]!.closest('[data-slot="signoff-tool-call"]')?.getAttribute('aria-posinset')) - 1
-      : index;
-    const nextIndex =
+      ? Number(item.getAttribute('aria-posinset')) - 1
+      : callItems().indexOf(item as HTMLElement);
+    const [index, last] =
       event.key === 'Home'
-        ? 0
+        ? [0, false]
         : event.key === 'End'
-          ? total - 1
-          : (from + (event.key === 'ArrowDown' ? 1 : -1) + total) % total;
-    if (!virtualized) {
-      triggers[nextIndex]?.focus();
-      return;
-    }
-    // A call that is not rendered renders first, then takes focus (the effect below).
-    const target = triggerAt(nextIndex);
-    if (target) reveal(target);
+          ? [count - 1, true]
+          : event.key === 'ArrowDown'
+            ? [(from + 1) % count, false]
+            : [(from - 1 + count) % count, true];
+    const target = callAt(index);
+    if (target) reveal(triggerIn(target, last));
     else {
-      setFocusChunk(Math.floor(nextIndex / CHUNK_CALLS));
-      setFocusTarget(nextIndex);
+      // A call that is not rendered renders first, then takes focus (the effect below).
+      setFocusChunk(Math.floor(index / CHUNK_CALLS));
+      setFocusTarget({ index, last });
     }
-  };
-  const reveal = (trigger: HTMLElement) => {
-    trigger.scrollIntoView?.({ block: 'nearest' });
-    trigger.focus({ preventScroll: true });
   };
   useIsoLayoutEffect(() => {
     if (focusTarget === undefined) return;
-    const target = triggerAt(focusTarget);
-    if (target) reveal(target);
+    const target = callAt(focusTarget.index);
+    if (target) reveal(triggerIn(target, focusTarget.last));
     setFocusTarget(undefined);
   }, [focusTarget]);
   useEffect(() => {
     const list = listRef.current;
     if (!list || !virtualized) return;
     const onFocusIn = (event: FocusEvent) => {
-      const at = (event.target as Element).closest('[data-slot="signoff-tool-call"]')?.getAttribute('aria-posinset');
+      // The top-level call, also for a trigger in one of its sub-agents.
+      const at = (event.target as Element).closest(`${CALL}[aria-posinset]`)?.getAttribute('aria-posinset');
       if (at) setFocusChunk(Math.floor((Number(at) - 1) / CHUNK_CALLS));
     };
     // Only once focus has gone elsewhere on the page, not while the window is in the background.
@@ -452,7 +537,7 @@ export function ToolCallTimeline({
     for (const track of list.querySelectorAll<HTMLElement>(`[data-slot="${WATERFALL}"]`))
       if (track.style.getPropertyValue(SPAN) !== span) track.style.setProperty(SPAN, span);
     const size = String(count);
-    for (const call of list.querySelectorAll('[data-slot="signoff-tool-call"]')) {
+    for (const call of callItems()) {
       if (!virtualized) call.removeAttribute('aria-setsize');
       else if (call.getAttribute('aria-setsize') !== size) call.setAttribute('aria-setsize', size);
     }
@@ -461,7 +546,56 @@ export function ToolCallTimeline({
   if (count === 0) return null;
   const chunks: Array<[number, number]> = [];
   for (let start = 0; start < count; start += CHUNK_CALLS) chunks.push([start, Math.min(count, start + CHUNK_CALLS)]);
-  const keepRendered = (part: ToolPart) => isOpen(part) || !isSettledPhase(getToolPhase(part));
+  const keepRendered = (part: ToolPart) =>
+    isOpen(part) ||
+    !isSettledPhase(getToolPhase(part)) ||
+    (level.subagents.get(part.toolCallId)?.some(isSubagentOpen) ?? false);
+
+  /** A call, and the sub-agents it started; `at` places a top-level call in a long timeline. */
+  const renderCall = (
+    part: ToolPart,
+    isLast: boolean,
+    subagents: Level['subagents'],
+    at?: { index: number; chunk: number },
+  ) => {
+    const timing = timings[part.toolCallId];
+    return (
+      <TimelineItem
+        key={part.toolCallId}
+        part={part}
+        meta={tools?.[getToolPartName(part)]}
+        timing={timing}
+        // Only a call still going reads the clock: the others keep their props, and their render.
+        clock={timing?.startedAt !== undefined && timing.endedAt === undefined ? clock : undefined}
+        interrupted={!active && isInterruptibleToolPart(part)}
+        barsFrom={bars?.min}
+        hydrated={hydrated}
+        isLast={isLast}
+        open={isOpen(part)}
+        onOpenChange={onOpenChange}
+        extra={renderExtra?.(part)}
+        posInSet={virtualized && at ? at.index + 1 : undefined}
+        chunk={at?.chunk ?? 0}
+        observer={virtualized && at ? observer : undefined}
+        entering={entering}
+        subagents={subagents.get(part.toolCallId)?.map((subagent) => {
+          const open = isSubagentOpen(subagent);
+          const inner = open ? collectCalls(subagent.data.parts) : undefined;
+          return (
+            <SubagentGroup
+              key={subagent.data.subagentRunId}
+              part={subagent}
+              open={open}
+              onOpenChange={setSubagentOpen}
+              active={active}
+            >
+              {inner?.calls.map((call, i) => renderCall(call, i === inner.calls.length - 1, inner.subagents))}
+            </SubagentGroup>
+          );
+        })}
+      />
+    );
+  };
 
   return (
     <WithLabels labels={labels}>
@@ -484,31 +618,11 @@ export function ToolCallTimeline({
               callHeight={callHeight}
             >
               {() =>
-                toolParts.slice(start, end).map((part, i) => {
-                  const index = start + i;
-                  const timing = timings[part.toolCallId];
-                  return (
-                    <TimelineItem
-                      key={part.toolCallId}
-                      part={part}
-                      meta={tools?.[getToolPartName(part)]}
-                      timing={timing}
-                      // Only a call still going reads the clock: the others keep their props, and their render.
-                      clock={timing?.startedAt !== undefined && timing.endedAt === undefined ? clock : undefined}
-                      interrupted={!active && isInterruptibleToolPart(part)}
-                      barsFrom={bars?.min}
-                      hydrated={hydrated}
-                      isLast={index === count - 1}
-                      open={isOpen(part)}
-                      onOpenChange={onOpenChange}
-                      extra={renderExtra?.(part)}
-                      posInSet={virtualized ? index + 1 : undefined}
-                      chunk={chunk}
-                      observer={virtualized ? observer : undefined}
-                      entering={entering}
-                    />
-                  );
-                })
+                toolParts
+                  .slice(start, end)
+                  .map((part, i) =>
+                    renderCall(part, start + i === count - 1, level.subagents, { index: start + i, chunk }),
+                  )
               }
             </CallChunk>
           ))}
@@ -518,6 +632,9 @@ export function ToolCallTimeline({
     </WithLabels>
   );
 }
+
+/** A call waiting on a person's approval. */
+const isWaiting = (part: ToolPart) => getToolPhase(part) === 'awaiting-approval';
 
 /** A call's waterfall bar; the list sets the waterfall's span in ms on each. */
 const WATERFALL = 'signoff-tool-call-waterfall';
@@ -624,6 +741,8 @@ interface TimelineItemProps {
   /** In a long timeline: what tells its chunk whether it is near the viewport. */
   observer: CallObserver | undefined;
   entering: Entering;
+  /** The sub-agents this call started, each a `SubagentGroup`. */
+  subagents?: ReactNode;
 }
 
 /** Memoized: in a long run, a new call or a running call's clock renders only the calls they change. */
@@ -643,6 +762,7 @@ const TimelineItem = memo(function TimelineItem({
   chunk,
   observer,
   entering,
+  subagents,
 }: TimelineItemProps) {
   const L = useLabels(LABELS);
   const ref = useRef<HTMLLIElement>(null);
@@ -698,17 +818,14 @@ const TimelineItem = memo(function TimelineItem({
         onOpenChange={(next) => onOpenChange(part, next)}
         className={cn('min-w-0', isLast ? 'pb-0' : 'pb-2')}
       >
-        <Collapsible.Trigger
-          data-slot="signoff-tool-call-trigger"
-          className="group/trigger hover:bg-signoff-surface-2/70 focus-visible:outline-signoff-ring flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-0"
-        >
+        <Collapsible.Trigger data-slot="signoff-tool-call-trigger" className={TRIGGER}>
           {meta?.icon && (
             <span aria-hidden="true" className="text-signoff-fg-subtle flex shrink-0 [&_svg]:size-3.5">
               {meta.icon}
             </span>
           )}
           {/* Truncates rather than pushing the row past a narrow container; the full name stays in the button's. */}
-          <span className="text-signoff-fg min-w-0 truncate text-[13px] font-medium">{label}</span>
+          <span className={NAME}>{label}</span>
           {summary !== undefined && summary !== null && summary !== '' && (
             // In narrow containers the summary is visually hidden but stays in the button's accessible name.
             <span className="font-signoff-mono text-signoff-fg-muted sr-only min-w-0 text-xs @md:not-sr-only @md:truncate">
@@ -748,18 +865,11 @@ const TimelineItem = memo(function TimelineItem({
             <span className="font-signoff-mono text-signoff-fg-subtle w-12 text-right text-[11px] tabular-nums">
               {duration !== undefined && phase !== 'awaiting-approval' ? L.format.duration(duration) : ''}
             </span>
-            <ChevronIcon
-              size={14}
-              className="text-signoff-fg-subtle transition-transform duration-200 group-data-[state=open]/trigger:rotate-90 motion-reduce:transition-none"
-            />
+            <ChevronIcon size={14} className={CHEVRON} />
           </span>
         </Collapsible.Trigger>
-        {part.state === 'output-error' && !open && (
-          <p className="font-signoff-mono text-signoff-hot-fg mt-0.5 mb-1 line-clamp-2 px-2 text-xs leading-5 break-words">
-            {part.errorText}
-          </p>
-        )}
-        <Collapsible.Content className="data-[state=closed]:motion-safe:animate-signoff-collapse data-[state=open]:motion-safe:animate-signoff-expand overflow-hidden">
+        {part.state === 'output-error' && !open && <p className={ERROR_LINE}>{part.errorText}</p>}
+        <Collapsible.Content className={CONTENT}>
           <ToolCallDetails part={part} meta={meta} />
         </Collapsible.Content>
         {extra && (
@@ -767,10 +877,96 @@ const TimelineItem = memo(function TimelineItem({
             {extra}
           </div>
         )}
+        {subagents}
       </Collapsible.Root>
     </li>
   );
 });
+
+/**
+ * A sub-agent under the call that started it: its name, how many calls it made and where it is, as
+ * a disclosure button that shows its calls. Collapsed until opened; with no calls, just the row.
+ */
+function SubagentGroup({
+  part,
+  open,
+  onOpenChange,
+  active,
+  children,
+}: {
+  part: SubagentPart;
+  open: boolean;
+  onOpenChange: (id: string, open: boolean) => void;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const T = useLabels(LABELS).toolCallTimeline;
+  const { subagentRunId: id, name, status, errorText } = part.data;
+  const calls = getAllToolParts(part.data.parts);
+  const count = collectCalls(part.data.parts).calls.length;
+  const waiting = calls.some(isWaiting);
+  // A run that ended while it worked stopped it, as it stops a running call.
+  const stopped = !waiting && status === 'running' && !active;
+  const still = stopped || (!waiting && status === 'suspended');
+  const phase: ToolPhase = waiting
+    ? 'awaiting-approval'
+    : status === 'done'
+      ? 'success'
+      : status === 'error'
+        ? 'error'
+        : 'running';
+  const label = name || T.subagent.name;
+  const row = (
+    <>
+      <span className={NAME}>{label}</span>
+      <span className="font-signoff-mono text-signoff-fg-muted shrink-0 text-xs">{T.subagent.calls(count)}</span>
+      <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
+        <span
+          className={cn(
+            'text-xs font-medium',
+            still ? 'text-signoff-fg-subtle' : PHASE_TEXT[phase],
+            phase === 'success' && 'sr-only',
+          )}
+        >
+          {stopped ? T.stopped : still ? T.subagent.paused : T.phases[phase]}
+        </span>
+        {count > 0 && <ChevronIcon size={14} className={CHEVRON} />}
+      </span>
+    </>
+  );
+  const error = status === 'error' && errorText && <p className={ERROR_LINE}>{errorText}</p>;
+  return (
+    <div
+      data-slot="signoff-subagent"
+      data-status={status}
+      data-interrupted={stopped || undefined}
+      className="mt-1 grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3"
+    >
+      {/* Decorative, as a call's: the row says the state. */}
+      <div aria-hidden="true" className="pt-1.5">
+        <StatusNode phase={phase} interrupted={still} />
+      </div>
+      {count === 0 ? (
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2.5 px-2 py-1.5">{row}</div>
+          {error}
+        </div>
+      ) : (
+        <Collapsible.Root open={open} onOpenChange={(next) => onOpenChange(id, next)} className="min-w-0">
+          <Collapsible.Trigger data-slot="signoff-subagent-trigger" className={TRIGGER}>
+            {row}
+          </Collapsible.Trigger>
+          {error}
+          <Collapsible.Content className={CONTENT}>
+            <ol aria-label={T.subagent.list(label)} className="relative mt-1 flex flex-col">
+              {children}
+            </ol>
+          </Collapsible.Content>
+        </Collapsible.Root>
+      )}
+    </div>
+  );
+}
 
 /** The expanded body of a tool call: input, output or error, and approval outcome. */
 export function ToolCallDetails({

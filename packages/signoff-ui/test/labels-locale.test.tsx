@@ -11,7 +11,7 @@ import { AgentStatus } from '../src/agent-status';
 import { ApprovalCard, ToolApprovalBatch, ToolApprovalCard, type ToolApprovalResponse } from '../src/approval-card';
 import { DiffReview } from '../src/diff-review';
 import { SignoffLabelsProvider } from '../src/labels';
-import type { AgentState, ToolPart } from '../src/lib/ai';
+import type { AgentState, AnyUIPart, ToolPart } from '../src/lib/ai';
 import type { ToolTimings } from '../src/lib/hooks';
 import { defaultLabels, mergeLabels, type RuleLabel, type SignoffLabels } from '../src/lib/labels';
 import { describeRule, type ApprovalDecision } from '../src/lib/policy';
@@ -164,6 +164,27 @@ describe('labels: every word comes from them', () => {
     await wait(350);
     collect();
     rerender(view(start, false));
+    collect();
+  });
+
+  it('ToolCallTimeline, with sub-agents unnamed, paused, open and stopped', () => {
+    const subagent = (id: string, data: Record<string, unknown>) =>
+      ({ type: 'data-signoff-subagent', id, data: { subagentRunId: id, parentToolCallId: 'p', ...data } }) as AnyUIPart;
+    const parts = [
+      part('input-available', 'p'),
+      // Unnamed, open on its call waiting for approval: its list is named.
+      subagent('s1', { status: 'running', parts: [part('approval-requested', 'q', { approval: { id: 'aq' } })] }),
+      subagent('s2', { name: 'агент', status: 'suspended', parts: [] }),
+      subagent('s3', { name: 'агент', status: 'running', parts: [part('output-available', 'r')] }),
+    ];
+    const view = (active: boolean) => (
+      <SignoffLabelsProvider labels={labels}>
+        <ToolCallTimeline parts={parts} active={active} />
+      </SignoffLabelsProvider>
+    );
+    const { rerender } = render(view(true));
+    collect();
+    rerender(view(false));
     collect();
   });
 

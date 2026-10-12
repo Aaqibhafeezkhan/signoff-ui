@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatStatus } from 'ai';
-import { getToolParts, observeToolTimings, type AnyUIPart, type ToolTimings } from './ai';
+import { getAllToolParts, observeToolTimings, type AnyUIPart, type ToolTimings } from './ai';
 
 export type { ToolTiming, ToolTimings } from './ai';
 
@@ -67,15 +67,15 @@ function createStore<T>(initial: T) {
 }
 
 /**
- * Measures tool-call timings client-side by watching AI SDK state transitions.
- * Calls that are already settled when first observed (e.g. restored history)
+ * Measures tool-call timings client-side by watching AI SDK state transitions, a sub-agent's calls
+ * included. Calls that are already settled when first observed (e.g. restored history)
  * get no timing rather than a misleading zero.
  */
 export function useToolTimings(parts: readonly AnyUIPart[]): ToolTimings {
   const [store] = useState(() => createStore<ToolTimings>({}));
   const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get);
   useIsoLayoutEffect(() => {
-    store.set(observeToolTimings(store.get(), getToolParts(parts), Date.now()));
+    store.set(observeToolTimings(store.get(), getAllToolParts(parts), Date.now()));
   }, [parts, store]);
   return snapshot;
 }
