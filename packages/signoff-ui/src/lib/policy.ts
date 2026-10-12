@@ -65,6 +65,25 @@ function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
 
+/* A glob's parts: a character, as its code, or one of these. */
+const ONE = -1; // ?
+const STAR = -2; // *
+const ANY = -3; // ** (or more)
+
+/** A pattern in parts: `\` and the character it makes literal, a run of `*`, or one character. */
+const globParts = (pattern: string) =>
+  (pattern.match(/\\[\s\S]|\*+|[\s\S]/g) ?? []).map((part) =>
+    part[0] === '\\' && part[1]
+      ? part.charCodeAt(1)
+      : part[1]
+        ? ANY
+        : part === '*'
+          ? STAR
+          : part === '?'
+            ? ONE
+            : part.charCodeAt(0),
+  );
+
 /**
  * A glob as a regular expression over the whole value:
  * - `*` matches any run of characters but shell control characters (`;`, `&`, `|`, `` ` ``, `<`,
@@ -72,39 +91,46 @@ function escapeRegExp(text: string) {
  * - `?` matches one such character;
  * - `**` matches any run of characters at all;
  * - `\` makes the next character literal; everything else is literal.
+ *
+ * The expression backtracks: with a few `*` and a long value it doesn't match, a test can take
+ * seconds. `matchesGlob` gives the same answers without backtracking.
  */
 export function globToRegExp(pattern: string): RegExp {
   const safe = `(?:(?!\\$\\()[^${escapeRegExp(SHELL_CONTROL)}])`;
-  let source = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i]!;
-    if (char === '\\' && i + 1 < pattern.length) {
-      source += escapeRegExp(pattern[++i]!);
-    } else if (char === '*' && pattern[i + 1] === '*') {
-      source += '[\\s\\S]*';
-      while (pattern[i + 1] === '*') i++;
-    } else if (char === '*') {
-      source += `${safe}*`;
-    } else if (char === '?') {
-      source += safe;
-    } else {
-      source += escapeRegExp(char);
-    }
-  }
-  return new RegExp(`^${source}$`);
+  const source = globParts(pattern).map((part) =>
+    part === ANY
+      ? '[\\s\\S]*'
+      : part === STAR
+        ? `${safe}*`
+        : part === ONE
+          ? safe
+          : escapeRegExp(String.fromCharCode(part)),
+  );
+  return new RegExp(`^${source.join('')}$`);
 }
 
-const compiled = new Map<string, RegExp>();
-
-/** Whether a whole value matches a glob (see `globToRegExp`). */
+/**
+ * Whether a whole value matches a glob (see `globToRegExp`). It reads the value once, keeping the
+ * places in the pattern that match so far, so its time grows with the value's length times the
+ * pattern's, and no more: a long argument written by a model can't hold up the server or the page.
+ */
 export function matchesGlob(value: string, pattern: string): boolean {
-  let regexp = compiled.get(pattern);
-  if (!regexp) {
-    regexp = globToRegExp(pattern);
-    if (compiled.size > 500) compiled.clear();
-    compiled.set(pattern, regexp);
+  const parts = globParts(pattern);
+  let places = new Set([0]);
+  for (let i = 0; ; i++) {
+    // A `*` or `**` can match nothing, so the place after it is reached too (the loop visits what it adds).
+    for (const place of places) if (parts[place]! < ONE) places.add(place + 1);
+    if (i === value.length) return places.has(parts.length);
+    // What a single `*` or `?` may match: no shell control character, and no `$` that starts `$(`.
+    const safe = !SHELL_CONTROL.includes(value[i]!) && !value.startsWith('$(', i);
+    const next = new Set<number>();
+    for (const place of places) {
+      const part = parts[place];
+      if (part === ANY || (part === STAR && safe)) next.add(place);
+      else if (part === value.charCodeAt(i) || (part === ONE && safe)) next.add(place + 1);
+    }
+    places = next;
   }
-  return regexp.test(value);
 }
 
 /** An argument by name, dotted names reading nested objects: `'options.cwd'`. */
