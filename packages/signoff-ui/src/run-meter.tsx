@@ -38,10 +38,20 @@ export interface RunMeterProps extends Omit<ComponentPropsWithoutRef<'div'>, 'ch
   labels?: SignoffLabelsInput | undefined;
 }
 
+/** How long a figure takes to reach a new value: short, so it never reads far from the figures beside it. */
+const TWEEN_MS = 200;
+
+/**
+ * "–" with no value. A new run (no value again) starts afresh: its first value shows as it is,
+ * rather than counting down from the last run's.
+ */
 function Num({ value, format }: { value: number | undefined; format: (n: number) => string }) {
-  const animated = useAnimatedNumber(value ?? 0);
   if (value === undefined) return <>–</>;
-  return <>{format(animated)}</>;
+  return <Tween value={value} format={format} />;
+}
+
+function Tween({ value, format }: { value: number; format: (n: number) => string }) {
+  return <>{format(useAnimatedNumber(value, TWEEN_MS))}</>;
 }
 
 /**
@@ -71,7 +81,8 @@ export function RunMeter({
   const Heading = `h${headingLevel}` as const;
   // The compact strip scrolls sideways in a narrow space; it's already a named group.
   const stripRef = useScrollRegion<HTMLDivElement>();
-  const breakdown = pricing ? estimateCost(usage, pricing) : undefined;
+  // No usage yet, as at the start of a run: the cost reads "–" with the token counts, not $0.00.
+  const breakdown = pricing && usage ? estimateCost(usage, pricing) : undefined;
   const totalCost = cost ?? breakdown?.total;
   const input = usage?.inputTokens;
   const output = usage?.outputTokens;
@@ -117,7 +128,7 @@ export function RunMeter({
             <Num value={output} format={formatTokens} />
           </span>
         </span>
-        {totalCost !== undefined && (
+        {(cost !== undefined || pricing) && (
           <span aria-hidden="true" className={item} title={M.estimatedCost}>
             <span className="text-signoff-fg">
               <Num value={totalCost} format={formatCost} />
@@ -232,13 +243,13 @@ export function RunMeter({
           </dd>
         </div>
       </dl>
-      {breakdown && (
+      {pricing && (
         <p className="text-signoff-fg-subtle mt-3 text-[11px]">
           {M.costSplit(
-            formatCost(breakdown.input + breakdown.cachedInput + breakdown.cacheWrite),
-            formatCost(breakdown.output),
+            formatCost(breakdown && breakdown.input + breakdown.cachedInput + breakdown.cacheWrite),
+            formatCost(breakdown?.output),
           )}
-          {pricing && <> · {M.rates(pricing.input, pricing.output)}</>}
+          <> · {M.rates(pricing.input, pricing.output)}</>
         </p>
       )}
     </div>

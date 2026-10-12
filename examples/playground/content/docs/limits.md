@@ -20,7 +20,7 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `ToolCallTimeline`                                                 |  22.6 kB |
 | `AgentMessage` from `/custom-markdown` (with your own renderer)    |  32.6 kB |
 | `DiffReview`                                                       |  41.3 kB |
-| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  50.0 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  50.2 kB |
 | `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  86.0 kB |
 | Everything in the main entry                                       | 120.8 kB |
 
