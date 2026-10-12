@@ -359,6 +359,85 @@ export function setToolInput<M extends { parts: readonly unknown[] }>(
   });
 }
 
+/* A person's rules with each request: plain data from the page, checked again on the server. */
+
+/**
+ * Rules as plain data, to send with a request: copies, as JSON carries them. A rule with a `when`
+ * is left out, since `when` is code and without it the rule would cover more calls than it does on
+ * the page; the page still applies it when the server asks.
+ */
+export function toPlainRules(rules: readonly ApprovalRule[]): ApprovalRule[] {
+  return JSON.parse(JSON.stringify(rules.filter((rule) => !rule.when))) as ApprovalRule[];
+}
+
+/** What `parseApprovalRules` accepts from a client. */
+export interface ApprovalRuleLimits {
+  /** How many rules are read: those after the first `maxRules` are left out. Default 100. */
+  maxRules?: number | undefined;
+  /** Argument patterns in one rule. Default 20. */
+  maxArgs?: number | undefined;
+  /** Characters in one string: an id, a tool, an argument's name or pattern, a reason. Default 500. */
+  maxLength?: number | undefined;
+  /**
+   * `*` wildcards in one pattern, `**` counting as one. Default 1: with each one more, matching a
+   * long argument takes much longer, enough to hold up the server.
+   */
+  maxWildcards?: number | undefined;
+}
+
+/** The `*` wildcards in a pattern: a run of them counts once, an escaped one not at all. */
+function wildcards(pattern: string) {
+  let count = 0;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '\\') i++;
+    else if (pattern[i] === '*') {
+      count++;
+      while (pattern[i + 1] === '*') i++;
+    }
+  }
+  return count;
+}
+
+/**
+ * The rules a client sent, such as a request body's `rules`, checked on the server: each field of
+ * the right type and within `limits`, other fields dropped. A rule that fails a check is left out,
+ * and so is everything when `value` is not an array. A rule left out still holds on the page, which
+ * answers the call when the server asks.
+ */
+export function parseApprovalRules(
+  value: unknown,
+  { maxRules = 100, maxArgs = 20, maxLength = 500, maxWildcards = 1 }: ApprovalRuleLimits = {},
+): ApprovalRule[] {
+  if (!Array.isArray(value)) return [];
+  const text = (v: unknown): v is string => typeof v === 'string' && v.length <= maxLength;
+  const pattern = (v: unknown): v is string => text(v) && wildcards(v) <= maxWildcards;
+  const rules: ApprovalRule[] = [];
+  for (const item of value.slice(0, maxRules)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const { id, tool, args, effect, scope, createdAt, reason } = item as Record<string, unknown>;
+    if (!text(id) || !pattern(tool)) continue;
+    if ((effect !== 'allow' && effect !== 'deny') || (scope !== 'session' && scope !== 'always')) continue;
+    if ((createdAt !== undefined && !Number.isFinite(createdAt)) || (reason !== undefined && !text(reason))) continue;
+    let checked: Record<string, string> | undefined;
+    if (args !== undefined) {
+      if (!args || typeof args !== 'object' || Array.isArray(args)) continue;
+      const entries = Object.entries(args);
+      if (entries.length > maxArgs || !entries.every(([name, glob]) => text(name) && pattern(glob))) continue;
+      checked = Object.fromEntries(entries) as Record<string, string>;
+    }
+    rules.push({
+      id,
+      tool,
+      ...(checked ? { args: checked } : {}),
+      effect,
+      scope,
+      ...(createdAt !== undefined ? { createdAt: createdAt as number } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    });
+  }
+  return rules;
+}
+
 /* Agent Client Protocol: `session/request_permission`, typed here so nothing new is installed. */
 
 /** ACP `PermissionOptionKind`. */

@@ -38,3 +38,60 @@ streamText({
 - `fromAcpPermissionRequest(request)` turns the request into the card's.
 
 ACP has no session option, so `allow-session` answers `allow_once` and leaves the session rule on the client. These helpers are types and functions only, with no ACP package to install.
+
+**Sending a person's rules with each request.** For the route to decide with the person's own rules, the page sends them with every request. The transport is made once and the rules change between requests, so `body` is a function, called as each request goes out. `policy.getRules()` returns the rules as they are at that moment, as plain data. It is the same function for the policy's life, so the transport is still made once. A "For this session" rule is in it as soon as the person chooses it, so the rule goes out with the request that carries that approval, and the server decides the run's next calls with it. Reading a ref in `body` would work too, but `react-hooks/refs` reports it.
+
+The page:
+
+```tsx
+'use client';
+
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
+import { useMemo } from 'react';
+import { AgentMessage, useApprovalPolicy, webStorageRules } from 'signoff-ui';
+
+const storage = webStorageRules(); // once, outside the component
+
+export function Run() {
+  const policy = useApprovalPolicy({ storage });
+  const { getRules } = policy;
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: '/api/chat', body: () => ({ rules: getRules() }) }),
+    [getRules],
+  );
+  const { messages, addToolApprovalResponse } = useChat({
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
+  return messages.map((m) => (
+    <AgentMessage key={m.id} message={m} approvalPolicy={policy} onToolApproval={addToolApprovalResponse} />
+  ));
+}
+```
+
+The route, `app/api/chat/route.ts`:
+
+```ts
+import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
+import { parseApprovalRules, toToolApproval } from 'signoff-ui/core';
+
+export async function POST(req: Request) {
+  const { messages, rules }: { messages: UIMessage[]; rules?: unknown } = await req.json();
+  const result = streamText({
+    model,
+    messages: await convertToModelMessages(messages, { tools }),
+    tools,
+    // This person's rules, for this person's run.
+    toolApproval: toToolApproval(parseApprovalRules(rules)),
+    stopWhen: stepCountIs(10),
+  });
+  return result.toUIMessageStreamResponse({ originalMessages: messages });
+}
+```
+
+**The server's rules win.** Rules the server keeps for everyone, such as one that denies `git push`, go first. Make them with `toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' })`, and ask the person's `toToolApproval(parseApprovalRules(rules))` only when that returns `'not-applicable'`. A rule a client sends then can't approve a call the server's rules deny.
+
+The route gets whatever the client sent, so `parseApprovalRules` checks it: each field and its type, at most 100 rules, 20 argument patterns in a rule, 500 characters in a string, and one `*` in a pattern, `**` counting as one. Each `*` more can make a pattern take seconds to match a long argument, which would hold up the server. Other limits go in the second argument, such as `parseApprovalRules(rules, { maxWildcards: 2 })`. A rule that fails a check is left out.
+
+A rule the server doesn't get still holds on the page: the server asks, and the policy answers without showing anyone a card. That covers rules with a `when`, which `getRules()` leaves out: `when` is code, and without it the rule would cover more calls than it does. `toPlainRules(rules)` does the same for rules kept outside the hook.
