@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     instructions: INSTRUCTIONS,
     messages: await convertToModelMessages(messages, { tools }),
     tools,
-    // The server's rules, then the person's, decide before anyone is asked; the reason shows on the card.
+    // The server's rules, then the person's, decide before anyone is asked; the card shows whose rule it was.
     toolApproval: approvalFor(rules),
     // Keep going after tool calls: the AI SDK stops after the first step by default.
     stopWhen: stepCountIs(20),

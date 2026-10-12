@@ -22,15 +22,11 @@ export const SERVER_RULES: readonly ApprovalRule[] = [
 
 /**
  * Your rules on a first visit: reading and committing need no approval. They live in this browser
- * (localStorage) with the ones you add with "Always"; "Reset" puts these back.
+ * (localStorage) with the ones you add with "Always". One you remove stays removed; "Reset" puts
+ * these back.
  */
 export const DEFAULT_RULES: readonly ApprovalRule[] = [
   { id: 'default:list', tool: 'list_files', effect: 'allow', scope: 'always' },
   { id: 'default:read', tool: 'read_file', effect: 'allow', scope: 'always' },
   { id: 'default:commit', tool: 'run_command', args: { command: 'git commit*' }, effect: 'allow', scope: 'always' },
 ];
-
-/** A rule as it travels to the server: data only (a rule's `when` is code, and stays behind). */
-export function plainRule({ id, tool, args, effect, scope, reason }: ApprovalRule): ApprovalRule {
-  return { id, tool, ...(args ? { args: { ...args } } : {}), effect, scope, ...(reason ? { reason } : {}) };
-}

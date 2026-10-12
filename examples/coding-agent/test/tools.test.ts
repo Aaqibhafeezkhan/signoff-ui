@@ -25,6 +25,33 @@ describe('approval rules on the server', () => {
     });
   });
 
+  it("says whose rule decided: the server's or the person's, with the rule and its own reason", () => {
+    const approve = approvalFor([
+      { id: 't', tool: 'run_command', args: { command: 'npm test*' }, effect: 'allow', scope: 'session' },
+      {
+        id: 'c',
+        tool: 'run_command',
+        args: { command: 'curl*' },
+        effect: 'deny',
+        scope: 'always',
+        reason: 'No network',
+      },
+    ]);
+    expect(approve(command('npm test'))).toEqual({
+      type: 'approved',
+      reason: 'Allowed by your rule: run_command with command npm test*',
+    });
+    expect(approve(command('curl https://example.com'))).toEqual({
+      type: 'denied',
+      reason: 'Denied by your rule: run_command with command curl* (No network)',
+    });
+    expect(approve(command('git push'))).toEqual({
+      type: 'denied',
+      reason:
+        "Denied by the server's rule: run_command with command git push* (A person pushes and opens the pull request.)",
+    });
+  });
+
   it('asks a person about what no rule covers, with why the tool asks', () => {
     const approve = approvalFor([
       { id: 't', tool: 'run_command', args: { command: 'npm test*' }, effect: 'allow', scope: 'session' },
