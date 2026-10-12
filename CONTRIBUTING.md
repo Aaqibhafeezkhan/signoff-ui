@@ -17,6 +17,7 @@ The playground runs a scripted agent and needs no key. For live mode, copy `exam
 packages/signoff-ui/   the library: src/ (components, lib/, styles/), test/, build scripts
 examples/playground/     the playground and the component gallery (Next.js)
 examples/nextjs-minimal/ the README quickstart, against a scripted model
+examples/coding-agent/   the reference app: approval rules and reviews, against a scripted model
 registry.json            the shadcn registry, generated from src/
 scripts/                 registry generator, smoke tests, media capture, accessibility audit
 ```
@@ -38,6 +39,7 @@ pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 buil
 pnpm build:playground && pnpm smoke:playground
 pnpm a11y             # axe in Chrome, across the built playground, gallery and docs
 pnpm --filter nextjs-minimal build && pnpm smoke:nextjs
+pnpm --filter coding-agent test && pnpm smoke:coding-agent
 ```
 
 `pnpm media` regenerates `docs/media` from a running playground (Chrome and ffmpeg required).

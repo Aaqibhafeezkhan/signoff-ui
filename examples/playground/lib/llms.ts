@@ -92,6 +92,7 @@ export function llmsTxt() {
     ),
     `- [Everything in one file](${SITE}/llms-full.txt): the README, every docs page and the shadcn registry items`,
     `- [The quickstart, running](${REPO}/tree/main/examples/nextjs-minimal): a Next.js 16 app with a review and an approval, against a scripted model`,
+    `- [The reference app](${REPO}/tree/main/examples/coding-agent): a coding agent with approval rules and reviews whose comments go back to it, against a scripted model or a real one`,
     ...readmeSections,
     '',
     '## Components',

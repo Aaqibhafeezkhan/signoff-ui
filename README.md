@@ -177,6 +177,7 @@ Typed against AI SDK 6 and 7 (`ai@^6.0.0 || ^7.0.102`), on React 18 and 19 (`rea
 ## Docs
 
 - [Live playground](https://signoff-ui.vercel.app): a scripted coding-agent run with a review and an approval, driven from the keyboard. No API key.
+- [Coding agent](examples/coding-agent), the reference app: approval rules, reviews whose comments go back to the agent, and a scripted model, so no API key. [Open in StackBlitz](https://stackblitz.com/github/dgesteves/signoff-ui/tree/main/examples/coding-agent).
 - [Docs](https://signoff-ui.vercel.app/docs): [Getting started](https://signoff-ui.vercel.app/docs/getting-started), [Inside your chat UI](https://signoff-ui.vercel.app/docs/chat-ui), [AG-UI agents](https://signoff-ui.vercel.app/docs/ag-ui), [theming](https://signoff-ui.vercel.app/docs/getting-started#theming), [accessibility](https://signoff-ui.vercel.app/docs/accessibility), [labels and translations](https://signoff-ui.vercel.app/docs/labels), [performance and limits](https://signoff-ui.vercel.app/docs/limits), and a page per component with its props, keyboard and styling hooks. Also as [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) and [`/llms-full.txt`](https://signoff-ui.vercel.app/llms-full.txt) for coding agents.
 - Formerly `@dgesteves/agent-ui-kit`: [Migrating](https://signoff-ui.vercel.app/docs/migrating-from-agent-ui-kit) is a package swap and one command.
 - [Changelog](packages/signoff-ui/CHANGELOG.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
