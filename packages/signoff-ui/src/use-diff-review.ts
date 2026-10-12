@@ -138,6 +138,20 @@ function parseFiles(
   return { files, context, maxEditLength, ids, parsed: same ? previous.parsed : parsed };
 }
 
+/**
+ * True for a key pressed on the app's own content inside the review: an element in a
+ * `data-signoff-slot` (DiffReview's `actions`), or a portal it renders, such as a menu, whose keys
+ * reach the review through React but come from outside its element. A review that is itself in
+ * another component's slot still gets its keys, since that slot is outside it.
+ */
+function fromSlot(event: KeyboardEvent<HTMLElement>) {
+  const { target, currentTarget } = event;
+  if (!(target instanceof Element)) return false;
+  if (!currentTarget.contains(target)) return true;
+  const slot = target.closest('[data-signoff-slot]');
+  return slot !== null && currentTarget.contains(slot);
+}
+
 /** State that is either the caller's (controlled) or the hook's own. */
 function useControllable<T>(value: T | undefined, initial: () => T, onChange: ((next: T) => void) | undefined) {
   const [own, setOwn] = useState(initial);
@@ -302,6 +316,11 @@ export interface UseDiffReviewResult {
   /** The accepted changes as a unified diff. */
   toPatch(): string;
 
+  /**
+   * The review's keyboard, for the element that contains it. Keys pressed inside an element with
+   * `data-signoff-slot` in it, your own controls, are left to them, and so are keys from a portal
+   * rendered inside it, such as a menu.
+   */
   getRootProps(): { onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
   /** A focusable item: a roving tabindex, its accessible name and its decision. */
   getItemProps(index: number): {
@@ -810,7 +829,7 @@ export function useDiffReview({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (readOnly || isTypingTarget(event.target)) return;
+    if (readOnly || isTypingTarget(event.target) || fromSlot(event)) return;
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       submit();

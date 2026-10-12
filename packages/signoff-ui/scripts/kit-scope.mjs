@@ -2,9 +2,9 @@
 //
 // A component's root carries `data-signoff`. The elements that hold the app's content inside a
 // component carry `data-signoff-slot`: AgentMessage's renderTool and renderData, ToolCallTimeline's
-// renderOutput and renderExtra, and ApprovalCard's preview. An element is the kit's when it is a
-// root or inside one and not inside a slot, or, inside a slot, when it is the root of another
-// component (or inside it) and not inside one of that component's slots, and so on.
+// renderOutput and renderExtra, ApprovalCard's preview, and DiffReview's actions. An element is the
+// kit's when it is a root or inside one and not inside a slot, or, inside a slot, when it is the
+// root of another component (or inside it) and not inside one of that component's slots, and so on.
 //
 // CSS has no "nearest ancestor" test, so the selector spells out each level: `levels` components
 // rendered in slots of components in slots. The app's content is never matched, at any depth;
