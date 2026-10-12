@@ -29,7 +29,7 @@ import {
 import { useIsMac } from './lib/hooks';
 import { diffReviewLabels, type SignoffLabelsInput } from './lib/labels';
 import { useLabels } from './labels';
-import { hasModifier, isPromiseLike, isTypingTarget } from './lib/utils';
+import { fromSlot, hasModifier, isPromiseLike, isTypingTarget } from './lib/utils';
 
 /** The labels' sections this module reads. */
 const LABELS = { diffReview: diffReviewLabels };
@@ -136,20 +136,6 @@ function parseFiles(
   // Keep the previous array when nothing changed, so memoized work downstream is kept too.
   const same = previous && parsed.length === previous.parsed.length && parsed.every((p, i) => p === previous.parsed[i]);
   return { files, context, maxEditLength, ids, parsed: same ? previous.parsed : parsed };
-}
-
-/**
- * True for a key pressed on the app's own content inside the review: an element in a
- * `data-signoff-slot` (DiffReview's `actions`), or a portal it renders, such as a menu, whose keys
- * reach the review through React but come from outside its element. A review that is itself in
- * another component's slot still gets its keys, since that slot is outside it.
- */
-function fromSlot(event: KeyboardEvent<HTMLElement>) {
-  const { target, currentTarget } = event;
-  if (!(target instanceof Element)) return false;
-  if (!currentTarget.contains(target)) return true;
-  const slot = target.closest('[data-signoff-slot]');
-  return slot !== null && currentTarget.contains(slot);
 }
 
 /** State that is either the caller's (controlled) or the hook's own. */
