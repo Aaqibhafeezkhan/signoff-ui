@@ -18,12 +18,13 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `useDiffReview` (the review without markup)                        |  15.4 kB |
 | `ApprovalCard`                                                     |  18.5 kB |
 | `ToolCallTimeline`                                                 |  21.6 kB |
+| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  31.5 kB |
 | `DiffReview`                                                       |  41.2 kB |
 | `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  49.8 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.5 kB |
-| Everything in the main entry                                       | 118.3 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  84.9 kB |
+| Everything in the main entry                                       | 118.8 kB |
 
-Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. Each component carries the English labels of the sections it reads, not the others.
+Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.0 kB. An app with its own renderer can [import `AgentMessage` without it](/docs/components/agent-message#your-own-markdown-renderer), and CI checks that react-markdown stays out of that bundle. Each component carries the English labels of the sections it reads, not the others.
 
 `DiffReview`'s diff worker is a separate file the bundler emits, loaded only when a file is too large to diff while rendering: 18 kB minified, with jsdiff, in a Vite build.
 

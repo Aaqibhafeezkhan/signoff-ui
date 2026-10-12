@@ -13,3 +13,21 @@ const IMAGE_HOSTS = ['images.example.com', 'self'];
 ```
 
 The list is compared by value, so an inline array works as well: it does not re-render the finished text on every streamed delta. Image file parts follow the same list, except that `data:` and `blob:` URLs, which need no request, always preview.
+
+### Your own Markdown renderer
+
+Text and reasoning render with the built-in `Markdown`, which brings react-markdown and remark-gfm. If your app already has a renderer, such as Streamdown, pass it as `renderMarkdown` and import `AgentMessage` from `signoff-ui/custom-markdown`: that entry has no built-in renderer, so react-markdown stays out of your bundle ([bundle size](/docs/limits#bundle-size)). Streamdown is not a dependency of signoff-ui: install and style it as its docs say.
+
+```tsx
+import { AgentMessage, type MarkdownRenderer } from 'signoff-ui/custom-markdown';
+import { Streamdown } from 'streamdown';
+
+// Outside the component: a new function renders every text part again.
+const renderMarkdown: MarkdownRenderer = ({ children, streaming }) => (
+  <Streamdown isAnimating={streaming}>{children}</Streamdown>
+);
+
+<AgentMessage message={last} streaming={status === 'streaming'} renderMarkdown={renderMarkdown} />;
+```
+
+`MarkdownRendererProvider` sets the renderer once for every `AgentMessage` and `Reasoning` inside it, from either entry. What the renderer returns is your content, like `renderTool`'s. It also gets `citations` and `citationPrefix`, to link `[n]` markers to `#${citationPrefix}-${n}`, and `allowedImageHosts`, which only the built-in renderer enforces: set your renderer's own image rules. Without a renderer, `signoff-ui/custom-markdown` shows the text as it is.

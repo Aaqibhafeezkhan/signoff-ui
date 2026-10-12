@@ -8,6 +8,9 @@
 // sizes too (Performance and limits): CI fails when a row there is missing or more than 0.2 kB off
 // what was measured, so update it in the same pull request.
 //
+// A row can also name packages its bundle must not contain: `AgentMessage` from `/custom-markdown`
+// is for apps with their own Markdown renderer, so CI fails if react-markdown gets back into it.
+//
 //   pnpm build:lib && pnpm size
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,6 +21,7 @@ import { build } from 'rolldown';
 const dist = join(import.meta.dirname, '../packages/signoff-ui/dist');
 const index = JSON.stringify(join(dist, 'index.js'));
 const core = JSON.stringify(join(dist, 'core.js'));
+const customMarkdown = JSON.stringify(join(dist, 'custom-markdown.js'));
 const rows = [
   ['`addUsage`, `estimateCost` (`/core`, for a route)', `export { addUsage, estimateCost } from ${core};`, 0.5],
   ['`applyHunks`, `parseFileChange` (`/core`, with jsdiff)', `export { applyHunks, parseFileChange } from ${core};`, 7],
@@ -35,6 +39,12 @@ const rows = [
     `export { AgentMessage } from ${index};`,
     85.5,
   ],
+  [
+    '`AgentMessage` (`/custom-markdown`, for your own renderer: no react-markdown)',
+    `export { AgentMessage } from ${customMarkdown};`,
+    33,
+    ['react-markdown', 'remark-gfm', 'remend'],
+  ],
   ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 3],
   ['ACP converters (`/acp`)', `export * from ${JSON.stringify(join(dist, 'acp.js'))};`, 1.8],
   [
@@ -45,12 +55,16 @@ const rows = [
   ['Everything in the main entry', `export * from ${index};`, 122.5],
 ];
 
+// The package a bundled module belongs to: the last node_modules segment of its path.
+const packageOf = (id) => /.*node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id)?.[1].replace('\\', '/');
+
 const overBudget = [];
+const bundledButExcluded = [];
 const measured = [];
 const dir = mkdtempSync(join(tmpdir(), 'signoff-size-'));
 try {
   console.log('| Import | Minified | Gzipped | Budget |\n| --- | --: | --: | --: |');
-  for (const [label, source, budget] of rows) {
+  for (const [label, source, budget, without = []] of rows) {
     const entry = join(dir, 'entry.js');
     writeFileSync(entry, source);
     const { output } = await build({
@@ -62,6 +76,16 @@ try {
       output: { format: 'esm', minify: true },
     });
     const code = output.map((chunk) => (chunk.type === 'chunk' ? chunk.code : '')).join('');
+    const packages = new Set(
+      output.flatMap((chunk) =>
+        chunk.type === 'chunk'
+          ? Object.entries(chunk.modules)
+              .filter(([, module]) => module.renderedLength > 0)
+              .map(([id]) => packageOf(id))
+          : [],
+      ),
+    );
+    for (const name of without) if (packages.has(name)) bundledButExcluded.push(`${label}: ${name}`);
     const kb = (bytes) => `${(bytes / 1024).toFixed(1)} kB`;
     const gzipped = gzipSync(code).length;
     const over = gzipped > budget * 1024;
@@ -103,10 +127,14 @@ if (stale.length > 0) {
   );
 }
 
+if (bundledButExcluded.length > 0) {
+  console.error(`\nBundled, though the row leaves it out:\n  ${bundledButExcluded.join('\n  ')}`);
+}
+
 if (overBudget.length > 0) {
   console.error(
     `\nOver budget (raise it in scripts/size.mjs if the growth is worth it):\n  ${overBudget.join('\n  ')}`,
   );
   process.exit(1);
 }
-if (stale.length > 0) process.exit(1);
+if (stale.length > 0 || bundledButExcluded.length > 0) process.exit(1);

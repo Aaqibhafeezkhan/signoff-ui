@@ -34,6 +34,12 @@ export {
   type UseApprovalPolicyOptions,
 } from './use-approval-policy';
 export { Markdown, type MarkdownProps } from './markdown';
+export {
+  MarkdownRendererProvider,
+  type MarkdownRenderer,
+  type MarkdownRendererProps,
+  type MarkdownRendererProviderProps,
+} from './markdown-renderer';
 export { Reasoning, type ReasoningProps } from './reasoning';
 export { RunMeter, type RunMeterProps } from './run-meter';
 export { Sources, type SourcesProps } from './sources';
