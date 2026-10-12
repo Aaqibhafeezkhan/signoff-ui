@@ -297,7 +297,8 @@ export function DiffReview({
   const deletions = review.files.reduce((n, f) => n + (f.parsed?.deletions ?? 0), 0);
   const hunkCount = items.filter((item) => item.hunk).length;
   const viewedCount = review.files.filter((f) => f.viewed).length;
-  const hasActions = actionsProp !== undefined && actionsProp !== null && actionsProp !== false;
+  // What React renders as nothing gets no slot: undefined, null, booleans and the empty string.
+  const hasActions = actionsProp != null && typeof actionsProp !== 'boolean' && actionsProp !== '';
   const label = submitLabel ?? T.apply(counts.accepted, counts.total);
   const mod = L.common.modKey(isMac);
   const indexOf = useMemo(() => new Map(items.map((item, i) => [item.id, i])), [items]);
