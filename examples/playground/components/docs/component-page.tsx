@@ -156,6 +156,8 @@ export function ComponentPage({ component }: { component: ComponentDoc }) {
       title={component.name}
       description={component.summary.replace(/`/g, '')}
       markdownPath={`${href}.md`}
+      // "How it works" is in content/components/<slug>.md; the usage and the notes are in lib/components.ts.
+      sourcePath={`examples/playground/${about ? `content/components/${component.slug}.md` : 'lib/components.ts'}`}
       headings={componentHeadings(component, hasTheming)}
     >
       <H2 id="example">Example</H2>
@@ -168,7 +170,7 @@ export function ComponentPage({ component }: { component: ComponentDoc }) {
         >
           components page
         </Link>
-        . Try the keyboard below on it.
+        .{component.keyboard && ' Try the keyboard below on it.'}
       </p>
 
       <H2 id="installation">Installation</H2>

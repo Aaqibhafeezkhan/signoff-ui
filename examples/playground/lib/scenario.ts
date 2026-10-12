@@ -143,7 +143,7 @@ export const WEB_RESULTS = [
     snippet: 'Fixed window, sliding window and token bucket, with their trade-offs.',
   },
   {
-    url: 'https://nextjs.org/docs/app/building-your-application/routing/route-handlers',
+    url: 'https://nextjs.org/docs/app/getting-started/route-handlers',
     title: 'Route Handlers · Next.js',
     snippet: 'Return a Response from a route handler, including custom status codes and headers.',
   },

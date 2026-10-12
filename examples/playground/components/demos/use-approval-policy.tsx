@@ -27,6 +27,10 @@ function ask(command: string): ToolPart {
   } as ToolPart;
 }
 
+// One call already waiting, so the demo opens on a card rather than an empty frame. Made once per
+// page load, so the server's render and the browser's agree on its id.
+const FIRST = ask('npm test');
+
 /** What the SDK does with an answer: the part, approved or denied. */
 function answer(part: ToolPart, response: ToolApprovalResponse): ToolPart {
   return {
@@ -41,7 +45,7 @@ function answer(part: ToolPart, response: ToolApprovalResponse): ToolPart {
  * rule covers is answered without asking, and every decision is in the audit trail.
  */
 export function UseApprovalPolicyDemo() {
-  const [parts, setParts] = useState<ToolPart[]>([]);
+  const [parts, setParts] = useState<ToolPart[]>([FIRST]);
   const [log, setLog] = useState<ApprovalAuditEvent[]>([]);
   const policy = useApprovalPolicy({ onAudit: (event) => setLog((all) => [event, ...all].slice(0, 6)) });
   const respond = (response: ToolApprovalResponse) =>

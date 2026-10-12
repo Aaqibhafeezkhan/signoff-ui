@@ -51,7 +51,7 @@ export function Header({
     return () => menu?.removeEventListener('toggle', onToggle);
   }, []);
   return (
-    <header className="border-line/80 bg-ink/80 sticky top-0 z-40 border-b backdrop-blur-md">
+    <header className="border-line/80 bg-ink/95 sticky top-0 z-40 border-b backdrop-blur-md">
       <div className="mx-auto flex h-14 w-full max-w-[1320px] items-center gap-3 px-4 sm:px-6">
         <Link
           href="/"

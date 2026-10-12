@@ -1,3 +1,4 @@
+import kit from 'signoff-ui/package.json';
 import Link from 'next/link';
 import { AUTHOR, GITHUB_URL, MORE_BY_AUTHOR, NPM_URL, TAGLINE } from '@/lib/site';
 import { Logo } from './header';
@@ -13,6 +14,7 @@ export function Footer() {
           <div className="flex items-center gap-2.5">
             <Logo />
             <span className="text-fg font-mono text-[13px] font-semibold tracking-tight">signoff-ui</span>
+            <span className="text-fg-subtle font-mono text-[12px]">v{kit.version}</span>
           </div>
           <p className="text-fg-subtle mt-3 max-w-xs text-[13px] leading-relaxed">
             {TAGLINE} MIT licensed, by{' '}
@@ -41,6 +43,11 @@ export function Footer() {
             <li>
               <a href={GITHUB_URL} className={link}>
                 GitHub
+              </a>
+            </li>
+            <li>
+              <a href={`${GITHUB_URL}/issues`} className={link}>
+                Issues
               </a>
             </li>
             <li>

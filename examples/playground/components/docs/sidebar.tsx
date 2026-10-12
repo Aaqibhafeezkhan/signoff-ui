@@ -172,7 +172,7 @@ export function DocsSidebar({ nav, index }: { nav: NavGroup[]; index: SearchInde
   return (
     <>
       {/* Phones and tablets: the current page and a menu button, under the site header. */}
-      <div className="border-line/80 bg-ink/85 sticky top-14 z-30 -mx-4 flex h-12 items-center gap-3 border-b px-4 backdrop-blur-md sm:-mx-6 sm:px-6 lg:hidden">
+      <div className="border-line/80 bg-ink/95 sticky top-14 z-30 -mx-4 flex h-12 items-center gap-3 border-b px-4 backdrop-blur-md sm:-mx-6 sm:px-6 lg:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
