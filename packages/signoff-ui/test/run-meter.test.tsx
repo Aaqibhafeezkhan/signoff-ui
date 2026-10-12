@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { estimateCost } from '../src/lib/usage';
 import { RunMeter } from '../src/run-meter';
 import { axe } from './utils';
@@ -97,6 +97,63 @@ describe('RunMeter', () => {
   it('prefers an explicit cost over the estimate', () => {
     render(<RunMeter usage={usage} pricing={pricing} cost={1.5} />);
     expect(screen.getByRole('group')).toHaveTextContent('$1.50');
+  });
+
+  it('reads "–" for the cost, as for the tokens, until there is usage', () => {
+    render(<RunMeter variant="expanded" pricing={pricing} />);
+    expect(screen.getByText('Tokens').nextElementSibling).toHaveTextContent(/^–$/);
+    // It said $0.00, while every token count said "–".
+    expect(screen.getByText('Est. cost').nextElementSibling).toHaveTextContent(/^–$/);
+    expect(screen.getByText(/input · .* output/)).toHaveTextContent('– input · – output · $2.5/$10 per 1M');
+  });
+
+  describe('as the numbers change', () => {
+    let frames: FrameRequestCallback[] = [];
+    beforeEach(() => {
+      frames = [];
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+      vi.stubGlobal('cancelAnimationFrame', () => {});
+      vi.spyOn(performance, 'now').mockReturnValue(1000);
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+    // Every figure that is moving asked for this frame.
+    const frame = (at: number) =>
+      act(() => {
+        const due = frames;
+        frames = [];
+        for (const callback of due) callback(at);
+      });
+    const tokens = () => screen.getByText('Tokens').nextElementSibling;
+
+    it('reaches a new value within 250 ms', () => {
+      const { rerender } = render(<RunMeter variant="expanded" usage={usage} pricing={pricing} />);
+      expect(tokens()).toHaveTextContent('18.4k');
+      rerender(
+        <RunMeter
+          variant="expanded"
+          usage={{ ...usage, inputTokens: 30_000, outputTokens: 5_000 }}
+          pricing={pricing}
+        />,
+      );
+      frame(1100);
+      expect(tokens()).not.toHaveTextContent('35.0k');
+      frame(1250);
+      expect(tokens()).toHaveTextContent('35.0k');
+    });
+
+    it("starts a new run from its own numbers, not by counting down from the last run's", () => {
+      const { rerender } = render(<RunMeter variant="expanded" usage={usage} pricing={pricing} />);
+      expect(tokens()).toHaveTextContent('18.4k');
+      // A new run: no usage yet, then its first.
+      rerender(<RunMeter variant="expanded" pricing={pricing} />);
+      expect(tokens()).toHaveTextContent(/^–$/);
+      rerender(<RunMeter variant="expanded" usage={{ inputTokens: 1_200, outputTokens: 300 }} pricing={pricing} />);
+      expect(tokens()).toHaveTextContent('1.50k');
+      expect(screen.getByText('Est. cost').nextElementSibling).toHaveTextContent('$0.0060');
+    });
   });
 
   it('has no axe violations in either variant', async () => {
