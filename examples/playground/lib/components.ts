@@ -273,16 +273,17 @@ function Run() {
     summary: 'A whole assistant message: reasoning, streaming markdown, tool calls, approvals and sources.',
     galleryId: 'agent-message',
     item: 'agent-message',
-    file: 'agent-message.tsx',
+    file: 'agent-message-base.tsx',
     stateTypes: { 'data-role': 'the message’s role: assistant, user or system' },
     api: [
       {
         name: 'AgentMessage',
         props: 'AgentMessageProps',
-        defaults: { file: 'agent-message.tsx', functions: ['AgentMessage'] },
+        defaults: { file: 'agent-message-base.tsx', functions: ['AgentMessageBase'] },
       },
+      { name: 'MarkdownRendererProvider', props: 'MarkdownRendererProviderProps' },
     ],
-    types: ['ToolMeta', 'ToolApprovalResponse'],
+    types: ['ToolMeta', 'ToolApprovalResponse', 'MarkdownRenderer', 'MarkdownRendererProps'],
     imports: { npm: npm('AgentMessage'), shadcn: shadcn('AgentMessage', 'agent-message') },
     usage: `const { messages, status, addToolApprovalResponse } = useChat();
 const last = messages.findLast((m) => m.role === 'assistant');
@@ -471,10 +472,14 @@ const { state, detail } = deriveAgentState({
     summary: 'The model’s reasoning: open while it thinks, then one line, "Thought for 3.2s".',
     galleryId: 'reasoning',
     item: 'reasoning',
-    file: 'reasoning.tsx',
+    file: 'reasoning-base.tsx',
     stateTypes: { 'data-streaming': 'set while the model is thinking' },
     api: [
-      { name: 'Reasoning', props: 'ReasoningProps', defaults: { file: 'reasoning.tsx', functions: ['Reasoning'] } },
+      {
+        name: 'Reasoning',
+        props: 'ReasoningProps',
+        defaults: { file: 'reasoning-base.tsx', functions: ['ReasoningBase'] },
+      },
     ],
     imports: { npm: npm('Reasoning'), shadcn: shadcn('Reasoning', 'reasoning') },
     usage: `<Reasoning text={part.text} streaming={part.state === 'streaming'} />`,

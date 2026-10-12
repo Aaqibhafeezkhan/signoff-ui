@@ -60,6 +60,10 @@
       "types": "./dist/assistant-ui.d.ts",
       "default": "./dist/assistant-ui.js"
     },
+    "./custom-markdown": {
+      "types": "./dist/custom-markdown.d.ts",
+      "default": "./dist/custom-markdown.js"
+    },
     "./styles.css": "./dist/styles.css",
     "./styles.layered.css": "./dist/styles.layered.css",
     "./tailwind.css": "./dist/tailwind.css",
