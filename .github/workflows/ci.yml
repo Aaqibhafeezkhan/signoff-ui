@@ -189,6 +189,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Copied on its own, the example installs signoff-ui from npm at its range: it must include the
+      # version this repository publishes. `pnpm version-packages` moves it with each release.
+      - name: The example asks for the version this repository publishes
+        run: pnpm examples:check
+
       - name: Build library
         run: pnpm build:lib
 
