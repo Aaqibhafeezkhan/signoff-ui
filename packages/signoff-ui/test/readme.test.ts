@@ -143,4 +143,39 @@ describe('README top', () => {
     const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
     expect(top).toMatch(/^\*\*Website and docs:\*\* \[signoff-ui\.vercel\.app\]\(https:\/\/signoff-ui\.vercel\.app\)/m);
   });
+
+  it("gives the smallest and largest import from the docs' size table in its size badge", () => {
+    const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
+    const table = readFileSync(join(root, 'examples/playground/content/docs/limits.md'), 'utf8');
+    const sizes = table
+      .split('\n')
+      .filter((line) => /^\| `/.test(line))
+      .map((line) => Number(/([\d.]+) kB \|$/.exec(line)?.[1]));
+    expect(sizes.length).toBeGreaterThan(5);
+    const range = `${String(Math.min(...sizes))}–${String(Math.max(...sizes))} kB`;
+    expect(top).toContain(`[![gzip per import: ${range}]`);
+    expect(top).toContain(`gzip_per_import-${encodeURIComponent(range.replace(' ', '_'))}-`);
+  });
+
+  it('links each badge to a docs page and heading that exist', () => {
+    const top = readme.slice(0, readme.indexOf('<!-- npm-readme:video -->'));
+    const links = [...top.matchAll(/\]\(https:\/\/signoff-ui\.vercel\.app\/docs\/([\w-]+)(?:#([\w-]+))?\)/g)];
+    expect(links.length).toBeGreaterThan(5);
+    for (const [, page, anchor] of links) {
+      const file = join(root, 'examples/playground/content/docs', `${page ?? ''}.md`);
+      expect(existsSync(file), page).toBe(true);
+      if (!anchor) continue;
+      const slugs = readFileSync(file, 'utf8')
+        .split('\n')
+        .filter((line) => /^#{2,3} /.test(line))
+        .map((line) =>
+          line
+            .replace(/^#+ /, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9 -]/g, '')
+            .replace(/ /g, '-'),
+        );
+      expect(slugs, `${page ?? ''}#${anchor}`).toContain(anchor);
+    }
+  });
 });
