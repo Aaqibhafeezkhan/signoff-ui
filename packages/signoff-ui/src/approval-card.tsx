@@ -567,11 +567,16 @@ export function ApprovalCard({
           ? L.approved
           : L.denied;
 
+  // Four or five choices wrap unevenly in a narrow card, Approve alone on the last row: under 40rem,
+  // they form two columns as wide as their labels need, the last taking its row when it would be
+  // alone, and one column under 16rem. In the DOM's order, so the tab order is what the eye reads.
+  const choiceGroup =
+    'flex flex-wrap items-center justify-end gap-2 @max-[40rem]:has-[>:nth-child(4)]:grid @max-[40rem]:has-[>:nth-child(4)]:w-full @max-[40rem]:has-[>:nth-child(4)]:grid-cols-[repeat(2,minmax(min-content,1fr))] @max-[16rem]:has-[>:nth-child(4)]:grid-cols-1 @max-[40rem]:[&>*]:justify-center @max-[40rem]:[&>:last-child:nth-child(odd)]:col-span-full';
   const secondary =
-    'border-signoff-border-strong bg-signoff-surface-2 text-signoff-fg hover:border-signoff-fg-subtle hover:bg-signoff-bg focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60';
+    'border-signoff-border-strong bg-signoff-surface-2 text-signoff-fg hover:border-signoff-fg-subtle hover:bg-signoff-bg focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60';
   const primary = (armed: boolean) =>
     cn(
-      'focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg px-3 text-[13px] font-semibold transition-[background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
+      'focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg px-3 text-[13px] font-semibold whitespace-nowrap transition-[background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60',
       armed
         ? 'bg-signoff-hot text-signoff-on-hot hover:bg-signoff-hot/90'
         : 'bg-signoff-accent text-signoff-on-accent hover:bg-signoff-accent/90 shadow-[0_0_0_1px_color-mix(in_oklab,var(--signoff-accent)_40%,transparent),0_6px_20px_-8px_var(--signoff-accent)]',
@@ -752,7 +757,7 @@ export function ApprovalCard({
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="@container flex flex-wrap items-center gap-2">
                 {shortcuts && (
                   <p id={hintId} className="text-signoff-fg-subtle mr-auto hidden items-center gap-1.5 text-xs sm:flex">
                     <span className="sr-only">{keyHint}</span>
@@ -763,7 +768,7 @@ export function ApprovalCard({
                     </span>
                   </p>
                 )}
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2 @max-[40rem]:has-[>div>:nth-child(4)]:w-full">
                   {allowReason && !reasonOpen && (
                     <button
                       type="button"
@@ -773,7 +778,7 @@ export function ApprovalCard({
                       {L.denyWithFeedback}
                     </button>
                   )}
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className={choiceGroup}>
                     {has('deny-always') && choiceButton('deny-always', L.alwaysDeny, secondary)}
                     {has('deny-once') &&
                       choiceButton('deny-once', reasonOpen ? L.sendDenial : (denyLabel ?? L.deny), secondary)}

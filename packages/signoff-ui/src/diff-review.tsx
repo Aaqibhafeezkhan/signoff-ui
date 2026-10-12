@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type CSSProperties,
   type MouseEvent,
   type ReactNode,
 } from 'react';
@@ -324,8 +325,10 @@ export function DiffReview({
             <Heading className="text-signoff-fg text-sm font-semibold">{title}</Heading>
             <p className="font-signoff-mono text-signoff-fg-subtle mt-0.5 text-xs">
               {T.files(review.files.length)} · {T.hunks(hunkCount, comparing)} ·{' '}
-              <span className="text-signoff-accent-fg">+{additions}</span>{' '}
-              <span className="text-signoff-hot-fg">−{deletions}</span>
+              <span className="whitespace-nowrap">
+                <span className="text-signoff-accent-fg">+{additions}</span>{' '}
+                <span className="text-signoff-hot-fg">−{deletions}</span>
+              </span>
             </p>
           </div>
           {hasActions && (
@@ -463,7 +466,10 @@ export function DiffReview({
                 })}
               </div>
             </div>
-            <p className="text-signoff-fg-subtle hidden items-center gap-1 text-[11px] lg:flex" aria-hidden="true">
+            <p
+              className="text-signoff-fg-subtle hidden flex-wrap items-center gap-1 text-[11px] lg:flex"
+              aria-hidden="true"
+            >
               <Kbd>J</Kbd>
               <Kbd>K</Kbd>
               <span className="mr-1.5">{T.keyHints.move}</span>
@@ -478,7 +484,8 @@ export function DiffReview({
               <span>{T.keyHints.apply}</span>
             </p>
             <p className="sr-only">{T.keyboardHelp(mod)}</p>
-            <div className="ml-auto flex items-center gap-2">
+            {/* Longer labels, as in a translation, wrap the buttons onto more rows, never their words. */}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {/* aria-disabled rather than disabled while comparing: the buttons keep focus. */}
               <button
                 type="button"
@@ -502,7 +509,7 @@ export function DiffReview({
                 <button
                   data-slot="signoff-diff-submit"
                   {...review.getSubmitProps()}
-                  className="bg-signoff-accent text-signoff-on-accent hover:bg-signoff-accent/90 focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center rounded-lg px-3 text-[13px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+                  className="bg-signoff-accent text-signoff-on-accent hover:bg-signoff-accent/90 focus-visible:outline-signoff-ring inline-flex h-8 cursor-pointer items-center rounded-lg px-3 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
                 >
                   {label}
                 </button>
@@ -522,10 +529,10 @@ function draftItem(draft: DiffReviewDraft) {
 }
 
 const secondaryButton =
-  'inline-flex h-8 cursor-pointer items-center rounded-lg border border-signoff-border-strong px-3 text-[13px] font-medium text-signoff-fg-muted transition-colors hover:bg-signoff-surface-2 hover:text-signoff-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signoff-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-60';
+  'inline-flex h-8 cursor-pointer items-center rounded-lg border border-signoff-border-strong px-3 text-[13px] font-medium whitespace-nowrap text-signoff-fg-muted transition-colors hover:bg-signoff-surface-2 hover:text-signoff-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signoff-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-60';
 
 const smallButton =
-  'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signoff-ring';
+  'inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-signoff-ring';
 
 function PathLabel({ path, oldPath }: { path: string; oldPath?: string | undefined }) {
   const T = useLabels(LABELS).diffReview;
@@ -644,15 +651,16 @@ function FileSection({
         )}
         {parsed && <StatusBadge status={parsed.status} />}
         <PathLabel path={file.path} oldPath={parsed?.oldPath} />
-        <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
+        {/* Shrinks and wraps, its buttons too, so longer labels stay inside a narrow review. */}
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
           {parsed && parsed.hunks.length > 0 && (
-            <span className="tabular-nums">
+            <span className="whitespace-nowrap tabular-nums">
               <span className="text-signoff-accent-fg">+{parsed.additions}</span>{' '}
               <span className="text-signoff-hot-fg">−{parsed.deletions}</span>
             </span>
           )}
           {decidable && (
-            <span className="flex items-center gap-1.5 font-sans">
+            <span className="flex flex-wrap items-center justify-end gap-1.5 font-sans">
               <label className="text-signoff-fg-muted hover:text-signoff-fg flex cursor-pointer items-center gap-1.5 px-1 text-xs">
                 <input
                   {...review.getViewedProps(file.id)}
@@ -981,9 +989,14 @@ const Hunk = memo(function Hunk({
       onFocus={() => actions.activate(index)}
       className={itemClass(decision)}
     >
-      <div className="bg-signoff-bg/35 flex min-h-9 items-center gap-2 py-1 pr-2 pl-4">
-        <span className="font-signoff-mono text-signoff-fg-subtle min-w-0 truncate text-[11px]">{hunk.header}</span>
-        <DecisionBadge decision={decision} />
+      {/* Under 30rem, the decision badge goes under the range rather than beside it, so the range keeps its room. */}
+      <div className="bg-signoff-bg/35 @container flex min-h-9 items-center gap-2 py-1 pr-2 pl-4">
+        <span className="flex min-w-0 items-center gap-2 @max-[30rem]:flex-col @max-[30rem]:items-start @max-[30rem]:gap-0.5">
+          <span className="font-signoff-mono text-signoff-fg-subtle max-w-full min-w-0 truncate text-[11px]">
+            {hunk.header}
+          </span>
+          <DecisionBadge decision={decision} />
+        </span>
         {!readOnly && (
           <DecisionButtons
             id={hunk.id}
@@ -994,7 +1007,7 @@ const Hunk = memo(function Hunk({
           />
         )}
       </div>
-      {/* Long lines scroll sideways; while they do, the code is a named group the keyboard can reach. */}
+      {/* Long lines scroll sideways, or wrap under 30rem; while they scroll, the code is a named group the keyboard can reach. */}
       <div
         ref={codeRef}
         className="focus-visible:outline-signoff-ring @container overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2"
@@ -1281,7 +1294,9 @@ function LineContent({
   return (
     <span
       className={cn(
-        wrap ? 'min-w-0 flex-1 pr-3 break-all whitespace-pre-wrap' : 'pr-6 whitespace-pre',
+        wrap
+          ? 'min-w-0 flex-1 pr-3 break-all whitespace-pre-wrap'
+          : 'pr-6 whitespace-pre @max-[30rem]:min-w-0 @max-[30rem]:flex-1 @max-[30rem]:pr-3 @max-[30rem]:break-all @max-[30rem]:whitespace-pre-wrap',
         rejected && line.type === 'add' && 'decoration-signoff-hot/50 line-through',
       )}
     >
@@ -1366,7 +1381,8 @@ function UnifiedRow({
       data-line-index={lineIndex}
       data-selected={selected || undefined}
       className={cn(
-        'flex',
+        // Wrapped lines (under 30rem) keep their numbers by their first line.
+        'flex @max-[30rem]:items-start',
         ROW_BG[line.type],
         rejected && 'opacity-55',
         selected && 'shadow-[inset_3px_0_0_var(--signoff-ring)]',
@@ -1430,9 +1446,13 @@ function UnifiedRows({
     </Fragment>
   );
   return (
-    <div className="font-signoff-mono min-w-max py-1 text-[12.5px] leading-[1.6]">
+    // Under 30rem wide, the lines wrap instead (LineContent), so nothing holds the rows wider.
+    <div className="font-signoff-mono min-w-max py-1 text-[12.5px] leading-[1.6] @max-[30rem]:min-w-0">
       {virtualizer ? (
-        <div style={{ minWidth: `calc(${widest}ch + 8.25rem)` }}>
+        <div
+          className="min-w-(--signoff-widest) @max-[30rem]:min-w-0"
+          style={{ '--signoff-widest': `calc(${widest}ch + 8.25rem)` } as CSSProperties}
+        >
           {chunks(lines.length).map(([start, end]) => (
             <Chunk
               key={start}
@@ -1755,8 +1775,8 @@ function ContextLines({ lines, view, language }: { lines: DiffLine[]; view: Diff
   if (lines.length === 0) return null;
   if (view === 'unified') {
     return (
-      <div className="font-signoff-mono overflow-x-auto py-0.5 text-[12.5px] leading-[1.6]">
-        <div className="min-w-max">
+      <div className="font-signoff-mono @container overflow-x-auto py-0.5 text-[12.5px] leading-[1.6]">
+        <div className="min-w-max @max-[30rem]:min-w-0">
           {lines.map((line, i) => (
             <UnifiedRow key={i} line={line} language={language} rejected={false} />
           ))}

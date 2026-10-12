@@ -371,6 +371,89 @@ try {
     );
     await page.close();
   }
+
+  // A review and an approval card in Portuguese, whose labels run longer than English, in a phone's
+  // column (330px is the components page's frame on a 390px phone): nothing reaches past its edge
+  // (the file's buttons and the footer wrap, and so do long lines), no button's words wrap, the
+  // counts and a decided hunk's range stay whole, and the card's five choices make two columns with
+  // Approve across the last row, rather than alone at the end of a ragged one.
+  const { pt } = await import(pathToFileURL(join(lib, 'test/labels-pt.ts')).href);
+  const before = Array.from(
+    { length: 12 },
+    (_, i) => `const limit${i} = createLimiter({ window: '10 s', max: ${i} });`,
+  );
+  const after = before.map((line, i) => (i === 4 ? line.replace('10 s', '60 s') : line));
+  const translated = renderToStaticMarkup(
+    h(
+      kit.SignoffLabelsProvider,
+      { labels: pt },
+      h(kit.DiffReview, {
+        files: [{ path: 'app/api/chat/route.ts', oldContent: before.join('\n'), newContent: after.join('\n') }],
+        defaultDecisions: { 'app/api/chat/route.ts:0': 'accepted' },
+        onSubmit: () => {},
+      }),
+      h(kit.ApprovalCard, {
+        toolName: 'run_command',
+        input: { command: 'pnpm add @upstash/ratelimit' },
+        decisions: kit.APPROVAL_DECISIONS,
+        onDecide: () => {},
+      }),
+    ),
+  );
+  for (const width of [330, 360]) {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.setContent(
+      `<!doctype html><html><head><style>${styles}</style></head>` +
+        `<body style="margin: 0"><div id="column" lang="pt-PT" style="width: ${width}px">${translated}</div></body></html>`,
+    );
+    const problems = await page.$eval(
+      '#column',
+      (column, width) => {
+        const right = column.getBoundingClientRect().right;
+        const past = (el) => el.getBoundingClientRect().right > right + 0.5;
+        const lines = (el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+        };
+        const name = (el) => el.dataset.slot ?? (el.textContent.trim().slice(0, 30) || el.tagName.toLowerCase());
+        const found = [];
+        // The outermost element past the edge, not each of its children.
+        for (const el of column.querySelectorAll('*'))
+          if (past(el) && !past(el.parentElement)) found.push(`"${name(el)}" past the edge`);
+        for (const button of column.querySelectorAll('button'))
+          if (button.scrollHeight > button.clientHeight + 1) found.push(`"${button.textContent.trim()}" on two lines`);
+        for (const counts of [...column.querySelectorAll('span')].filter((s) => /^\+\d+ −\d+$/.test(s.textContent)))
+          if (lines(counts) > 1) found.push(`"${counts.textContent}" on two lines`);
+        const range = [...column.querySelectorAll('[data-slot=signoff-diff-hunk] span')].find((s) =>
+          /^@@ [^@]+ @@$/.test(s.textContent),
+        );
+        // From 360px: at 330px a decided hunk's buttons leave the range, in Portuguese, a few characters short.
+        if (!range || (width >= 360 && range.scrollWidth > range.clientWidth))
+          found.push(`the hunk's range cut: "${range?.textContent}"`);
+        const choices = [...column.querySelectorAll('button[data-decision]')];
+        const group = choices[0].parentElement.getBoundingClientRect();
+        const approve = choices.at(-1).getBoundingClientRect();
+        const rows = new Map();
+        for (const choice of choices.slice(0, -1)) {
+          const top = Math.round(choice.getBoundingClientRect().top);
+          rows.set(top, (rows.get(top) ?? 0) + 1);
+        }
+        if (rows.size !== 2 || [...rows.values()].some((n) => n !== 2) || Math.abs(approve.width - group.width) > 1)
+          found.push(
+            `the card's choices: ${[...rows.values()].join(' + ')}, then Approve ${Math.round(approve.width)}px of ${Math.round(group.width)}px`,
+          );
+        return found;
+      },
+      width,
+    );
+    const ok = problems.length === 0;
+    failed ||= !ok;
+    console.log(
+      `${ok ? 'pass' : 'FAIL'}  a review and a card in Portuguese in a ${width}px column${ok ? '' : `: ${problems.join('; ')}`}`,
+    );
+    await page.close();
+  }
 } finally {
   await browser.close();
 }
