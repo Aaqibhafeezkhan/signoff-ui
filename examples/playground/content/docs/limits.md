@@ -73,7 +73,7 @@ Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under 
 - **Run state comes from you.** Parts carry no signal that a run has ended, so tool calls left behind by `stop()` or an interrupted history read "Stopped" only when you pass `active={false}`. `deriveAgentState` reports such a run as `stopped`, which the quickstart's `active` condition covers.
 - **Long timelines in find-in-page.** Past 150 calls, the calls far from the screen are not on the page: find-in-page and a screen reader's reading cursor reach only those near it, and `renderExtra`'s content for the others unmounts until they come back. The arrow keys, Home and End reach every call.
 - **Sub-agents render flat.** A sub-agent's calls show inline in its parent's timeline, not as a nested run.
-- **Words for the agent stay English.** Every word a person sees or hears is a [label](/docs/labels), but what goes to the model (`reviewToolOutput`'s summary, `toToolApproval`'s reasons) is English. Right-to-left layouts have not been tested.
+- **Words for the agent stay English.** Every word a person sees or hears is a [label](/docs/labels), but what goes to the model (`reviewToolOutput`'s summary, `toToolApproval`'s reasons unless you pass its `reason`) is English. Right-to-left layouts have not been tested.
 - **Nesting in slots.** With `styles.css`, a component rendered in a slot of a component that is itself in a slot is styled up to two levels deep; deeper than that it renders unstyled.
 
 ## What's next

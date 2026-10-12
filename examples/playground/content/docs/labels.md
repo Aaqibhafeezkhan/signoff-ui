@@ -45,7 +45,7 @@ A few return parts, where the components style or hide one of them: `moreAfter`,
 
 ## What they do not cover
 
-- **Words for the agent.** `reviewToolOutput`'s summary, `toToolApproval`'s reasons and the result objects' fields are read by the model, not by a person, and stay English. A deny rule's reason is the exception, as the approval card shows it: it is `approvalPolicy.ruleDenial`, or the rule's own `reason`.
+- **Words for the agent.** `reviewToolOutput`'s summary, `toToolApproval`'s reasons and the result objects' fields are read by the model, not by a person, and stay English. Pass `toToolApproval` a `reason` function to word its reasons yourself. A deny rule's reason is the exception, as the approval card shows it: it is `approvalPolicy.ruleDenial`, or the rule's own `reason`.
 - **`deriveAgentState`'s detail** while the model writes: pass `writingResponse: labels.agentStatus.writingResponse`, since the helper runs outside any provider.
 - **Keys.** J, K, A, R, Y, N and the rest are the same in every language, and so are their `aria-keyshortcuts`. The hints that name them are labels.
 - **Your content.** Tool names, titles, descriptions, tool output and what `ToolMeta` renders are yours. A tool's displayed name defaults to its humanized name (`run_command` reads "Run command"), so give `ToolMeta` a `label` in your language.
