@@ -296,6 +296,64 @@ describe('DiffReview', () => {
     expect(container.querySelector('.grid-cols-\\[minmax\\(0\\,1fr\\)_1px_minmax\\(0\\,1fr\\)\\]')).not.toBeNull();
   });
 
+  it('puts your actions in its header, in a slot next to the layout toggle', async () => {
+    const copy = <button type="button">Copy as a patch</button>;
+    const { container, rerender } = render(<DiffReview files={files} readOnly actions={copy} />);
+    const slot = screen.getByRole('button', { name: 'Copy as a patch' }).parentElement!;
+    expect(slot).toHaveAttribute('data-signoff-slot');
+    expect(slot.nextElementSibling).toBe(screen.getByRole('radiogroup', { name: 'Diff layout' }));
+    expect(await axe(container)).toHaveNoViolations();
+    // Nothing to show, no slot: `actions={canCopy && …}` leaves the header as it was.
+    for (const actions of [undefined, null, false]) {
+      rerender(<DiffReview files={files} readOnly actions={actions} />);
+      expect(container.querySelector('[data-signoff-slot]')).toBeNull();
+    }
+  });
+
+  it("leaves keys pressed in your actions to them, not to the review's shortcuts", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const keys: string[] = [];
+    render(
+      <DiffReview
+        files={files}
+        onSubmit={onSubmit}
+        actions={
+          <button type="button" onKeyDown={(event) => keys.push(event.key)}>
+            Copy as a patch
+          </button>
+        }
+      />,
+    );
+    const copy = screen.getByRole('button', { name: 'Copy as a patch' });
+    copy.focus();
+    // From outside a hunk, J and K go to the active hunk, Shift+A and Shift+R decide every hunk and
+    // Ctrl+Enter applies. From your button, none of them do.
+    await user.keyboard('jk{Shift>}A{/Shift}{Shift>}R{/Shift}{Control>}{Enter}{/Control}arucev{Escape}');
+    expect(copy).toHaveFocus();
+    expect(hunks().every((h) => h.dataset.decision === 'pending')).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(keys.join(' ')).toBe('j k Shift A Shift R Control Enter a r u c e v Escape');
+    // From a hunk, the keys are the review's again.
+    hunks()[0]!.focus();
+    await user.keyboard('a');
+    expect(hunks()[0]).toHaveAttribute('data-decision', 'accepted');
+    expect(hunks()[1]).toHaveFocus();
+  });
+
+  it("keeps its shortcuts when it sits in another component's slot", async () => {
+    const user = userEvent.setup();
+    render(
+      <div data-signoff-slot>
+        <DiffReview files={files} actions={<button type="button">Copy as a patch</button>} />
+      </div>,
+    );
+    hunks()[0]!.focus();
+    await user.keyboard('a');
+    expect(hunks()[0]).toHaveAttribute('data-decision', 'accepted');
+    expect(hunks()[1]).toHaveFocus();
+  });
+
   it('hides review controls when read-only', () => {
     render(<DiffReview files={files} readOnly defaultDecisions={{ 'lib/ratelimit.ts:0': 'accepted' }} />);
     expect(screen.queryByRole('button', { name: /accept/i })).not.toBeInTheDocument();
