@@ -6,8 +6,9 @@ import { SCRIPTED_MODEL_ID, scriptedModel } from './scripted-agent';
 import type { Mode } from './types';
 
 /**
- * The model for a run: the scripted agent, or with OPENAI_API_KEY set, a real one. `undefined` when
- * live mode is asked for without a key. Any AI SDK provider works here: swap `openai(id)` for yours.
+ * The model for a run: the scripted agent, or for a live run on a server with OPENAI_API_KEY, a real
+ * one. `undefined` when live mode is asked for without a key. Any AI SDK provider works here: swap
+ * `openai(id)` for yours.
  */
 export function agentModel(mode: Mode): { model: LanguageModel; id: string } | undefined {
   if (mode === 'scripted') return { model: scriptedModel, id: SCRIPTED_MODEL_ID };

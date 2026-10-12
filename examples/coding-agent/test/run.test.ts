@@ -278,13 +278,23 @@ describe('live mode', () => {
   }
 
   const userMessage = { id: 'u1', role: 'user', parts: [{ type: 'text', text: TASK }] };
-  const post = (mode: Mode) =>
+  const post = (mode: Mode | undefined) =>
     POST(
       new Request('http://localhost/api/agent', {
         method: 'POST',
         body: JSON.stringify({ mode, rules: DEFAULT_RULES, messages: [userMessage] }),
       }),
     );
+
+  it('plays the scripted agent unless the request asks for live, even with a key', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    for (const mode of [undefined, 'scripted'] as const) {
+      const response = await post(mode);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('"model":"scripted-agent"');
+    }
+    expect(openai).not.toHaveBeenCalled();
+  });
 
   it('runs the model OPENAI_MODEL names, with the instructions and the same tools', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-key');

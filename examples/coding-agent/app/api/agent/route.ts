@@ -21,6 +21,7 @@ const ruleSchema = z.object({
 
 const bodySchema = z.object({
   messages: z.array(z.unknown()),
+  // Live only when the page asks for it: a key on the server spends nothing until a person picks the model.
   mode: z.enum(['scripted', 'live']).default('scripted'),
   rules: z.array(ruleSchema).max(100).default([]),
 });

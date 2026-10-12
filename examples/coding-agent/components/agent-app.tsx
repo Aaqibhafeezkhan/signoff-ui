@@ -37,7 +37,8 @@ const SCRIPTED_HINT =
  * approval rules, every decision and the project's files.
  */
 export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
-  const [mode, setMode] = useState<Mode>(liveModel ? 'live' : 'scripted');
+  // The scripted agent even when the server has a key: a live run spends tokens, so a person picks it.
+  const [mode, setMode] = useState<Mode>('scripted');
   const [run, setRun] = useState(0);
   const [draft, setDraft] = useState(TASK);
   const [reply, setReply] = useState('');
@@ -222,7 +223,7 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
                 ? started
                   ? 'Your session rules hold for the next run. Clear them under Approval rules.'
                   : 'No API key needed: a scripted agent plays the run. Approve the tests for this session, comment on a line of the diff, and watch your rules answer the rest.'
-                : `Live: ${liveModel} on your OpenAI key.`}
+                : `Live: ${liveModel}, on the server's OpenAI key.`}
             </p>
           </div>
         </section>
@@ -368,7 +369,7 @@ function Thinking() {
 function ModeSwitch({ mode, onChange, liveModel }: { mode: Mode; onChange: (mode: Mode) => void; liveModel: string }) {
   return (
     <div role="group" aria-label="Agent" className="segmented">
-      {(['live', 'scripted'] as const).map((m) => (
+      {(['scripted', 'live'] as const).map((m) => (
         <button key={m} type="button" aria-pressed={mode === m} onClick={() => onChange(m)} className="segmented-item">
           {m === 'live' ? liveModel : 'Scripted'}
         </button>

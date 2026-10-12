@@ -1,6 +1,6 @@
 import type { LanguageModelUsage, UIMessage } from 'ai';
 
-/** Who plays the agent: the scripted model (no key), or a real one (OPENAI_API_KEY set). */
+/** Who plays the agent: the scripted model (the default), or a real one, offered when the server has OPENAI_API_KEY. */
 export type Mode = 'scripted' | 'live';
 
 export interface RunMetadata {

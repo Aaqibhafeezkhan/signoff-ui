@@ -3,8 +3,9 @@
 // tests approved for the session from the keyboard, a review with a rejected file and a comment on a
 // line, the revision it brings, then the tests on the session rule, the commit on a default rule and
 // the push blocked by the server's rule. A second run takes the session rule without asking. axe
-// checks each step in dark and light, and a 390px phone must not scroll sideways. Fails on any page
-// error or console error, hydration mismatches included.
+// checks each step in dark and light, and a 390px phone must not scroll sideways. Then, with a key on
+// the server, the page must still start on the scripted agent and send only scripted requests. Fails
+// on any page error or console error, hydration mismatches included.
 //
 //   pnpm build:lib && pnpm smoke:coding-agent   # or test a running app: BASE_URL=http://localhost:3400
 //
@@ -25,13 +26,15 @@ const PORT = 3410;
 
 let base = process.env.BASE_URL;
 let work;
+let app;
+let next;
 let server;
 let browser;
 
 /** A copy of the example with the packed package, built and started. */
 async function startCopy() {
   work = mkdtempSync(join(tmpdir(), 'signoff-coding-agent-'));
-  const app = join(work, 'app');
+  app = join(work, 'app');
   const [{ filename }] = JSON.parse(
     execFileSync('npm', ['pack', '--json', '--pack-destination', work], { cwd: lib, encoding: 'utf8' }),
   );
@@ -53,21 +56,32 @@ async function startCopy() {
     if (name !== 'signoff-ui') link(name, example);
   for (const name of Object.keys(manifest(installed).dependencies)) link(name, lib);
 
-  const next = join(realpathSync(join(example, 'node_modules/next')), 'dist/bin/next');
+  next = join(realpathSync(join(example, 'node_modules/next')), 'dist/bin/next');
   execFileSync(process.execPath, [next, 'build', '--webpack'], { cwd: app, stdio: 'inherit' });
   const tsc = join(realpathSync(join(example, 'node_modules/typescript')), 'bin/tsc');
   execFileSync(process.execPath, [tsc, '--noEmit', '-p', app], { cwd: app, stdio: 'inherit' });
   console.log(`pass  built and typechecked a copy of examples/coding-agent, from ${filename}`);
 
   // No OPENAI_API_KEY: the page offers the scripted agent only.
-  const env = { ...process.env, OPENAI_API_KEY: '' };
-  server = spawn(process.execPath, [next, 'start', '--port', String(PORT)], { cwd: app, env, stdio: 'inherit' });
+  server = await serve(PORT, { OPENAI_API_KEY: '' });
   base = `http://localhost:${PORT}`;
+}
+
+/** `next start` on the built copy, with these environment variables, once it answers. */
+async function serve(port, env) {
+  const child = spawn(process.execPath, [next, 'start', '--port', String(port)], {
+    cwd: app,
+    env: { ...process.env, ...env },
+    stdio: 'inherit',
+  });
   for (let attempt = 0; ; attempt++) {
     try {
-      if ((await fetch(base)).ok) return;
+      if ((await fetch(`http://localhost:${port}`)).ok) return child;
     } catch {
-      if (attempt > 60) throw new Error(`The example did not start on ${base}`);
+      if (attempt > 60) {
+        child.kill();
+        throw new Error(`The example did not start on port ${port}`);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -193,6 +207,40 @@ try {
     await audit(phone, `light, 390px, ${step}`);
   });
   console.log('pass  390px phone in light: no sideways scroll at any step; axe clean');
+
+  if (work) {
+    // A key on the server, and OPENAI_BASE_URL on a closed port, so even a live request leaves nothing.
+    const keyed = await serve(PORT + 1, {
+      OPENAI_API_KEY: 'smoke-placeholder',
+      OPENAI_MODEL: '',
+      OPENAI_BASE_URL: 'http://127.0.0.1:9/v1',
+    });
+    try {
+      const page = await open({ viewport: { width: 1280, height: 860 }, colorScheme: 'dark' });
+      const modes = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/agent')
+          modes.push(JSON.parse(request.postData() ?? '{}').mode);
+      });
+      await page.goto(`http://localhost:${PORT + 1}`, { waitUntil: 'networkidle' });
+      const agent = page.getByRole('group', { name: 'Agent' });
+      for (const [name, pressed] of [
+        ['Scripted', 'true'],
+        ['gpt-5.4-mini', 'false'],
+      ])
+        if ((await agent.getByRole('button', { name, exact: true }).getAttribute('aria-pressed')) !== pressed)
+          throw new Error(`With a key, the ${name} choice is not aria-pressed="${pressed}"`);
+      await audit(page, 'dark, with a key, before the run');
+      await page.getByRole('button', { name: 'Start the run' }).click();
+      await page.locator('[data-slot="signoff-approval-card"][data-status="pending"]').waitFor({ timeout: 30_000 });
+      if (modes.length === 0 || modes.some((mode) => mode !== 'scripted'))
+        throw new Error(`With a key, the page sent ${JSON.stringify(modes)}, not only scripted runs`);
+      console.log('pass  with a key on the server, the page starts on the scripted agent and sends scripted runs');
+      await page.close();
+    } finally {
+      keyed.kill();
+    }
+  }
 
   if (errors.length > 0) throw new Error(`Page errors:\n  ${errors.join('\n  ')}`);
 } finally {
