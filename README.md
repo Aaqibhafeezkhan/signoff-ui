@@ -2,11 +2,11 @@
 
 Review what your agent changed and approve what it may do: React components for multi-file diff review and tool approvals, for AI SDK and AG-UI agents, inside the chat UI you already have.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/dgesteves/signoff-ui/ci.yml?branch=main&label=CI&labelColor=0d0f12&color=22d3ee)](https://github.com/dgesteves/signoff-ui/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=22d3ee)](https://www.npmjs.com/package/signoff-ui)
-[![gzip per import: 0.4–86.0 kB](https://img.shields.io/badge/gzip_per_import-0.4%E2%80%9386.0_kB-22d3ee?labelColor=0d0f12)](https://signoff-ui.vercel.app/docs/limits#bundle-size)
-[![Types: included](https://img.shields.io/badge/types-included-22d3ee?labelColor=0d0f12&logo=typescript&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#requirements)
-[![License: MIT](https://img.shields.io/badge/license-MIT-22d3ee?labelColor=0d0f12)](./LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/dgesteves/signoff-ui/ci.yml?branch=main&label=CI&labelColor=0d0f12)](https://github.com/dgesteves/signoff-ui/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=0e7490)](https://www.npmjs.com/package/signoff-ui)
+[![gzip per import: 0.4–86.0 kB](https://img.shields.io/badge/gzip_per_import-0.4%E2%80%9386.0_kB-0e7490?labelColor=0d0f12)](https://signoff-ui.vercel.app/docs/limits#bundle-size)
+[![Types: included](https://img.shields.io/badge/types-included-0e7490?labelColor=0d0f12&logo=typescript&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#requirements)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0e7490?labelColor=0d0f12)](./LICENSE)
 
 [![shadcn: @signoff-ui](https://img.shields.io/badge/shadcn-%40signoff--ui-0d0f12?logo=shadcnui&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#with-the-shadcn-cli)
 
