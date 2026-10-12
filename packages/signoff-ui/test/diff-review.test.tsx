@@ -305,7 +305,7 @@ describe('DiffReview', () => {
     expect(slot.nextElementSibling).toBe(screen.getByRole('radiogroup', { name: 'Diff layout' }));
     expect(await axe(container)).toHaveNoViolations();
     // Nothing to show, no slot: `actions={canCopy && …}` leaves the header as it was.
-    for (const actions of [undefined, null, false]) {
+    for (const actions of [undefined, null, false, true, '']) {
       rerender(<DiffReview files={files} readOnly actions={actions} />);
       expect(container.querySelector('[data-signoff-slot]')).toBeNull();
     }
