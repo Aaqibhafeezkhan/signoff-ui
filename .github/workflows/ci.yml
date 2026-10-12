@@ -173,3 +173,35 @@ jobs:
       # npm pack, then the example built against the tarball with Vite: what an app installs from npm.
       - name: Review and approve in the example from the packed package, in Chrome
         run: pnpm smoke:assistant-ui
+
+  coding-agent:
+    name: Coding agent reference app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Copied on its own, the example installs signoff-ui from npm at its range: it must include the
+      # version this repository publishes. `pnpm version-packages` moves it with each release.
+      - name: The example asks for the version this repository publishes
+        run: pnpm examples:check
+
+      - name: Build library
+        run: pnpm build:lib
+
+      # The whole scripted run through the route, the rules and the simulated commands; live mode
+      # against a stub of the OpenAI provider, so no request leaves the runner.
+      - name: Test examples/coding-agent
+        run: pnpm --filter coding-agent test
+
+      # npm pack, then a copy of the example built against the tarball with Next.js: what an app installs from npm.
+      - name: Run the reference app from the packed package in Chrome, on a desktop and a phone
+        run: pnpm smoke:coding-agent

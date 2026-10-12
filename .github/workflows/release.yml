@@ -33,7 +33,9 @@ jobs:
       - run: pnpm test
 
       # Opens or updates a "Version packages" pull request from pending changesets; once that is
-      # merged, publishes to npm and creates the GitHub release.
+      # merged, publishes to npm and creates the GitHub release. `version-packages` also moves the
+      # examples that ask for a version range of signoff-ui to the version it publishes
+      # (scripts/example-versions.mjs).
       - id: changesets
         uses: changesets/action@v2.1.2
         with:

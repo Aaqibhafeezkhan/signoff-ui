@@ -1,0 +1,7 @@
+# For a copy of this app on its own: keys stay out of git.
+node_modules
+.next
+.env
+.env*.local
+next-env.d.ts
+*.tsbuildinfo

@@ -11,15 +11,18 @@ pnpm install
 pnpm dev   # the library in watch mode, and the playground on http://localhost:3100
 ```
 
-The playground runs a scripted agent and needs no key. For live mode, copy `examples/playground/.env.example` to `.env.local` and set `OPENAI_API_KEY`, and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`. It runs on your key; the public demo has none, so it shows only the scripted run. `examples/nextjs-minimal` is the README quickstart as an app: build the library, then `pnpm --filter nextjs-minimal dev` (port 3200).
+The playground runs a scripted agent and needs no key. For live mode, copy `examples/playground/.env.example` to `.env.local` and set `OPENAI_API_KEY`, and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`. It runs on your key; the public demo has none, so it shows only the scripted run. `examples/nextjs-minimal` is the README quickstart as an app: build the library, then `pnpm --filter nextjs-minimal dev` (port 3200). `examples/coding-agent`, the reference app, runs the same way: `pnpm --filter coding-agent dev` (port 3400).
 
 ```
 packages/signoff-ui/   the library: src/ (components, lib/, styles/), test/, build scripts
 examples/playground/     the playground and the component gallery (Next.js)
 examples/nextjs-minimal/ the README quickstart, against a scripted model
+examples/coding-agent/   the reference app: approval rules and reviews, against a scripted model
 registry.json            the shadcn registry, generated from src/
 scripts/                 registry generator, smoke tests, media capture, accessibility audit
 ```
+
+The Next.js examples don't run on StackBlitz: its WebContainers render no App Router page on Next.js 15 or later.
 
 ## Checks
 
@@ -38,6 +41,8 @@ pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 buil
 pnpm build:playground && pnpm smoke:playground
 pnpm a11y             # axe in Chrome, across the built playground, gallery and docs
 pnpm --filter nextjs-minimal build && pnpm smoke:nextjs
+pnpm examples:check   # examples/coding-agent asks for the version of signoff-ui this repository publishes
+pnpm --filter coding-agent test && pnpm smoke:coding-agent
 ```
 
 `pnpm media` regenerates `docs/media` from a running playground (Chrome and ffmpeg required).
@@ -61,6 +66,6 @@ pnpm add --save-dev react@^18.2.0 react-dom@^18.2.0 @types/react@^18 @types/reac
 
 ## Changesets
 
-A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm.
+A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm. Its version step, `pnpm version-packages`, also moves `examples/coding-agent` to `signoff-ui@^<new version>`, so a copy of the example installs the release its code is written for.
 
 By contributing, you agree that your work is released under the [MIT license](./LICENSE) and that you follow the [code of conduct](./CODE_OF_CONDUCT.md).

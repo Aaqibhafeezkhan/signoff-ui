@@ -1,8 +1,8 @@
 packages:
   - packages/*
   - examples/*
-# examples/nextjs-minimal asks for the latest published kit, so it also runs on its own (copied out
-# of the repository, or on StackBlitz); in the workspace it builds against the local source.
+# The examples ask for the published package (`latest`, or `^<version>` in examples/coding-agent),
+# so they also run copied out of the repository; in the workspace they build against the local source.
 overrides:
   'signoff-ui': 'workspace:*'
 allowBuilds:

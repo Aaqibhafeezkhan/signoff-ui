@@ -14,3 +14,5 @@ next-env.d.ts
 # Written by `next dev` (Next.js 16) on every start
 /examples/playground/AGENTS.md
 /examples/playground/CLAUDE.md
+/examples/coding-agent/AGENTS.md
+/examples/coding-agent/CLAUDE.md
