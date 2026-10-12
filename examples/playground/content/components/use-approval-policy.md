@@ -67,6 +67,8 @@ export async function POST(req: Request) {
 }
 ```
 
+**The server's rules win.** Rules the server keeps for everyone, such as one that denies `git push`, go first. Make them with `toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' })`, and ask the person's `toToolApproval(parseApprovalRules(rules))` only when that returns `'not-applicable'`. A rule a client sends then can't approve a call the server's rules deny.
+
 The route gets whatever the client sent, so `parseApprovalRules` checks it: each field and its type, at most 100 rules, 20 argument patterns in a rule, 500 characters in a string, and one `*` in a pattern, `**` counting as one. Each `*` more can make a pattern take seconds to match a long argument, which would hold up the server. Other limits go in the second argument, such as `parseApprovalRules(rules, { maxWildcards: 2 })`. A rule that fails a check is left out.
 
 A rule the server doesn't get still holds on the page: the server asks, and the policy answers without showing anyone a card. That covers rules with a `when`, which `getRules()` leaves out: `when` is code, and without it the rule would cover more calls than it does. `toPlainRules(rules)` does the same for rules kept outside the hook.
