@@ -136,6 +136,14 @@ await audit(page, 'docs /docs/getting-started · 390px viewport');
 await page.goto(`${BASE}/docs/components/tool-call-timeline`, { waitUntil: 'networkidle' });
 await settle(page);
 await audit(page, 'docs /docs/components/tool-call-timeline · 390px viewport');
+// A sub-agent open under the call that started it, its calls nested.
+await page
+  .locator('main')
+  .getByRole('button', { name: /^Researcher/ })
+  .first()
+  .click();
+await settle(page);
+await audit(page, 'docs /docs/components/tool-call-timeline · a sub-agent open, 390px viewport');
 
 // The light theme, with a light OS: the site follows it until the reader picks.
 const light = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });

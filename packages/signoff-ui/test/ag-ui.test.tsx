@@ -1,6 +1,6 @@
 import { AbstractAgent, HttpAgent, type BaseEvent, type RunAgentInput } from '@ag-ui/client';
 import { EventType, type Event as AgUiCoreEvent, type Message } from '@ag-ui/core';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Observable } from 'rxjs';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +16,7 @@ import {
   type AgUiRunState,
 } from '../src/ag-ui';
 import { AgentMessage } from '../src/agent-message';
-import { deriveAgentState } from '../src/lib/ai';
+import { deriveAgentState, type SubagentPart } from '../src/lib/ai';
 
 const fold = (events: readonly AgUiCoreEvent[], run: AgUiRunState = createAgUiRun()) =>
   events.reduce(reduceAgUiRun, run);
@@ -306,6 +306,288 @@ describe('fromAgUiMessages', () => {
   });
 });
 
+describe('sub-agents', () => {
+  const started: AgUiCoreEvent = { type: EventType.RUN_STARTED, threadId: 't', runId: 'r1' };
+  const start = (subagentRunId: string, extra: Record<string, string> = {}): AgUiCoreEvent => ({
+    type: EventType.SUBAGENT_STARTED,
+    subagentRunId,
+    name: 'researcher',
+    parentToolCallId: 'tc1',
+    ...extra,
+  });
+  const finish = (subagentRunId: string, outcome?: 'suspended'): AgUiCoreEvent => ({
+    type: EventType.SUBAGENT_FINISHED,
+    subagentRunId,
+    ...(outcome ? { outcome: { type: outcome } } : {}),
+  });
+  const fail = (subagentRunId: string): AgUiCoreEvent => ({
+    type: EventType.SUBAGENT_ERROR,
+    subagentRunId,
+    message: 'Rate limited',
+    code: '429',
+  });
+  const inside = (subagentRunId: string): AgUiCoreEvent => ({
+    type: EventType.TOOL_CALL_START,
+    toolCallId: 'stc1',
+    toolCallName: 'web_search',
+    subagentRunId,
+  });
+
+  describe('reduceAgUiRun', () => {
+    it('follows a sub-agent from its start to its end, and keeps it across runs', () => {
+      let run = fold([started, start('sa1'), inside('sa1')]);
+      expect(run.subagents).toEqual([
+        {
+          subagentRunId: 'sa1',
+          name: 'researcher',
+          parentToolCallId: 'tc1',
+          parentSubagentRunId: undefined,
+          status: 'running',
+        },
+      ]);
+      expect(run.streaming.toolCalls).toEqual(['stc1']);
+      run = fold([finish('sa1'), { ...started, runId: 'r2' }], run);
+      expect(run.subagents).toMatchObject([{ subagentRunId: 'sa1', status: 'done' }]);
+    });
+
+    it('records a failure, which a later end does not undo', () => {
+      const run = fold([started, start('sa1'), fail('sa1'), finish('sa1')]);
+      expect(run.subagents).toMatchObject([
+        { subagentRunId: 'sa1', status: 'error', error: { message: 'Rate limited', code: '429' } },
+      ]);
+    });
+
+    it('pauses a suspended sub-agent until a later run starts it again', () => {
+      let run = fold([started, start('sa1'), finish('sa1', 'suspended')]);
+      expect(run.subagents).toMatchObject([{ status: 'suspended' }]);
+      run = fold([{ ...started, runId: 'r2' }, inside('sa1')], run);
+      expect(run.subagents).toMatchObject([{ status: 'running' }]);
+      run = fold([finish('sa1', 'suspended'), start('sa1')], run);
+      expect(run.subagents).toMatchObject([{ status: 'running' }]);
+    });
+
+    it('takes events in any order: work or an end before the start', () => {
+      // Its work first: running, with no name yet, then named by its start.
+      let run = fold([started, inside('sa1')]);
+      expect(run.subagents).toEqual([{ subagentRunId: 'sa1', status: 'running' }]);
+      run = fold([start('sa1')], run);
+      expect(run.subagents).toMatchObject([{ name: 'researcher', parentToolCallId: 'tc1', status: 'running' }]);
+      // Its end first: a late start names it and leaves it ended.
+      run = fold([finish('sa2'), start('sa2', { name: 'coder', parentSubagentRunId: 'sa1' })], run);
+      expect(run.subagents?.[1]).toEqual({
+        subagentRunId: 'sa2',
+        name: 'coder',
+        parentToolCallId: 'tc1',
+        parentSubagentRunId: 'sa1',
+        status: 'done',
+      });
+      run = fold([fail('sa3'), start('sa3')], run);
+      expect(run.subagents?.[2]).toMatchObject({ status: 'error' });
+      // Events without a sub-agent leave them as they are.
+      expect(fold([{ type: EventType.SUBAGENT_FINISHED } as AgUiCoreEvent], run)).toBe(run);
+    });
+  });
+
+  describe('fromAgUiMessages', () => {
+    const call = (id: string, name: string, args = '{}') => ({
+      id,
+      type: 'function' as const,
+      function: { name, arguments: args },
+    });
+    /** A turn where the agent delegates to a researcher, as `@ag-ui/client` keeps it. */
+    const turn = (): Message[] => [
+      { id: 'u1', role: 'user', content: 'Research rate limits' },
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: 'Delegating.',
+        toolCalls: [call('tc1', 'research', '{"topic":"limits"}')],
+      },
+      { id: 'tr1', role: 'tool', toolCallId: 'tc1', content: 'found 2' },
+      {
+        id: 's1',
+        role: 'assistant',
+        content: 'Searching.',
+        subagentRunId: 'sa1',
+        toolCalls: [call('stc1', 'web_search')],
+      },
+      { id: 'str1', role: 'tool', toolCallId: 'stc1', content: '["a","b"]', subagentRunId: 'sa1' },
+      { id: 'sr1', role: 'reasoning', content: 'Two hits.', subagentRunId: 'sa1' },
+      { id: 'stc2', role: 'assistant', subagentRunId: 'sa1', toolCalls: [call('stc2', 'read_page')] },
+      { id: 'm2', role: 'assistant', content: 'Done.' },
+    ];
+
+    it('puts a sub-agent’s messages in one part, after the call that started it', () => {
+      const run = fold([started, start('sa1'), finish('sa1')]);
+      const [, reply] = fromAgUiMessages(turn(), run);
+      expect(reply!.parts).toEqual([
+        { type: 'text', text: 'Delegating.', state: 'done' },
+        {
+          type: 'dynamic-tool',
+          toolName: 'research',
+          toolCallId: 'tc1',
+          state: 'output-available',
+          input: { topic: 'limits' },
+          output: 'found 2',
+        },
+        {
+          type: 'data-signoff-subagent',
+          id: 'sa1',
+          data: {
+            subagentRunId: 'sa1',
+            parentToolCallId: 'tc1',
+            name: 'researcher',
+            status: 'done',
+            errorText: undefined,
+            parts: [
+              { type: 'text', text: 'Searching.', state: 'done' },
+              {
+                type: 'dynamic-tool',
+                toolName: 'web_search',
+                toolCallId: 'stc1',
+                state: 'output-available',
+                input: {},
+                output: ['a', 'b'],
+              },
+              { type: 'reasoning', text: 'Two hits.', state: 'done' },
+              { type: 'dynamic-tool', toolName: 'read_page', toolCallId: 'stc2', state: 'input-available', input: {} },
+            ],
+          },
+        },
+        { type: 'text', text: 'Done.', state: 'done' },
+      ]);
+    });
+
+    it('carries a failure’s message, and applies the run state inside', () => {
+      const run = fold([
+        started,
+        start('sa1'),
+        { type: EventType.TOOL_CALL_START, toolCallId: 'stc2', toolCallName: 'read_page', subagentRunId: 'sa1' },
+        fail('sa1'),
+      ]);
+      const subagent = fromAgUiMessages(turn(), run)[1]!.parts[2] as SubagentPart;
+      expect(subagent.data).toMatchObject({ status: 'error', errorText: 'Rate limited' });
+      expect(subagent.data.parts[3]).toMatchObject({ toolCallId: 'stc2', state: 'input-streaming' });
+    });
+
+    it('nests a sub-agent another one started inside it, after the call that started it there', () => {
+      const messages: Message[] = [
+        ...turn().slice(0, 4),
+        { id: 'c1', role: 'assistant', subagentRunId: 'sa2', toolCalls: [call('ctc1', 'edit_file')] },
+      ];
+      messages[3] = { ...messages[3]!, toolCalls: [call('stc1', 'ask_coder')] } as Message;
+      const run = fold([
+        started,
+        start('sa1'),
+        start('sa2', { name: 'coder', parentToolCallId: 'stc1', parentSubagentRunId: 'sa1' }),
+      ]);
+      const researcher = fromAgUiMessages(messages, run)[1]!.parts[2] as SubagentPart;
+      expect(researcher.data.parts.map((p) => p.type)).toEqual(['text', 'dynamic-tool', 'data-signoff-subagent']);
+      expect((researcher.data.parts[2] as SubagentPart).data).toMatchObject({
+        name: 'coder',
+        parentToolCallId: 'stc1',
+        parts: [{ toolCallId: 'ctc1' }],
+      });
+      // One whose call is nowhere stays where its first message was.
+      const lost = fold(
+        [start('sa2', { name: 'coder', parentToolCallId: 'gone', parentSubagentRunId: 'sa1' })],
+        fold([started, start('sa1')]),
+      );
+      const reply = fromAgUiMessages(messages, lost)[1]!.parts;
+      expect(reply.map((p) => (p.type === 'data-signoff-subagent' ? p.id : p.type))).toEqual([
+        'text',
+        'dynamic-tool',
+        'sa1',
+        'sa2',
+      ]);
+    });
+
+    it('never puts a sub-agent inside itself, whatever calls the events name', () => {
+      const messages: Message[] = [
+        { id: 'u1', role: 'user', content: 'Go' },
+        { id: 'a1', role: 'assistant', subagentRunId: 'sa1', toolCalls: [call('a-call', 'ask_b')] },
+        { id: 'b1', role: 'assistant', subagentRunId: 'sb', toolCalls: [call('b-call', 'ask_a')] },
+      ];
+      // Each says the other's call started it.
+      const run = fold([
+        started,
+        start('sa1', { parentToolCallId: 'b-call' }),
+        start('sb', { parentToolCallId: 'a-call' }),
+      ]);
+      const [a] = fromAgUiMessages(messages, run)[1]!.parts as SubagentPart[];
+      expect(a!.id).toBe('sb');
+      expect(a!.data.parts.map((p) => (p.type === 'data-signoff-subagent' ? p.id : p.type))).toEqual([
+        'dynamic-tool',
+        'sa1',
+      ]);
+      expect((a!.data.parts[1] as SubagentPart).data.parts.map((p) => p.type)).toEqual(['dynamic-tool']);
+    });
+
+    it('keeps sub-agents under one call in the order they started, wherever their messages are', () => {
+      const messages: Message[] = [
+        ...turn().slice(0, 3),
+        { id: 'b1', role: 'assistant', content: 'B first.', subagentRunId: 'sb' },
+        { id: 'a1', role: 'assistant', content: 'A second.', subagentRunId: 'sa' },
+      ];
+      const run = fold([started, start('sa'), start('sb')]);
+      const parts = fromAgUiMessages(messages, run)[1]!.parts;
+      expect(parts.map((p) => (p.type === 'data-signoff-subagent' ? p.id : p.type))).toEqual([
+        'text',
+        'dynamic-tool',
+        'sa',
+        'sb',
+      ]);
+    });
+
+    it('nests under a call that comes later in the messages than the sub-agent’s own', () => {
+      const messages: Message[] = [
+        { id: 'u1', role: 'user', content: 'Go' },
+        { id: 's1', role: 'assistant', content: 'Early.', subagentRunId: 'sa1' },
+        { id: 'm1', role: 'assistant', content: 'Delegated.', toolCalls: [call('tc1', 'research')] },
+      ];
+      const parts = fromAgUiMessages(messages, fold([started, start('sa1')]))[1]!.parts;
+      expect(parts.map((p) => p.type)).toEqual(['text', 'dynamic-tool', 'data-signoff-subagent']);
+    });
+
+    it('shows one started by no call it can find where its first message was, and one with no messages under its call', () => {
+      const run = fold([started, start('sa1', { parentToolCallId: 'elsewhere' }), start('sa2')]);
+      const parts = fromAgUiMessages(turn(), run)[1]!.parts;
+      expect(parts.map((p) => (p.type === 'data-signoff-subagent' ? p.id : p.type))).toEqual([
+        'text',
+        'dynamic-tool',
+        'sa2',
+        'sa1',
+        'text',
+      ]);
+      expect((parts[2] as SubagentPart).data).toEqual({
+        subagentRunId: 'sa2',
+        parentToolCallId: 'tc1',
+        name: 'researcher',
+        status: 'running',
+        errorText: undefined,
+        parts: [],
+      });
+      // Started by nothing it can find, with no messages: nothing to show.
+      const unseen = fold([start('sa3', { parentToolCallId: 'elsewhere' })], run);
+      expect(
+        fromAgUiMessages(turn(), unseen)[1]!.parts.some((p) => p.type === 'data-signoff-subagent' && p.id === 'sa3'),
+      ).toBe(false);
+    });
+
+    it('groups history from before its events, running while one of its calls is', () => {
+      const parts = fromAgUiMessages(turn())[1]!.parts;
+      expect(parts.map((p) => p.type)).toEqual(['text', 'dynamic-tool', 'data-signoff-subagent', 'text']);
+      expect((parts[2] as SubagentPart).data).toMatchObject({
+        subagentRunId: 'sa1',
+        status: 'running',
+        name: undefined,
+      });
+      const settled = turn().slice(0, 5);
+      expect((fromAgUiMessages(settled)[1]!.parts[2] as SubagentPart).data.status).toBe('done');
+    });
+  });
+});
+
 function withInterrupt() {
   return createAgUiRun([{ id: 'int1', reason: 'tool_call', toolCallId: 'tc1' }]);
 }
@@ -450,6 +732,76 @@ describe('useAgUiAgent', () => {
       expect(screen.getByText('Installed.')).toBeInTheDocument();
     });
     expect(agent.inputs).toHaveLength(2);
+  });
+
+  it('nests a sub-agent under the call that started it, and resumes it once its call is approved', async () => {
+    const inside = { subagentRunId: 'sa1' };
+    const agent = new ScriptedAgent([
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 'm1', role: 'assistant' },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm1', delta: 'Delegating.' },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 'm1' },
+        { type: EventType.TOOL_CALL_START, toolCallId: 'tc1', toolCallName: 'research', parentMessageId: 'm1' },
+        { type: EventType.TOOL_CALL_END, toolCallId: 'tc1' },
+        { type: EventType.SUBAGENT_STARTED, subagentRunId: 'sa1', name: 'Researcher', parentToolCallId: 'tc1' },
+        { type: EventType.TOOL_CALL_START, toolCallId: 'stc1', toolCallName: 'web_search', ...inside },
+        { type: EventType.TOOL_CALL_ARGS, toolCallId: 'stc1', delta: '{"query":"rate limits"}', ...inside },
+        { type: EventType.TOOL_CALL_END, toolCallId: 'stc1', ...inside },
+        { type: EventType.TOOL_CALL_RESULT, messageId: 'str1', toolCallId: 'stc1', content: '["a"]', ...inside },
+        { type: EventType.TOOL_CALL_START, toolCallId: 'stc2', toolCallName: 'fetch_page', ...inside },
+        { type: EventType.TOOL_CALL_ARGS, toolCallId: 'stc2', delta: '{"url":"https://a.test"}', ...inside },
+        { type: EventType.TOOL_CALL_END, toolCallId: 'stc2', ...inside },
+        {
+          type: EventType.SUBAGENT_FINISHED,
+          subagentRunId: 'sa1',
+          outcome: { type: 'suspended', interruptIds: ['int1'] },
+        },
+        {
+          type: EventType.RUN_FINISHED,
+          threadId: 'thread-1',
+          runId,
+          outcome: {
+            type: 'interrupt',
+            interrupts: [{ id: 'int1', reason: 'tool_call', toolCallId: 'stc2', message: 'Fetch a.test?' }],
+          },
+        } as BaseEvent,
+      ],
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.SUBAGENT_STARTED, subagentRunId: 'sa1', name: 'Researcher', parentToolCallId: 'tc1' },
+        { type: EventType.TOOL_CALL_RESULT, messageId: 'str2', toolCallId: 'stc2', content: 'page', ...inside },
+        { type: EventType.SUBAGENT_FINISHED, subagentRunId: 'sa1' },
+        { type: EventType.TOOL_CALL_RESULT, messageId: 'tr1', toolCallId: 'tc1', content: 'found a' },
+        { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId, outcome: { type: 'success' } } as BaseEvent,
+      ],
+    ]);
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Research rate limits' });
+    let state: ReturnType<typeof deriveAgentState> | undefined;
+    function Chat() {
+      const { messages, status, respond } = useAgUiAgent(agent);
+      const last = messages.findLast((m) => m.role === 'assistant');
+      state = deriveAgentState({ status, message: last });
+      return last ? <AgentMessage message={last} onToolApproval={respond} /> : null;
+    }
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(() => agent.runAgent());
+    // Paused on its call's approval, the sub-agent is open under the call that started it.
+    const group = screen.getByRole('button', { name: /^Researcher/ });
+    expect(group).toHaveAttribute('aria-expanded', 'true');
+    expect(group).toHaveTextContent('Needs approval');
+    const calls = screen.getByRole('list', { name: 'Researcher’s tool calls' });
+    expect(within(calls).getByRole('button', { name: /Web search/ })).toHaveTextContent('rate limits');
+    expect(within(calls).getByText('Fetch a.test?')).toBeInTheDocument();
+    expect(state).toEqual({ state: 'awaiting-approval', detail: 'fetch_page' });
+
+    await user.click(within(calls).getByRole('button', { name: /^approve/i }));
+    await waitFor(() => expect(state).toEqual({ state: 'done' }));
+    expect(agent.inputs[1]?.resume).toEqual([{ interruptId: 'int1', status: 'resolved', payload: { approved: true } }]);
+    expect(screen.getByRole('button', { name: /^Researcher/ })).toHaveTextContent('Done');
+    // The call that started it got its result.
+    expect(screen.getByRole('button', { name: /^Research(?!er)/ })).toHaveTextContent('Done');
   });
 
   it('reads a run aborted mid-stream as stopped, not failed', async () => {

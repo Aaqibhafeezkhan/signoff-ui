@@ -80,6 +80,11 @@ export const toolMeta: Record<string, ToolMeta> = {
       return q ? `“${q}”` : undefined;
     },
   },
+  research: {
+    label: 'Research',
+    icon: <GlobeIcon />,
+    summary: field('topic'),
+  },
   run_command: {
     label: 'Run command',
     icon: <TerminalIcon />,

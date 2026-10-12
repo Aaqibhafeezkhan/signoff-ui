@@ -1,4 +1,4 @@
-import type { ToolPart } from 'signoff-ui';
+import type { AnyUIPart } from 'signoff-ui';
 import type { UIMessage } from 'ai';
 import { ROUTE_OLD, WEB_RESULTS } from './scenario';
 
@@ -35,10 +35,36 @@ export const timelineParts = [
     },
   },
   {
-    type: 'tool-web_search',
+    type: 'tool-research',
     toolCallId: 'g4',
     state: 'input-available',
-    input: { query: 'upstash ratelimit sliding window' },
+    input: { topic: 'upstash ratelimit sliding window' },
+  },
+  // The research call started a sub-agent: its calls nest under it.
+  {
+    type: 'data-signoff-subagent',
+    id: 'researcher',
+    data: {
+      subagentRunId: 'researcher',
+      parentToolCallId: 'g4',
+      name: 'Researcher',
+      status: 'running',
+      parts: [
+        {
+          type: 'tool-web_search',
+          toolCallId: 'g4a',
+          state: 'output-available',
+          input: { query: 'upstash ratelimit sliding window' },
+          output: { results: WEB_RESULTS.slice(0, 2) },
+        },
+        {
+          type: 'tool-web_search',
+          toolCallId: 'g4b',
+          state: 'input-available',
+          input: { query: 'ratelimit in the edge runtime' },
+        },
+      ],
+    },
   },
   {
     type: 'tool-run_command',
@@ -47,13 +73,15 @@ export const timelineParts = [
     input: { command: 'pnpm add @upstash/ratelimit' },
     approval: { id: 'a5' },
   },
-] as unknown as ToolPart[];
+] as unknown as AnyUIPart[];
 
 export const timelineTimings = {
   g1: { startedAt: now - 4_200, runningAt: now - 4_000, endedAt: now - 3_280 },
   g2: { startedAt: now - 3_100, runningAt: now - 3_000, endedAt: now - 2_760 },
   g3: { startedAt: now - 3_050, runningAt: now - 2_950, endedAt: now - 2_500 },
   g4: { startedAt: now - 2_300, runningAt: now - 2_100 },
+  g4a: { startedAt: now - 2_050, runningAt: now - 2_000, endedAt: now - 1_400 },
+  g4b: { startedAt: now - 1_300, runningAt: now - 1_250 },
   g5: { startedAt: now - 600 },
 };
 
