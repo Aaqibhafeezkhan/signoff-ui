@@ -215,7 +215,7 @@ export const COMPONENTS: ComponentDoc[] = [
     ],
     accessibility: [
       'A group named by its title and described by its description and a visually hidden line that spells out the shortcuts on offer. It is not a landmark, so a run with many approvals doesn’t fill landmark navigation; pass `role="region"` to make it one.',
-      'Every choice is a button with its key in `aria-keyshortcuts`. Y, S, A, N and Shift+N only work while focus is inside the card, with no other modifier and not while typing, which keeps them within WCAG 2.1.4.',
+      'Every choice is a button with its key in `aria-keyshortcuts`. Y, S, A, N and Shift+N only work while focus is inside the card, with no other modifier, not while typing and not on the controls of a custom `preview`, which keeps them within WCAG 2.1.4.',
       'A lasting choice says what it will cover, in a labelled group: the tool, and a text field per argument pattern ("command matches"), or "Any arguments".',
       'Editing arguments opens a form with a labelled field per argument, or a JSON text area; JSON that does not parse is marked `aria-invalid`, its error is the field’s description, and approving says "The arguments are not valid JSON." instead of approving.',
       '`critical` actions need a second press of the same choice within four seconds, and say so: "Critical action. Press approve again to confirm." Approve all asks for one when any of the calls is critical.',
