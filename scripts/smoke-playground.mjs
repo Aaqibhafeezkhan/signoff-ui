@@ -252,10 +252,12 @@ try {
   // An address with no page: a 404 titled as one, with the docs' navigation to get back.
   const unknown = await fetch(`${BASE}/docs/theming`);
   const unknownHtml = await unknown.text();
+  const robotsTags = unknownHtml.match(/<meta name="robots"[^>]*>/g) ?? [];
   check(
     unknown.status === 404 &&
       unknownHtml.includes('<title>Page not found · signoff-ui</title>') &&
-      /<meta name="robots" content="noindex"/.test(unknownHtml) &&
+      robotsTags.length === 1 &&
+      robotsTags[0].includes('content="noindex"') &&
       metaOf(unknownHtml, 'description') === 'There is no page at this address.' &&
       !/<link rel="canonical"|<meta property="og:(?:image|url|description)"|<meta name="twitter:image"/.test(
         unknownHtml,
@@ -263,8 +265,19 @@ try {
       ['/docs/getting-started', '/docs/components/diff-review', '/components'].every((path) =>
         unknownHtml.includes(`href="${path}"`),
       ),
-    'an unknown address: a 404 titled "Page not found", not indexed, with no canonical or preview of the home page, and the docs navigation',
-    `${unknown.status}`,
+    'an unknown address: a 404 titled "Page not found", not indexed (one robots tag), with no canonical or preview of the home page, and the docs navigation',
+    `${unknown.status}, ${robotsTags.join(' ')}`,
+  );
+  // The preview image of a docs or component page that doesn't exist: a 404, not a server error.
+  const missingImages = await Promise.all(
+    ['/docs/theming/opengraph-image', '/docs/components/nope/opengraph-image'].map(
+      async (path) => `${path} ${(await fetch(BASE + path)).status}`,
+    ),
+  );
+  check(
+    missingImages.every((line) => line.endsWith(' 404')),
+    "an unknown docs or component page's preview image answers 404",
+    missingImages.join(', '),
   );
 
   // Component pages document props from the package's own types: ApprovalCard's toolName is a
