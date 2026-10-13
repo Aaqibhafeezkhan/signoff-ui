@@ -1,1 +1,0 @@
-The signoff-ui playground mid-run: the headline, Review what your agent changed. Approve what it may do., the npm i signoff-ui install command, Get started and Star on GitHub, and beside them the run's status, playback controls and run meter; below, the request and the agent's first step.

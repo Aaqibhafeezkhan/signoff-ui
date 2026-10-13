@@ -4,9 +4,8 @@ import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
 import { NAV } from '@/lib/docs';
 
-// Not the home page's canonical address, description and link preview, which the root layout sets.
-// The preview image stays: app/opengraph-image.png is a file, which Next.js puts on every page
-// of the root segment that has no image of its own.
+// Its own title and description, kept out of search results, with no canonical address or link
+// preview: the home page's are its own (app/(home)), so nothing here inherits them.
 export const metadata: Metadata = {
   title: 'Page not found · signoff-ui',
   description: 'There is no page at this address.',

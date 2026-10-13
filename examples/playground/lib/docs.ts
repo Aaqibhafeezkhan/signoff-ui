@@ -56,7 +56,7 @@ export const GUIDES: DocPage[] = [
     href: '/docs/acp',
     title: 'Agent Client Protocol',
     description:
-      "Render an ACP prompt turn with the same components: session updates as message parts, permission requests as approval cards with the agent's options, edits as diffs.",
+      'Render an ACP prompt turn with the same components: session updates as message parts, permission requests as approval cards, edits as diffs.',
   },
   {
     slug: 'accessibility',
