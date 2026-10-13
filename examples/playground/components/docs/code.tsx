@@ -28,7 +28,7 @@ export function CopyCodeButton() {
             () => setState('failed'),
           );
         }}
-        className="focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg absolute top-1 right-1.5 inline-flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1"
+        className="tap-target focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg absolute top-1 right-1.5 inline-flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1"
       >
         {state === 'copied' ? <CheckIcon className="text-cyan-soft size-4" /> : <CopyIcon className="size-4" />}
       </button>
@@ -148,7 +148,7 @@ export function PackageInstall({ command }: { command: string }) {
               setManager(next);
               document.getElementById(`${id}-${next}`)?.focus();
             }}
-            className={`focus-visible:outline-cyan-soft -mb-px cursor-pointer border-b-2 px-2.5 py-2 font-mono text-[12px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 ${
+            className={`tap-target focus-visible:outline-cyan-soft relative -mb-px cursor-pointer border-b-2 px-2.5 py-2 font-mono text-[12px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 ${
               manager === m ? 'border-cyan text-fg' : 'text-fg-subtle hover:text-fg border-transparent'
             }`}
           >

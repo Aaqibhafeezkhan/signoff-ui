@@ -6,6 +6,8 @@ It works with any model and costs nothing extra. The kit calls no model, needs n
 
 Coding and editing agents propose changes across several files and ask to run commands that can break things, and someone has to sign off on both. The questions a person has at that point are specific:
 
+<!-- cards -->
+
 - **What did it change, and do I accept it?** Hunk by hunk or file by file, not all or nothing, with comments on lines, from the keyboard, with the result fed back to the agent.
 - **Should I let it do that?** What exactly will run, how risky it is, and a fast way to say yes, no, or no with a reason. And when a rule decided on its own, that it was a rule and not a person.
 - **What is it doing, and what did that cost?** Which calls ran, how long each took, which failed and why, and what the run cost in tokens and time.
@@ -68,6 +70,8 @@ The kit depends on `ai` for types only. Part detection (`isToolPart`, `getToolPa
 The [playground](/) doesn't fake any of this. Its scripted agent is a `ChatTransport` that streams real `UIMessageChunk`s through `useChat`, so the SDK assembles the parts, merges usage metadata, and drives the approval and client-tool round trips as it would against a server.
 
 ## Design decisions
+
+<!-- cards -->
 
 - **Review returns code.** `DiffReview` does not stop at a decision map: `onSubmit` includes each file with only the accepted hunks applied (`applyHunks`), unreviewed hunks left out, plus the rejected hunks and the comments with their lines. That makes it a client-side tool whose result goes straight back to the model, through `reviewToolOutput`.
 - **Automatic is not a person.** Decisions a `toolApproval` rule makes on its own never prompt or take focus, and read "Auto-approved" or "Blocked by policy", so whoever reads the run can tell who decided.

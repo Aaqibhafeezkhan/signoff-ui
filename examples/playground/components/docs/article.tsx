@@ -77,7 +77,9 @@ export function DocShell({
           <h1 className="text-fg-strong mt-2 text-[30px] leading-tight font-semibold tracking-[-0.025em] sm:text-[36px]">
             {title}
           </h1>
-          <p className="text-fg-muted mt-3 text-[16px] leading-relaxed text-pretty sm:text-[17px]">{description}</p>
+          <p className="text-fg-muted mt-3 max-w-[38rem] text-[16px] leading-relaxed text-pretty sm:text-[17px]">
+            {description}
+          </p>
           <div className="mt-6">
             <PageActions markdownPath={markdownPath} />
           </div>

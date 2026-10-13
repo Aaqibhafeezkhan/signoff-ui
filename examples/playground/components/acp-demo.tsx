@@ -29,6 +29,7 @@ import {
   type AcpTurn,
 } from 'signoff-ui/acp';
 import { AFTER, BEFORE, ROOT } from '@/lib/acp-script';
+import { Prompt, ResetButton, RunButton, RunPlan } from './demo-run';
 import { FileOutput } from './file-output';
 import { JsonBlock, TerminalBlock } from './terminal';
 import { tokenizeTerminal, tokenizeTerminalLine } from '@/lib/terminal';
@@ -235,28 +236,21 @@ function Run({ onReset }: { onReset: () => void }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        {turn ? (
-          <p className="bg-signoff-surface text-signoff-fg rounded-lg px-3 py-1.5 text-[13px]">{PROMPT}</p>
-        ) : (
-          <button
-            type="button"
-            onClick={start}
-            className="bg-signoff-accent text-signoff-on-accent rounded-lg px-3 py-1.5 text-[13px] font-medium hover:opacity-90"
-          >
-            Run the ACP agent
-          </button>
-        )}
+        <Prompt>{PROMPT}</Prompt>
+        {!turn && <RunButton onClick={start}>Run the ACP agent</RunButton>}
         <AgentStatus state={state} detail={detail} size="sm" />
-        {turn && finished ? (
-          <button
-            type="button"
-            onClick={onReset}
-            className="border-signoff-border text-signoff-fg-muted hover:text-signoff-fg ml-auto rounded-lg border px-3 py-1.5 font-mono text-xs"
-          >
-            Reset
-          </button>
-        ) : null}
+        {turn && finished ? <ResetButton onClick={onReset} /> : null}
       </div>
+      {!turn && (
+        <RunPlan
+          label="What the turn does"
+          steps={[
+            { name: 'read', note: 'lib/format.ts' },
+            { name: 'edit', note: 'asks permission, with the diff' },
+            { name: 'execute', note: 'asks to run the tests' },
+          ]}
+        />
+      )}
       {turn && message ? (
         <AgentMessage
           message={message}

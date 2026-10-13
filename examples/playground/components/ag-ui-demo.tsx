@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Observable } from 'rxjs';
 import { FINDINGS, PRICING, REDIS, SEARCH_CODE_OUTPUT } from '@/lib/scenario';
 import { toolMeta } from '@/lib/tools';
+import { Prompt, ResetButton, RunButton, RunPlan } from './demo-run';
 
 const PROMPT = 'Add rate limiting to /api/chat';
 
@@ -180,34 +181,34 @@ function Run({ onReset }: { onReset: () => void }) {
   const last = messages.findLast((m) => m.role === 'assistant');
   const { state, detail } = deriveAgentState({ status, message: last });
 
+  const finished = state === 'done' || state === 'stopped' || state === 'error';
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        {prompt ? (
-          <p className="bg-signoff-surface text-signoff-fg rounded-lg px-3 py-1.5 text-[13px]">{PROMPT}</p>
-        ) : (
-          <button
-            type="button"
+        <Prompt>{PROMPT}</Prompt>
+        {!prompt && (
+          <RunButton
             onClick={() => {
               agent.addMessage({ id: 'u1', role: 'user', content: PROMPT });
               void agent.runAgent();
             }}
-            className="bg-signoff-accent text-signoff-on-accent rounded-lg px-3 py-1.5 text-[13px] font-medium hover:opacity-90"
           >
             Run the AG-UI agent
-          </button>
+          </RunButton>
         )}
         <AgentStatus state={state} detail={step ? `${step} · ${detail ?? 'thinking'}` : detail} size="sm" />
-        {prompt && (state === 'done' || state === 'stopped' || state === 'error') ? (
-          <button
-            type="button"
-            onClick={onReset}
-            className="border-signoff-border text-signoff-fg-muted hover:text-signoff-fg ml-auto rounded-lg border px-3 py-1.5 font-mono text-xs"
-          >
-            Reset
-          </button>
-        ) : null}
+        {prompt && finished ? <ResetButton onClick={onReset} /> : null}
       </div>
+      {!prompt && (
+        <RunPlan
+          label="What the run does"
+          steps={[
+            { name: 'planner', note: 'thinks it through' },
+            { name: 'researcher', note: 'searches and reads code' },
+            { name: 'executor', note: 'stops for your approval to install a package' },
+          ]}
+        />
+      )}
       {last ? (
         <AgentMessage
           message={last}

@@ -74,6 +74,8 @@ import 'signoff-ui/styles.css';
 
 ### What styles.css leaves alone
 
+<!-- cards -->
+
 - **Your app.** Every rule is scoped to the components' own elements.
 - **Your reset.** It has no cascade layers, so Tailwind v3 builds accept it, and a reset such as `* { padding: 0 }` can't strip the components' spacing. If your app orders its CSS with layers, use `styles.layered.css`: the same rules in `@layer theme, base, utilities`.
 - **Your theme's variables.** It sets no `--spacing`, `--text-*` or `--font-*`. Its utilities have the kit's values written in and read only the `--signoff-*` tokens.

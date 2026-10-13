@@ -26,7 +26,7 @@ export function CopyButton({ text, label, className = '' }: { text: string; labe
             () => setState('failed'),
           );
         }}
-        className={`focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 ${className}`}
+        className={`tap-target focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg relative inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 ${className}`}
       >
         {state === 'copied' ? <CheckIcon className="text-cyan-soft size-4" /> : <CopyIcon className="size-4" />}
       </button>

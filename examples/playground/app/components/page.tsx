@@ -22,6 +22,8 @@ export const metadata = pageMetadata({
 // Page order; each id is the section's anchor, which launch posts and the README link to.
 interface GallerySection {
   id: string;
+  /** The jump link's name, when the heading isn't a component's (`<DiffReview />` reads DiffReview). */
+  short?: string;
   /** The component's docs slug; without one, `guide` says where the section's docs are. */
   slug?: string;
   heading: string;
@@ -128,6 +130,7 @@ const SECTIONS: GallerySection[] = [
   },
   {
     id: 'acp',
+    short: 'ACP',
     heading: 'Agent Client Protocol',
     description:
       'An ACP prompt turn through the same components, with signoff-ui/acp: a scripted agent sends its session updates and asks permission to edit a file, whose diff the card shows, and to run the tests. The card offers the options the agent sent.',
@@ -148,10 +151,10 @@ function Section({ id, slug, heading, description, guide }: GallerySection) {
     <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-20">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
         <div className="min-w-0">
-          <h2 id={`${id}-title`} className="text-fg font-mono text-sm font-semibold">
+          <h2 id={`${id}-title`} className="text-fg-strong font-mono text-[17px] font-semibold sm:text-[18px]">
             {heading}
           </h2>
-          <p className="text-fg-muted mt-1 max-w-2xl text-[13px]">{description}</p>
+          <p className="text-fg-muted mt-1.5 max-w-2xl text-[14px] leading-relaxed">{description}</p>
         </div>
         <Link
           href={docs}
@@ -178,16 +181,33 @@ export default async function GalleryPage() {
   return (
     <div className="min-h-dvh">
       <Header page="components" />
-      <main id="main" className="mx-auto w-full max-w-[1000px] px-4 pt-10 pb-24 sm:px-6">
+      <main id="main" className="mx-auto w-full max-w-[1000px] px-4 pt-8 pb-24 sm:px-6 lg:pt-12">
         <div className="max-w-2xl">
-          <h1 className="text-fg text-2xl font-semibold tracking-tight">Components</h1>
-          <p className="text-fg-muted mt-2 text-[14px] leading-relaxed">
+          <h1 className="text-fg-strong text-[30px] leading-tight font-semibold tracking-[-0.025em] sm:text-[36px]">
+            Components
+          </h1>
+          <p className="text-fg-muted mt-3 text-[16px] leading-relaxed text-pretty sm:text-[17px]">
             Each component on its own, live and keyboard accessible, with its npm and shadcn install. Its docs page has
             the props, keys and theming hooks. The frames follow the theme switch in the header.
           </p>
         </div>
+        {/* Fifteen sections on one page: a link to each, in rows, or one row that scrolls on a phone. */}
+        <nav aria-label="On this page" className="mt-8 max-sm:-mx-4">
+          <ul className="flex gap-2 max-sm:[scrollbar-width:none] max-sm:overflow-x-auto max-sm:px-4 max-sm:py-1 sm:flex-wrap">
+            {SECTIONS.map((section) => (
+              <li key={section.id}>
+                <a
+                  href={`#${section.id}`}
+                  className="tap-target border-line bg-raised/40 text-fg-soft hover:border-line-strong hover:text-fg-strong focus-visible:outline-cyan-soft relative inline-flex h-9 items-center rounded-lg border px-3 font-mono text-[12.5px] whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 sm:h-8"
+                >
+                  {section.short ?? section.heading.replace(/^<|\s*\/>$|\(.*\)$/g, '')}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
         <HighlightedFilesProvider files={files}>
-          <div className="mt-14 flex flex-col gap-16">
+          <div className="mt-12 flex flex-col gap-16 sm:mt-14">
             {SECTIONS.map((section) => (
               <Section key={section.id} {...section} />
             ))}

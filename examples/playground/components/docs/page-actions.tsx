@@ -78,7 +78,7 @@ export function PageActions({ markdownPath }: { markdownPath: string }) {
     },
   ];
   const part =
-    'focus-visible:outline-cyan-soft inline-flex h-8 cursor-pointer items-center gap-1.5 text-[12.5px] font-medium text-fg-soft transition-colors hover:bg-raised hover:text-fg-strong focus-visible:outline-2 focus-visible:outline-offset-2';
+    'tap-target focus-visible:outline-cyan-soft relative inline-flex h-8 cursor-pointer items-center gap-1.5 text-[12.5px] font-medium text-fg-soft transition-colors hover:bg-raised hover:text-fg-strong focus-visible:outline-2 focus-visible:outline-offset-2';
   const item =
     'focus-visible:outline-cyan-soft flex w-full cursor-pointer flex-col items-start rounded-md px-2.5 py-2 text-left transition-colors hover:bg-raised focus-visible:outline-2 focus-visible:-outline-offset-2';
 
