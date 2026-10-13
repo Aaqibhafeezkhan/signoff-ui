@@ -4,12 +4,11 @@ import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
 import { NAV } from '@/lib/docs';
 
-// Its own title and description, kept out of search results, with no canonical address or link
-// preview: the home page's are its own (app/(home)), so nothing here inherits them.
+// Its own title and description, with no canonical address or link preview: the home page's are its
+// own (app/(home)), so nothing here inherits them. Next.js adds the robots noindex tag to a 404 itself.
 export const metadata: Metadata = {
   title: 'Page not found · signoff-ui',
   description: 'There is no page at this address.',
-  robots: { index: false },
   alternates: null,
   openGraph: null,
   twitter: null,
@@ -35,7 +34,7 @@ export default function NotFound() {
           </Link>
           .
         </p>
-        <nav aria-label="Docs" className="mt-10 grid gap-8 sm:grid-cols-3">
+        <nav aria-label="Docs" className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {NAV.map((group) => (
             <div key={group.title}>
               <h2 className="text-fg-subtle font-mono text-[11px] font-medium tracking-[0.08em] uppercase">

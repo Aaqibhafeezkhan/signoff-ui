@@ -194,14 +194,15 @@ function steps() {
 
 const CALLOUT_TITLES = { note: 'Note', tip: 'Tip', warning: 'Warning' };
 
+/** A note, not a landmark: several on a page would each add one to landmark navigation. */
 function Callout({ kind, children }: { kind: 'note' | 'tip' | 'warning'; children: ReactNode }) {
   return (
-    <aside className="callout" data-kind={kind} aria-label={CALLOUT_TITLES[kind]}>
+    <div role="note" className="callout" data-kind={kind} aria-label={CALLOUT_TITLES[kind]}>
       <p className="callout-title" aria-hidden="true">
         {CALLOUT_TITLES[kind]}
       </p>
       {children}
-    </aside>
+    </div>
   );
 }
 

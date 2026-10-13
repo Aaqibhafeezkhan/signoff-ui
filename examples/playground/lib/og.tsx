@@ -176,10 +176,10 @@ export function homeOgImage(headline: string) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 44, marginTop: 'auto' }}>
         <span
           style={{
-            width: 520,
-            fontSize: 66,
+            width: 540,
+            fontSize: 60,
             fontWeight: 600,
-            letterSpacing: -2.2,
+            letterSpacing: -2,
             lineHeight: 1.08,
             color: '#f1f3f5',
           }}

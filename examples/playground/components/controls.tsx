@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useIsApple } from '@/lib/platform';
 import { CloseIcon, PauseIcon, PlayIcon, ReplayIcon, SlidersIcon } from './icons';
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -241,11 +242,12 @@ export function Sheet({
 }
 
 export function KeyboardCard({ className = '' }: { className?: string }) {
+  const apple = useIsApple();
   const rows: Array<[string[], string]> = [
     [['Y', 'N'], 'Approve or deny'],
     [['J', 'K'], 'Next / previous hunk'],
     [['A', 'R'], 'Accept / reject hunk'],
-    [['⌘', '↵'], 'Apply review'],
+    [[apple ? '⌘' : 'Ctrl', '↵'], 'Apply review'],
     [['↑', '↓'], 'Move between tool calls'],
   ];
   return (

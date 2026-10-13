@@ -16,6 +16,11 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image' },
 };
 
+// Every page is built once, at deploy time, and never regenerated: the header's stars and the footer's
+// downloads are fetched with no-store (lib/stats.ts), which would otherwise make the pages dynamic, and
+// the docs' "Last updated" dates come from git, which only the build has. The API routes aren't pages.
+export const dynamic = 'force-static';
+
 export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },

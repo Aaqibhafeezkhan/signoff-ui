@@ -106,6 +106,26 @@ try {
     dates.map((date) => date.toISOString()).join(', '),
   );
 
+  // The header's stars and the footer's downloads are fetched fresh by each build (no-store, rather
+  // than from a data cache that outlives the deployment), and the pages stay static all the same:
+  // never regenerated on a server with no git history for the docs' "Last updated" dates.
+  const playground = join(import.meta.dirname, '../examples/playground');
+  const statsSource = readFileSync(join(playground, 'lib/stats.ts'), 'utf8');
+  const layoutSource = readFileSync(join(playground, 'app/layout.tsx'), 'utf8');
+  const regenerated = process.env.BASE_URL
+    ? []
+    : Object.entries(JSON.parse(readFileSync(join(playground, '.next/prerender-manifest.json'), 'utf8')).routes)
+        .filter(([, route]) => route.initialRevalidateSeconds !== false)
+        .map(([path, route]) => `${path} ${route.initialRevalidateSeconds}`);
+  check(
+    statsSource.includes("cache: 'no-store'") &&
+      !/revalidate/.test(statsSource) &&
+      layoutSource.includes("export const dynamic = 'force-static';") &&
+      regenerated.length === 0,
+    'the stars and downloads are fetched by each build (no-store), and every page stays static',
+    regenerated.join(', '),
+  );
+
   // The home page describes the project for search engines (schema.org), with this version.
   const kit = JSON.parse(readFileSync(join(import.meta.dirname, '../packages/signoff-ui/package.json'), 'utf8'));
   const homeHtml = await (await fetch(`${BASE}/`)).text();
@@ -189,7 +209,7 @@ try {
     body: JSON.stringify({ question: 'How do I install it?' }),
   });
   const askButtons = await Promise.all(
-    ['/', '/docs', '/gallery'].map(async (path) =>
+    ['/', '/docs', '/components'].map(async (path) =>
       (await (await fetch(BASE + path)).text()).includes('data-ask-trigger'),
     ),
   );
@@ -236,10 +256,12 @@ try {
   // An address with no page: a 404 titled as one, with the docs' navigation to get back.
   const unknown = await fetch(`${BASE}/docs/theming`);
   const unknownHtml = await unknown.text();
+  const robotsTags = unknownHtml.match(/<meta name="robots"[^>]*>/g) ?? [];
   check(
     unknown.status === 404 &&
       unknownHtml.includes('<title>Page not found · signoff-ui</title>') &&
-      /<meta name="robots" content="noindex"/.test(unknownHtml) &&
+      robotsTags.length === 1 &&
+      robotsTags[0].includes('content="noindex"') &&
       metaOf(unknownHtml, 'description') === 'There is no page at this address.' &&
       !/<link rel="canonical"|<meta property="og:(?:image|url|description)"|<meta name="twitter:image"/.test(
         unknownHtml,
@@ -247,8 +269,19 @@ try {
       ['/docs/getting-started', '/docs/components/diff-review', '/components'].every((path) =>
         unknownHtml.includes(`href="${path}"`),
       ),
-    'an unknown address: a 404 titled "Page not found", not indexed, with no canonical or preview of the home page, and the docs navigation',
-    `${unknown.status}`,
+    'an unknown address: a 404 titled "Page not found", not indexed (one robots tag), with no canonical or preview of the home page, and the docs navigation',
+    `${unknown.status}, ${robotsTags.join(' ')}`,
+  );
+  // The preview image of a docs or component page that doesn't exist: a 404, not a server error.
+  const missingImages = await Promise.all(
+    ['/docs/theming/opengraph-image', '/docs/components/nope/opengraph-image'].map(
+      async (path) => `${path} ${(await fetch(BASE + path)).status}`,
+    ),
+  );
+  check(
+    missingImages.every((line) => line.endsWith(' 404')),
+    "an unknown docs or component page's preview image answers 404",
+    missingImages.join(', '),
   );
 
   // Component pages document props from the package's own types: ApprovalCard's toolName is a
@@ -310,14 +343,39 @@ try {
     'docs search: "dark mode" and "tailwind v3" find Getting started, "storage" finds useApprovalPolicy\'s option',
     [darkMode[0], tailwind3[0], storage.find((text) => text.includes('storage'))].join(' | '),
   );
-  // / focuses it too: the shortcut it keeps on a site with Ask, which takes ⌘K.
+  // Without Ask (no model key, as here), / is not bound: no single-key shortcut on the page (WCAG
+  // 2.1.4). On a site with Ask, which takes ⌘K, the search takes / instead.
   await docs.evaluate(() => document.activeElement?.blur());
   await docs.keyboard.press('/');
   check(
-    await docs.evaluate(() => document.activeElement?.hasAttribute('data-docs-search') ?? false),
-    'docs: / focuses the search',
+    !(await docs.evaluate(() => document.activeElement?.hasAttribute('data-docs-search') ?? false)),
+    'docs without Ask: / does not focus the search, only ⌘K does',
   );
   await docs.close();
+
+  // The search box shows the reader's own shortcut, ⌘K on a Mac and Ctrl K elsewhere, set once the
+  // page has hydrated, with no hydration mismatch.
+  for (const [platform, label] of [
+    ['MacIntel', '⌘K'],
+    ['Win32', 'Ctrl K'],
+  ]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await context.addInitScript((value) => {
+      Object.defineProperty(Navigator.prototype, 'platform', { get: () => value });
+    }, platform);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+    await page.goto(`${BASE}/docs`, { waitUntil: 'networkidle' });
+    const shown = await page.getByRole('navigation', { name: 'Docs' }).locator('kbd').textContent();
+    const mismatch = errors.filter((text) => /hydrat/i.test(text));
+    check(
+      shown === label && mismatch.length === 0,
+      `docs on ${platform}: the search box shows ${label}`,
+      `${shown}${mismatch.length ? `, ${mismatch.join(' | ')}` : ''}`,
+    );
+    await context.close();
+  }
 
   // /gallery is now /components, anchors and all; /docs/components goes there too.
   for (const from of ['/gallery', '/docs/components']) {
@@ -419,7 +477,7 @@ try {
 
   // Docs Markdown: a callout, code tabs (Tailwind v4 or not), each block under a bar with its name
   // or language and the copy button, and steps in the migration guide.
-  const callout = tablet.locator('main aside.callout[data-kind="note"]');
+  const callout = tablet.locator('main [role="note"].callout[data-kind="note"]');
   const styleTabs = await tablet.getByRole('tablist', { name: 'Code' }).first().getByRole('tab').allInnerTexts();
   const bars = await tablet.locator('main figure[data-code-block]').evaluateAll((figures) =>
     figures.map((figure) => {
@@ -433,10 +491,11 @@ try {
   );
   check(
     (await callout.count()) === 1 &&
+      (await tablet.locator('main aside.callout').count()) === 0 &&
       JSON.stringify(styleTabs) === '["Tailwind v4","Tailwind v3 or no Tailwind"]' &&
       bars.length > 5 &&
       bars.every((bar) => bar === 'ok'),
-    'docs: a callout, code tabs, and every code block under a bar with its name and Copy, clear of the code',
+    'docs: a callout (a note, not a landmark), code tabs, and every code block under a bar with its name and Copy, clear of the code',
     `${styleTabs.join(', ')} · ${bars.join(', ')}`,
   );
   await tablet.goto(`${BASE}/docs/migrating-from-agent-ui-kit`, { waitUntil: 'networkidle' });
