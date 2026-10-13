@@ -237,6 +237,18 @@ html:has(dialog:modal) {
   outline-offset: 2px;
   border-radius: 2px;
 }
+/* Install badges ("Add to Cursor"): images in a row of links. */
+.docs-prose a:has(> img) {
+  display: inline-block;
+  margin: 0 0.35rem 0.35rem 0;
+  border-radius: 3px;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.docs-prose a > img {
+  display: block;
+  height: 20px;
+}
 .docs-prose strong {
   color: var(--color-fg-strong);
   font-weight: 600;

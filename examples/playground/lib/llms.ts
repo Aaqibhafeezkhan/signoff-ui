@@ -91,6 +91,7 @@ export function llmsTxt() {
         `- [${c.name}](${SITE}${componentHref(c.slug)}.md): ${c.summary.replace(/`/g, '')} Props, keyboard, theming.`,
     ),
     `- [Everything in one file](${SITE}/llms-full.txt): the README, every docs page and the shadcn registry items`,
+    `- [MCP server](${SITE}/api/mcp): search and read these docs from an agent (Streamable HTTP, \`search\`, \`fetch\` and \`list_pages\`; no key)`,
     `- [The quickstart, running](${REPO}/tree/main/examples/nextjs-minimal): a Next.js 16 app with a review and an approval, against a scripted model`,
     `- [The reference app](${REPO}/tree/main/examples/coding-agent): a coding agent with approval rules and reviews whose comments go back to it, against a scripted model or a real one`,
     ...readmeSections,

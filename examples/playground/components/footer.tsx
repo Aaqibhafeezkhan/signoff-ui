@@ -66,6 +66,11 @@ export async function Footer() {
               llms-full.txt
             </a>
           </li>
+          <li>
+            <Link href="/docs#use-these-docs-from-your-agent" className={link}>
+              MCP server
+            </Link>
+          </li>
         </Column>
         <nav aria-label={`More by ${AUTHOR.name}`} className="sm:col-span-2 md:col-span-1">
           <h2 className={heading}>More by {AUTHOR.name}</h2>

@@ -16,3 +16,5 @@ next-env.d.ts
 /examples/playground/CLAUDE.md
 /examples/coding-agent/AGENTS.md
 /examples/coding-agent/CLAUDE.md
+# Built before `next build` by examples/playground/scripts/ask-index.ts
+/examples/playground/ask-index.json

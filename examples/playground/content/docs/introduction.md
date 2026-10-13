@@ -82,6 +82,20 @@ The [playground](/) doesn't fake any of this. Its scripted agent is a `ChatTrans
 - **Styles that stay in their lane.** The npm build ships a precompiled stylesheet for apps without Tailwind v4: unlayered, every rule scoped to the components' own elements, and none of your theme's variables set, so your content inside a component keeps your styles. CI checks it in Chrome next to a global reset, inside a Tailwind v3 build and inside a Tailwind v4 app with its own theme.
 - **Two ways to install, one source.** The registry is generated from the same files by `scripts/registry.mjs`, which computes each item's file closure from its imports, so items install by URL or from GitHub without cross-item dependencies. CI fails if `registry.json` drifts. Both keep `'use client'` per module (the build emits one module per source file and checks the directives), so Server Components can render the components and call the pure helpers.
 
+## Use these docs from your agent
+
+These docs are an MCP server at `https://signoff-ui.vercel.app/api/mcp`. Add it to Cursor, VS Code, Claude Code or Claude, and your agent can search and read them while it works. Its `search`, `fetch` and `list_pages` tools call no model, so they need no key.
+
+[![Cursor: Add server](https://img.shields.io/badge/Cursor-Add_server-181c22?style=flat-square&logo=cursor&logoColor=white)](https://cursor.com/en/install-mcp?name=signoff-ui&config=eyJ1cmwiOiJodHRwczovL3NpZ25vZmYtdWkudmVyY2VsLmFwcC9hcGkvbWNwIn0%3D) [![VS Code: Add server](https://img.shields.io/badge/VS_Code-Add_server-007ACC?style=flat-square)](https://insiders.vscode.dev/redirect/mcp/install?name=signoff-ui&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fsignoff-ui.vercel.app%2Fapi%2Fmcp%22%7D) [![Claude: Add connector](https://img.shields.io/badge/Claude-Add_connector-b4532a?style=flat-square&logo=claude&logoColor=white)](https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=signoff-ui&connectorUrl=https%3A%2F%2Fsignoff-ui.vercel.app%2Fapi%2Fmcp)
+
+In Claude Code:
+
+```bash
+claude mcp add --transport http signoff-ui https://signoff-ui.vercel.app/api/mcp
+```
+
+To read them instead, [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) lists every page and [`/llms-full.txt`](https://signoff-ui.vercel.app/llms-full.txt) has them all in one file. Every page is also Markdown at its own address plus `.md`.
+
 ## Next steps
 
 - [Getting started](/docs/getting-started): install, styles, a first run in Next.js with a review and an approval, AI SDK 6 or 7, and theming.
