@@ -1,5 +1,5 @@
 // Runs axe-core in real Chrome against the playground, across the run's states (approval
-// pending, diff review, done), the gallery, the docs and a phone viewport, in the dark theme and
+// pending, diff review, done), the components page, the docs and a phone viewport, in the dark theme and
 // then the light one.
 // Unlike the jsdom tests, this checks color contrast with real layout.
 //
@@ -71,9 +71,9 @@ await page.keyboard.press('Control+Enter');
 await page.getByText('Run complete').waitFor({ timeout: 60_000 });
 await settle(page);
 await audit(page, 'playground · done');
-await page.goto(`${BASE}/gallery`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
 await settle(page);
-await audit(page, 'gallery (dark, light and custom themes)');
+await audit(page, 'components page (dark, light and custom themes)');
 for (const path of [
   '/docs',
   '/docs/getting-started',
@@ -151,7 +151,7 @@ await light.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
 await light.waitForSelector(pending, { timeout: 60_000 });
 await settle(light);
 await audit(light, 'light · playground · approval pending');
-for (const path of ['/gallery', '/docs/getting-started', '/docs/components/diff-review']) {
+for (const path of ['/components', '/docs/getting-started', '/docs/components/diff-review']) {
   await light.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
   await settle(light);
   await audit(light, `light · ${path}`);

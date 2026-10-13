@@ -104,7 +104,7 @@ export const COMPONENTS: ComponentDoc[] = [
       'A `<section>` named by its title. Hunks use a roving tabindex, so the whole review is one tab stop that J, K and the arrows move through.',
       'Each hunk is a group named like "Hunk 2 of 4, app/api/chat/route.ts, lines 12 to 20, accepted"; a file decided as a whole, like "Change 5 of 6, logo.png, binary file, not reviewed".',
       'Every shortcut is also a button: "Accept hunk 2", "Reject hunk 2", "Reset hunk 2" with `aria-pressed`, "Comment on hunk 2", "Accept file app/route.ts", the "Viewed app/route.ts" checkbox, the layout toggle and Apply. Shortcuts only work while focus is inside the review, and not on your own controls in `actions`.',
-      'Selected lines are announced as they change, line by line: "Added: const ip = … Lines 15 to 17 selected." The comment editor is a labelled text area ("Comment on lines 15 to 17, for the agent") that takes focus, and focus returns to the hunk when it closes.',
+      'Selected lines are announced as they change, line by line: "Added: const ip = … Lines 15 to 17 selected." The comment editor is a labeled text area ("Comment on lines 15 to 17, for the agent") that takes focus, and focus returns to the hunk when it closes.',
       'The file list is a navigation landmark ("Files in this review") with one tab stop: the arrow keys, Home and End move through it, and each entry reads its path, how many changes are decided and whether it is viewed. A folded file has an expand button with `aria-expanded`.',
       'Line numbers and the buttons that show unchanged lines are clickable but out of the tab order (Shift and the arrows select lines, E shows context); the numbers are hidden from screen readers, which read the lines themselves.',
       'Progress, decisions, comments, viewed marks and shown context are announced: "Hunk 2 of 4 accepted. 2 remaining."',
@@ -216,8 +216,8 @@ export const COMPONENTS: ComponentDoc[] = [
     accessibility: [
       'A group named by its title and described by its description and a visually hidden line that spells out the shortcuts on offer. It is not a landmark, so a run with many approvals doesn’t fill landmark navigation; pass `role="region"` to make it one.',
       'Every choice is a button with its key in `aria-keyshortcuts`. Y, S, A, N and Shift+N only work while focus is inside the card, with no other modifier, not while typing and not on the controls of a custom `preview`, which keeps them within WCAG 2.1.4.',
-      'A lasting choice says what it will cover, in a labelled group: the tool, and a text field per argument pattern ("command matches"), or "Any arguments".',
-      'Editing arguments opens a form with a labelled field per argument, or a JSON text area; JSON that does not parse is marked `aria-invalid`, its error is the field’s description, and approving says "The arguments are not valid JSON." instead of approving.',
+      'A lasting choice says what it will cover, in a labeled group: the tool, and a text field per argument pattern ("command matches"), or "Any arguments".',
+      'Editing arguments opens a form with a labeled field per argument, or a JSON text area; JSON that does not parse is marked `aria-invalid`, its error is the field’s description, and approving says "The arguments are not valid JSON." instead of approving.',
       '`critical` actions need a second press of the same choice within four seconds, and say so: "Critical action. Press approve again to confirm." Approve all asks for one when any of the calls is critical.',
       'Deciding announces the outcome ("Approved for this session") and moves focus to the card, so it isn’t lost when the buttons go away; the announcement then clears, so the decided card reads its outcome once. `autoFocus` puts focus on a card that arrives pending.',
       'Each pending approval sends one decision: a double click, or Y then N, is ignored until `status` changes or the handler’s promise settles. A call a rule decides is answered without showing a card, and reads "Allowed by your rule" with the rule once it is.',
@@ -384,7 +384,7 @@ const timing = useRunTiming(status, messages);
 />`,
     accessibility: [
       'The compact strip is a group named "Run metrics" with one visually hidden sentence, such as "20.9k input tokens, 255 output tokens, estimated cost $0.025, …", instead of a run of loose numbers.',
-      'The expanded card has a heading (`title`, at `headingLevel`) and a labelled token breakdown list.',
+      'The expanded card has a heading (`title`, at `headingLevel`) and a labeled token breakdown list.',
       'Numbers tween as they change, except with `prefers-reduced-motion`.',
     ],
   },
@@ -538,6 +538,18 @@ export const componentHref = (slug: string) => `/docs/components/${slug}`;
 export function componentAbout(slug: string) {
   const file = join(process.cwd(), 'content/components', `${slug}.md`);
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+}
+
+/**
+ * The files a component's page is made from, from the repository's root: the one to edit first
+ * (its "How it works", or this file without one), then its source, whose types are the API reference.
+ */
+export function componentSources(component: ComponentDoc) {
+  const about = existsSync(join(process.cwd(), 'content/components', `${component.slug}.md`));
+  return [
+    `examples/playground/${about ? `content/components/${component.slug}.md` : 'lib/components.ts'}`,
+    `packages/signoff-ui/src/${component.file}`,
+  ];
 }
 
 /** A state attribute's values: an exported type spelled out, or the note written for it. */

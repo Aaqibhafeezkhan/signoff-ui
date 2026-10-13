@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import { getDescription, getInterface, getSignature, getType, type InterfaceDoc, type PropDoc } from '@/lib/api';
 import type { ApiEntry, ComponentDoc } from '@/lib/components';
 import { CodeBlock } from './code-block';
-import { FencedCode, type HastNode } from './markdown';
+import { FencedCode, InlineCode, type HastNode } from './markdown';
 
 /*
  * Props and types, generated from the library's declarations when the site builds (lib/api.ts).
@@ -17,6 +17,7 @@ function Doc({ children }: { children: string }) {
       <Markdown
         components={{
           pre: ({ node }) => <FencedCode node={node as HastNode} />,
+          code: ({ children: text }) => <InlineCode>{text}</InlineCode>,
           a: ({ href, children: text }) => (
             <a href={href} rel="noreferrer">
               {text}
