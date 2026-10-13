@@ -140,12 +140,12 @@ if (want('mobile')) {
 }
 
 if (want('components')) {
-  // Each gallery section in both palettes: <id>.png (dark) and <id>-light.png, which the README
+  // Each components page section in both palettes: <id>.png (dark) and <id>-light.png, which the README
   // shows through <picture> by the reader's color scheme. The AG-UI demo plays a run; no still.
   for (const theme of ['dark', 'light']) {
     // The site follows the OS color scheme until the reader picks one, and the frames follow the site.
     const page = await newPage({ width: 1100, height: 900, colorScheme: theme });
-    await page.goto(`${BASE}/gallery`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
     // Tall sections scroll under the sticky header; take it out of the way for element shots. The
     // frames' rounded corners show the page behind them: white for the light shots.
     await page.addStyleTag({

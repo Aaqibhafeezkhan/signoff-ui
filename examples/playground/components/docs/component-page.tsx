@@ -2,14 +2,14 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import { getStylingHooks } from '@/lib/api';
-import { componentAbout, componentHref, stateValues, type ComponentDoc } from '@/lib/components';
-import type { Heading } from '@/lib/docs';
+import { componentAbout, componentHref, componentSources, stateValues, type ComponentDoc } from '@/lib/components';
+import { getHeadings, type Heading } from '@/lib/docs';
 import { DEMOS } from '../demos';
 import { ApiReference } from './api-reference';
 import { DocShell } from './article';
 import { CodeBlock } from './code-block';
 import { ComponentInstall } from './component-install';
-import { DocMarkdown } from './markdown';
+import { DocMarkdown, InlineCode } from './markdown';
 import { Preview } from './preview';
 
 /*
@@ -29,7 +29,16 @@ function H2({ id, children }: { id: string; children: ReactNode }) {
 
 /** Inline Markdown for the notes: code spans and emphasis. */
 function Inline({ children }: { children: string }) {
-  return <Markdown components={{ p: ({ children: text }) => <>{text}</> }}>{children}</Markdown>;
+  return (
+    <Markdown
+      components={{
+        p: ({ children: text }) => <>{text}</>,
+        code: ({ children: text }) => <InlineCode>{text}</InlineCode>,
+      }}
+    >
+      {children}
+    </Markdown>
+  );
 }
 
 function Kbd({ children }: { children: string }) {
@@ -130,11 +139,13 @@ function Theming({ component, hooks }: { component: ComponentDoc; hooks: ReturnT
 
 /** The page's sections, for "On this page". */
 export function componentHeadings(component: ComponentDoc, hasTheming: boolean): Heading[] {
+  const about = componentAbout(component.slug);
   return [
     { id: 'example', text: 'Example', depth: 2 },
     { id: 'installation', text: 'Installation', depth: 2 },
     { id: 'usage', text: 'Usage', depth: 2 },
-    ...(componentAbout(component.slug) ? [{ id: 'how-it-works', text: 'How it works', depth: 2 as const }] : []),
+    // Its own `###` sections, in "On this page" too.
+    ...(about ? [{ id: 'how-it-works', text: 'How it works', depth: 2 as const }, ...getHeadings(about)] : []),
     { id: 'api-reference', text: 'API reference', depth: 2 },
     ...component.api.map((entry) => ({ id: entry.name.toLowerCase(), text: entry.name, depth: 3 as const })),
     ...(component.types ?? []).map((name) => ({ id: name.toLowerCase(), text: name, depth: 3 as const })),
@@ -157,7 +168,7 @@ export function ComponentPage({ component }: { component: ComponentDoc }) {
       description={component.summary.replace(/`/g, '')}
       markdownPath={`${href}.md`}
       // "How it works" is in content/components/<slug>.md; the usage and the notes are in lib/components.ts.
-      sourcePath={`examples/playground/${about ? `content/components/${component.slug}.md` : 'lib/components.ts'}`}
+      sourcePaths={componentSources(component)}
       headings={componentHeadings(component, hasTheming)}
     >
       <H2 id="example">Example</H2>
@@ -165,7 +176,7 @@ export function ComponentPage({ component }: { component: ComponentDoc }) {
       <p className="text-fg-subtle mt-3 text-[13px]">
         Interactive, and the same on the{' '}
         <Link
-          href={`/gallery#${component.galleryId}`}
+          href={`/components#${component.galleryId}`}
           className="text-fg-soft decoration-fg-subtle/50 hover:decoration-fg underline underline-offset-[3px]"
         >
           components page

@@ -1,6 +1,6 @@
 The [Agent Client Protocol](https://agentclientprotocol.com) (ACP) is the JSON-RPC protocol editors use to run coding agents. `signoff-ui/acp` turns one prompt turn into the parts the components render: the agent's message and thought chunks, its tool calls and their status, each permission request as an approval card with the options the agent offered, and an edit's diff content as `DiffReview` files.
 
-Want to see it first? The [components page](/gallery#acp) plays a scripted ACP turn, no real agent: a read, an edit that shows its diff and asks permission, then the tests, which ask too.
+Want to see it first? The [components page](/components#acp) plays a scripted ACP turn, no real agent: a read, an edit that shows its diff and asks permission, then the tests, which ask too.
 
 ## Install
 
@@ -117,22 +117,22 @@ export function AcpTurnView({
 }
 ```
 
-`toAcpPermissionResponse(decision, options)` selects the option of the same kind: `allow-once` is `allow_once`, `allow-always` is `allow_always`, `deny-once` is `reject_once` and `deny-always` is `reject_always`. With no option of that kind, the request is cancelled. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
+`toAcpPermissionResponse(decision, options)` selects the option of the same kind: `allow-once` is `allow_once`, `allow-always` is `allow_always`, `deny-once` is `reject_once` and `deny-always` is `reject_always`. With no option of that kind, the request is canceled. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
 
 ## How a turn maps
 
-| ACP                                                   | Becomes                                                                                                        |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `agent_message_chunk`, `agent_thought_chunk` (text)   | `text` and `reasoning` parts, consecutive chunks joined, the last one `streaming` until the turn ends          |
-| `tool_call`, `tool_call_update`                       | a `dynamic-tool` part per call, updates merged by id (`null` and missing fields keep their value)              |
-| the tool's `name`, else `kind`, else `title`          | the part's `toolName`, which approval rules match; `title` is the part's `title`                               |
-| `pending`, `in_progress`                              | `input-available`, shown running                                                                               |
-| `completed`                                           | `output-available`, the output being `rawOutput`, else the text of its content                                 |
-| `failed`                                              | `output-error`, with the text of its content                                                                   |
-| `session/request_permission` (`requestAcpPermission`) | `approval-requested`, the tool call id as the approval id                                                      |
-| `answerAcpPermission(turn, id, decision)`             | `approval-responded` (then the output, approval kept), or `output-denied`, also when the request was cancelled |
-| `session/prompt` returns (`endAcpTurn`)               | `status: 'ready'` and its `stopReason`, or `'error'`: a call left running then reads as stopped                |
-| `diff` content (`fromAcpDiffs`)                       | `DiffReview` files, paths relative to `root` (the session's `cwd`), a diff with no `oldText` a new file        |
+| ACP                                                   | Becomes                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `agent_message_chunk`, `agent_thought_chunk` (text)   | `text` and `reasoning` parts, consecutive chunks joined, the last one `streaming` until the turn ends         |
+| `tool_call`, `tool_call_update`                       | a `dynamic-tool` part per call, updates merged by id (`null` and missing fields keep their value)             |
+| the tool's `name`, else `kind`, else `title`          | the part's `toolName`, which approval rules match; `title` is the part's `title`                              |
+| `pending`, `in_progress`                              | `input-available`, shown running                                                                              |
+| `completed`                                           | `output-available`, the output being `rawOutput`, else the text of its content                                |
+| `failed`                                              | `output-error`, with the text of its content                                                                  |
+| `session/request_permission` (`requestAcpPermission`) | `approval-requested`, the tool call id as the approval id                                                     |
+| `answerAcpPermission(turn, id, decision)`             | `approval-responded` (then the output, approval kept), or `output-denied`, also when the request was canceled |
+| `session/prompt` returns (`endAcpTurn`)               | `status: 'ready'` and its `stopReason`, or `'error'`: a call left running then reads as stopped               |
+| `diff` content (`fromAcpDiffs`)                       | `DiffReview` files, paths relative to `root` (the session's `cwd`), a diff with no `oldText` a new file       |
 
 User message chunks, plans, available commands, mode, config and usage updates are left out of the message. `toAcpDiffs` goes the other way, from files to diff content.
 

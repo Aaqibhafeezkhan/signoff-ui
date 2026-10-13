@@ -14,7 +14,7 @@ export const metadata = pageMetadata({
   title: 'Components · signoff-ui',
   description:
     'Every signoff-ui component in isolation, from diff review and approval rules to an AG-UI agent and an ACP turn, with npm and shadcn install snippets.',
-  path: '/gallery',
+  path: '/components',
 });
 
 // Page order; each id is the section's anchor, which launch posts and the README link to.
@@ -178,10 +178,8 @@ export default function GalleryPage() {
         <div className="max-w-2xl">
           <h1 className="text-fg text-2xl font-semibold tracking-tight">Components</h1>
           <p className="text-fg-muted mt-2 text-[14px] leading-relaxed">
-            Each component in isolation, rendered from AI SDK 6 and 7 message parts (or an AG-UI agent and an ACP turn,
-            at the end), with how to install it from npm or as a shadcn registry item. Everything here is interactive
-            and keyboard accessible; each component&apos;s docs page has its props, keyboard and theming hooks. The
-            frames follow the site&apos;s theme: switch it in the header to see either palette.
+            Each component on its own, live and keyboard accessible, with its npm and shadcn install. Its docs page has
+            the props, keys and theming hooks. The frames follow the theme switch in the header.
           </p>
         </div>
         <div className="mt-14 flex flex-col gap-16">

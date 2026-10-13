@@ -4,11 +4,8 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { CopyButton } from '../copy-button';
 import { CheckIcon, CopyIcon } from '../icons';
 
-/**
- * Copies the code block it sits in, read from the page, so the code isn't sent twice. `inline` puts
- * it in the block's title bar; otherwise it floats over the code's top-right corner.
- */
-export function CopyCodeButton({ inline = false }: { inline?: boolean }) {
+/** Copies the code block it sits in, read from the page, so the code isn't sent twice. It sits in the block's bar. */
+export function CopyCodeButton() {
   const ref = useRef<HTMLButtonElement>(null);
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   useEffect(() => {
@@ -30,11 +27,7 @@ export function CopyCodeButton({ inline = false }: { inline?: boolean }) {
             () => setState('failed'),
           );
         }}
-        className={`focus-visible:outline-cyan-soft text-fg-muted hover:text-fg inline-flex cursor-pointer items-center justify-center rounded-md transition-[color,opacity] focus-visible:outline-2 focus-visible:outline-offset-1 ${
-          inline
-            ? 'hover:bg-line absolute top-1 right-1.5 size-7'
-            : 'border-line bg-surface-2 absolute top-2 right-2 size-8 border opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover/code:opacity-100 pointer-coarse:opacity-100'
-        }`}
+        className="focus-visible:outline-cyan-soft text-fg-muted hover:bg-line hover:text-fg absolute top-1 right-1.5 inline-flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-1"
       >
         {state === 'copied' ? <CheckIcon className="text-cyan-soft size-4" /> : <CopyIcon className="size-4" />}
       </button>
@@ -42,6 +35,28 @@ export function CopyCodeButton({ inline = false }: { inline?: boolean }) {
         {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copying failed: select the code instead' : ''}
       </span>
     </>
+  );
+}
+
+/** Highlighted code that marks itself while more of it is out of view to the right, for the fade. */
+export function CodeScroll({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const pre = ref.current?.querySelector('pre');
+    if (!pre) return;
+    const update = () => setMore(pre.scrollLeft + pre.clientWidth < pre.scrollWidth - 1);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(pre);
+    pre.addEventListener('scroll', update, { passive: true });
+    return () => {
+      observer.disconnect();
+      pre.removeEventListener('scroll', update);
+    };
+  }, []);
+  return (
+    <div ref={ref} className="code-scroll" data-more={more || undefined} dangerouslySetInnerHTML={{ __html: html }} />
   );
 }
 
