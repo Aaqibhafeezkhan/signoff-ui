@@ -21,7 +21,7 @@ Review what your agent changed and approve what it may do: React components for 
 
 <!-- npm-readme:video -->
 
-https://github.com/user-attachments/assets/7db9d783-37ed-43dc-b532-a11d27fe46fd
+https://github.com/user-attachments/assets/caf5f11c-6f12-430b-8b72-845c406ded7a
 
 <sub>The <a href="https://signoff-ui.vercel.app">playground</a>, driven from the keyboard: tool calls stream into the timeline, <kbd>Y</kbd> approves the install, <kbd>A</kbd>/<kbd>R</kbd> review hunks, <kbd>Ctrl</kbd>+<kbd>↵</kbd> applies. Then the <a href="https://signoff-ui.vercel.app/components#ag-ui">AG-UI demo</a>, a real <code>@ag-ui/client</code> agent that resumes once you approve.</sub>
 
