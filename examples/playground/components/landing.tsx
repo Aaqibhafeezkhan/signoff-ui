@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
+import { CodeBlock } from './docs/code-block';
 import { CallsToAction } from './hero';
 import { ArrowRightIcon } from './icons';
 import { getComparison } from '@/lib/comparison';
@@ -85,7 +86,7 @@ const KIT: Array<{ name: string; id: string; description: ReactNode; meta: strin
   },
 ];
 
-const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
+const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string; language: string }> = [
   {
     title: 'AI SDK 6 & 7',
     body: (
@@ -94,7 +95,8 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
         inline, and a review answers a tool with no <Code>execute</Code> through <Code>addToolOutput</Code>.
       </>
     ),
-    code: '<AgentMessage message={last} onToolApproval={addToolApprovalResponse} renderTool={review} />',
+    code: '<AgentMessage\n  message={last}\n  onToolApproval={addToolApprovalResponse}\n  renderTool={review}\n/>',
+    language: 'tsx',
   },
   {
     title: 'AG-UI',
@@ -105,6 +107,7 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
       </>
     ),
     code: "import { useAgUiAgent } from 'signoff-ui/ag-ui';",
+    language: 'ts',
   },
   {
     title: 'Agent Client Protocol',
@@ -115,6 +118,7 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
       </>
     ),
     code: "import { reduceAcpTurn, toAcpMessage } from 'signoff-ui/acp';",
+    language: 'ts',
   },
   {
     title: 'assistant-ui',
@@ -125,11 +129,13 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
       </>
     ),
     code: "import { signoffTools } from 'signoff-ui/assistant-ui';",
+    language: 'ts',
   },
   {
     title: 'npm or shadcn',
     body: <>Install the package, or copy a component’s source into your app with the shadcn CLI and make it yours.</>,
     code: shadcnAdd('diff-review'),
+    language: 'bash',
   },
   {
     title: 'Your chat UI',
@@ -140,11 +146,13 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string }> = [
       </>
     ),
     code: "import 'signoff-ui/styles.css';",
+    language: 'ts',
   },
 ];
 
+/** Inline code, in the style the docs use. */
 function Code({ children }: { children: ReactNode }) {
-  return <code className="text-fg font-mono text-[0.9em]">{children}</code>;
+  return <code className="inline-code">{children}</code>;
 }
 
 /** A comparison cell: inline Markdown from content/docs/comparison.md. */
@@ -236,9 +244,9 @@ export function Landing() {
             >
               <h3 className="text-fg text-[15px] font-semibold">{item.title}</h3>
               <p className="text-fg-muted text-[13.5px] leading-relaxed">{item.body}</p>
-              <pre className="border-line bg-code text-fg-soft mt-auto rounded-lg border px-3 py-2.5 font-mono text-[12px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
-                <code>{item.code}</code>
-              </pre>
+              <div className="mt-auto">
+                <CodeBlock code={item.code} language={item.language} />
+              </div>
             </li>
           ))}
         </ul>

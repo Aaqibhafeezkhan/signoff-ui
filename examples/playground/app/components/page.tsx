@@ -4,10 +4,12 @@ import { DEMOS, LabelsDemo } from '@/components/demos';
 import AcpDemo from '@/components/acp-demo';
 import { ThemingDemo } from '@/components/demos/theming';
 import { ComponentInstall } from '@/components/docs/component-install';
+import { HighlightedFilesProvider } from '@/components/file-output';
 import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
 import { ArrowRightIcon } from '@/components/icons';
 import { componentHref, getComponent } from '@/lib/components';
+import { ACP_FILES, AG_UI_FILES, highlightFiles } from '@/lib/demo-code';
 import { pageMetadata } from '@/lib/metadata';
 
 export const metadata = pageMetadata({
@@ -170,7 +172,9 @@ function Section({ id, slug, heading, description, guide }: GallerySection) {
   );
 }
 
-export default function GalleryPage() {
+export default async function GalleryPage() {
+  // The files the AG-UI and ACP demos' agents read, highlighted now rather than in the browser.
+  const files = await highlightFiles([...AG_UI_FILES, ...ACP_FILES]);
   return (
     <div className="min-h-dvh">
       <Header page="components" />
@@ -182,11 +186,13 @@ export default function GalleryPage() {
             the props, keys and theming hooks. The frames follow the theme switch in the header.
           </p>
         </div>
-        <div className="mt-14 flex flex-col gap-16">
-          {SECTIONS.map((section) => (
-            <Section key={section.id} {...section} />
-          ))}
-        </div>
+        <HighlightedFilesProvider files={files}>
+          <div className="mt-14 flex flex-col gap-16">
+            {SECTIONS.map((section) => (
+              <Section key={section.id} {...section} />
+            ))}
+          </div>
+        </HighlightedFilesProvider>
       </main>
       <Footer />
     </div>

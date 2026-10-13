@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CopyButton } from '../copy-button';
+import { PromptLine } from '../terminal';
 import { CheckIcon, CopyIcon } from '../icons';
 
 /** Copies the code block it sits in, read from the page, so the code isn't sent twice. It sits in the block's bar. */
@@ -38,8 +39,19 @@ export function CopyCodeButton() {
   );
 }
 
-/** Highlighted code that marks itself while more of it is out of view to the right, for the fade. */
-export function CodeScroll({ html }: { html: string }) {
+/**
+ * Highlighted code that marks itself while more of it is out of view to the right, for the fade:
+ * Shiki's HTML from the build, or a `<pre>` rendered here (components/terminal.tsx).
+ */
+export function CodeScroll({
+  html,
+  children,
+  className = '',
+}: {
+  html?: string;
+  children?: ReactNode;
+  className?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   useEffect(() => {
@@ -55,6 +67,13 @@ export function CodeScroll({ html }: { html: string }) {
       pre.removeEventListener('scroll', update);
     };
   }, []);
+  if (html === undefined) {
+    return (
+      <div ref={ref} className={`code-scroll ${className}`} data-more={more || undefined}>
+        {children}
+      </div>
+    );
+  }
   return (
     <div ref={ref} className="code-scroll" data-more={more || undefined} dangerouslySetInnerHTML={{ __html: html }} />
   );
@@ -141,11 +160,16 @@ export function PackageInstall({ command }: { command: string }) {
         role="tabpanel"
         id={`${id}-panel`}
         aria-labelledby={`${id}-${manager}`}
-        className="flex items-start gap-2 py-1.5 pr-1.5 pl-4"
+        className="flex items-center gap-2 py-1.5 pr-1.5 pl-4"
       >
-        <code className="text-fg min-w-0 flex-1 py-1.5 font-mono text-[13px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
-          {text.split('/').flatMap((part, i) => (i === 0 ? [part] : ['/', <wbr key={i} />, part]))}
-        </code>
+        {/* A command is code: it scrolls, faded at the right edge, rather than wrapping. Copy takes it without the prompt. */}
+        <CodeScroll key={text} className="min-w-0 flex-1">
+          <pre className="term command-pre" role="group" aria-label={`The ${manager} command`} tabIndex={0}>
+            <code>
+              <PromptLine command={text} />
+            </code>
+          </pre>
+        </CodeScroll>
         <CopyButton text={text} label={`Copy the ${manager} command`} />
       </div>
     </div>

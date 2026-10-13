@@ -1,4 +1,5 @@
 import { highlight } from '@/lib/highlight';
+import { TerminalBlock } from '../terminal';
 import { CodeScroll, CopyCodeButton } from './code';
 
 // What a block's bar says without a file name.
@@ -16,13 +17,30 @@ const LANGUAGES: Record<string, string> = {
   json: 'JSON',
   python: 'Python',
   py: 'Python',
+  yaml: 'YAML',
+  yml: 'YAML',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  diff: 'Diff',
+  patch: 'Diff',
+  console: 'Terminal',
+  terminal: 'Terminal',
+  output: 'Output',
+  log: 'Log',
 };
 
 /**
- * Prose-like output wraps, so it reads without scrolling; source code keeps its lines and scrolls
+ * Output rather than source, which the site's grammar colours (lib/terminal.ts). The sibling sites'
+ * one rule: a transcript, a log or tool output wraps; a terminal session, often in columns,
+ * scrolls like code, with its right edge faded.
+ */
+const OUTPUT: Record<string, boolean> = { output: true, log: true, transcript: true, console: false, terminal: false };
+
+/**
+ * Prose-like text wraps, so it reads without scrolling; source code keeps its lines and scrolls
  * sideways, with its right edge faded while more of it is out of view.
  */
-const WRAPS = new Set(['text', 'txt', 'console', 'output', 'transcript', 'log']);
+const WRAPS = new Set(['text', 'txt']);
 
 /**
  * Highlighted code under a slim bar with its file name (or its language) and a copy button, so the
@@ -42,8 +60,11 @@ export async function CodeBlock({
   bare?: boolean;
   collapse?: boolean;
 }) {
-  const html = await highlight(code, language);
   const label = title ?? (language ? (LANGUAGES[language] ?? language) : 'Text');
+  if (language && language in OUTPUT && !bare && !collapse) {
+    return <TerminalBlock title={label} text={code} wrap={OUTPUT[language]} />;
+  }
+  const html = await highlight(code, language);
   const block = (
     <figure
       data-code-block

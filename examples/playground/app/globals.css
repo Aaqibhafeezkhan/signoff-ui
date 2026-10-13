@@ -74,6 +74,24 @@
   --site-dot: light-dark(rgb(13 15 18 / 0.07), rgb(255 255 255 / 0.045));
   --site-shadow: light-dark(rgb(13 15 18 / 0.12), rgb(0 0 0 / 0.5));
   --site-scrollbar: light-dark(#cdd2d9, #2b313a);
+  /*
+   * Code and output coloured in the browser: the theme pair's colours (CODE_COLORS in
+   * lib/highlight.ts, which Shiki uses at build time), so both read the same. Then the three
+   * meanings output has and code doesn't: success, warning, error, the same values as the sibling
+   * sites' (ondocs's --code-green, --code-amber, --code-red). All at 4.5:1 on the code background
+   * and the page's surfaces in both themes (test/code-colors.test.ts).
+   */
+  --site-code-fg: light-dark(#0d0f12, #e8eaed);
+  --site-code-keyword: light-dark(#155e75, #67e8f9);
+  --site-code-string: light-dark(#9a3412, #f5c27a);
+  --site-code-number: light-dark(#9d174d, #f9a8d4);
+  --site-code-comment: light-dark(#525b67, #8b94a0);
+  --site-code-punctuation: light-dark(#4b5563, #a1a9b4);
+  --site-code-property: light-dark(#1f2937, #c9d1d9);
+  --site-code-fn: light-dark(#0d0f12, #f1f3f5);
+  --site-term-ok: light-dark(#166534, #4ade80);
+  --site-term-warn: light-dark(#92400e, #fbbf24);
+  --site-term-error: light-dark(#b91c1c, #f87171);
 }
 
 .light {
@@ -274,7 +292,8 @@ html:has(dialog:modal) {
  * marked data-long by components/docs/markdown.tsx) may wrap at its spaces and after its slashes,
  * and below 40rem anywhere, so it can't widen a phone's page. A table too wide for the page scrolls.
  */
-.docs-prose code:not(pre code, .code-block code) {
+.inline-code,
+:is(.docs-prose, .prop-doc) code:not(pre code, .code-block code, .type-code) {
   padding: 0.1em 0.35em;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -452,7 +471,7 @@ html:has(dialog:modal) {
 .code-block-bare {
   margin: 0;
 }
-:is(.code-block, .code-block-bare) pre.shiki {
+:is(.code-block, .code-block-bare) :is(pre.shiki, pre.term) {
   overflow-x: auto;
   padding: 0.9rem 1rem;
   background: transparent !important;
@@ -462,14 +481,14 @@ html:has(dialog:modal) {
   scrollbar-width: thin;
 }
 /* Source code scrolls, its right edge faded while more is out of view; prose-like output wraps. */
-.code-scroll[data-more] pre.shiki:not(:focus-visible) {
+.code-scroll[data-more] :is(pre.shiki, pre.term):not(:focus-visible) {
   mask-image: linear-gradient(to left, transparent, #000 3rem);
 }
-[data-wraps] pre.shiki {
+[data-wraps] :is(pre.shiki, pre.term) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-:is(.code-block, .code-block-bare) pre.shiki:focus-visible {
+:is(.code-block, .code-block-bare) :is(pre.shiki, pre.term):focus-visible {
   outline: 2px solid var(--color-cyan-soft);
   outline-offset: -2px;
 }
@@ -480,6 +499,113 @@ html:has(dialog:modal) {
 .light :is(.code-block, .code-block-bare) pre.shiki span {
   color: var(--shiki-light);
   font-style: var(--shiki-light-font-style);
+}
+/* A command in an install block: it scrolls like code, with the fade, on one line. */
+.code-block pre.term.command-pre {
+  padding: 0.375rem 0;
+  line-height: 1.625;
+}
+/* A diff's lines (```diff) in the site's add and del colours, edge to edge. */
+pre.shiki .line:is(.diff-add, .diff-del) {
+  display: inline-block;
+  min-width: calc(100% + 2rem);
+  margin: 0 -1rem;
+  padding: 0 1rem;
+}
+pre.shiki .line.diff-add {
+  background: var(--signoff-add-bg);
+}
+pre.shiki .line.diff-del {
+  background: var(--signoff-del-bg);
+}
+/* A type in the API reference, inline: Shiki's spans with the theme's colour for the page's theme. */
+.type-code span {
+  color: var(--shiki-dark);
+}
+.light .type-code span {
+  color: var(--shiki-light);
+}
+
+/*
+ * Output and browser-made JSON (components/terminal.tsx), by the site's grammar (lib/terminal.ts):
+ * prompts and structure dim, commands bright, levels in their colours, strings like code's.
+ */
+pre.term {
+  color: var(--site-code-property);
+}
+.term-line {
+  display: block;
+  min-height: 1lh;
+}
+.term-prompt {
+  color: var(--site-code-comment);
+  user-select: none;
+}
+.term-command {
+  color: var(--site-code-fg);
+  font-weight: 500;
+}
+:is(.term-info, .term-path, .term-marker) {
+  color: var(--site-code-comment);
+}
+.term-error {
+  color: var(--site-term-error);
+}
+.term-warn {
+  color: var(--site-term-warn);
+}
+.term-ok {
+  color: var(--site-term-ok);
+}
+.term-rule {
+  color: var(--site-code-keyword);
+}
+:is(.term-string, .term-code) {
+  color: var(--site-code-string);
+}
+:is(.term-heading, .term-strong) {
+  color: var(--site-code-fg);
+  font-weight: 600;
+}
+/* A diff in the site's own markup (the useDiffReview demo): the kit's add and del colours. */
+.diff-line {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+.diff-line-add {
+  background: var(--signoff-add-bg);
+}
+.diff-line-del {
+  background: var(--signoff-del-bg);
+}
+.diff-sign {
+  color: var(--site-code-comment);
+  text-align: center;
+  user-select: none;
+}
+.diff-line-add .diff-sign {
+  color: var(--signoff-accent-fg);
+}
+.diff-line-del .diff-sign {
+  color: var(--signoff-hot-fg);
+}
+.diff-text {
+  padding-right: 0.5rem;
+  color: var(--site-code-property);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.json-key {
+  color: var(--site-code-property);
+}
+.json-string {
+  color: var(--site-code-string);
+}
+:is(.json-number, .json-literal) {
+  color: var(--site-code-number);
+}
+.json-punctuation {
+  color: var(--site-code-punctuation);
 }
 /* A long block, folded: the summary is the way in. */
 .code-collapse > summary {
@@ -529,12 +655,6 @@ html:has(dialog:modal) {
 }
 .prop-doc li + li {
   margin-top: 0.25rem;
-}
-.prop-doc code {
-  color: var(--color-fg);
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  white-space: nowrap;
 }
 .prop-doc a {
   color: var(--color-cyan-soft);
