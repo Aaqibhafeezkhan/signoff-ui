@@ -54,6 +54,8 @@ The command leaves `data-slot` values alone, since other libraries use the same 
 
 The files you added are your code, and they keep working as they are. To take the new names:
 
+<!-- steps -->
+
 1. Rename the registry in `components.json` from `@agent-ui-kit` to `@signoff-ui`, and point it at `https://signoff-ui.vercel.app/r/{name}.json`. The old URL redirects, so the CLI keeps working until you change it.
 2. Add the items again, for example `npx shadcn@latest add @signoff-ui/diff-review`. The new files land in `components/signoff-ui/`, and the tokens written into your CSS are now `--signoff-*`.
 3. Carry over any edits you made to the old files, point your imports at `@/components/signoff-ui/...`, then delete `components/agent-ui/` and the `--aui-*` tokens, `--color-aui-*` mappings and `aui-*` keyframes the old items wrote into your CSS.

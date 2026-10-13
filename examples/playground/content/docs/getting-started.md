@@ -56,24 +56,32 @@ Start with npm if you want updates and don't plan to fork the components. Use th
 
 ## Add the styles
 
-Once per app. Skip this if you installed with the shadcn CLI, which already wrote the tokens into your CSS.
+> [!NOTE]
+> Once per app. Skip this if you installed with the shadcn CLI: it already wrote the tokens into your CSS.
 
-**Tailwind CSS v4.** Import the kit's entry after Tailwind. It adds the tokens, maps them into your theme and points `@source` at the components, so your build generates only the utilities they use.
-
-```css title="app/globals.css"
+```css title="app/globals.css" tab="Tailwind v4"
 @import 'tailwindcss';
 @import 'signoff-ui/tailwind.css';
 ```
 
-**Tailwind v3, or no Tailwind.** Import the precompiled stylesheet: only the utilities the kit uses, and no global reset.
-
-```ts title="app/layout.tsx"
+```ts title="app/layout.tsx" tab="Tailwind v3 or no Tailwind"
 import 'signoff-ui/styles.css';
 ```
 
-`styles.css` has no cascade layers, so Tailwind v3 builds accept it and a global reset such as `* { padding: 0 }` can't strip the components' spacing. Every rule is scoped to the components' own elements, so it doesn't restyle your app; import it after your global CSS. That holds inside the components too: what `renderTool`, `renderData` and `renderOutput` return, a custom approval `preview` and `DiffReview`'s `actions` are your content, in a `data-signoff-slot` element the kit's rules don't reach, so your CSS styles it (it still inherits the component's text color and font). Components you render there are styled as usual. The stylesheet also sets none of your theme's variables (`--spacing`, `--text-*`, `--font-*`): its utilities have the kit's values written in and read only the `--signoff-*` tokens. If your app orders its CSS with layers, use `styles.layered.css`, the same stylesheet in `@layer theme, base, utilities`.
+**Tailwind v4.** Import the kit's entry after Tailwind. It adds the tokens, maps them into your theme and points `@source` at the components, so your build generates only the utilities they use.
 
-**Dark mode.** Light is the default. Add `class="dark"` (or `data-theme="dark"`) to `<html>` or any ancestor for the dark palette. To follow the OS setting instead, also import `signoff-ui/theme.auto.css`; `class="light"` on `<html>` still forces light.
+**Tailwind v3, or no Tailwind.** Import the precompiled stylesheet after your global CSS. It has only the utilities the kit uses, and no global reset.
+
+### What styles.css leaves alone
+
+- **Your app.** Every rule is scoped to the components' own elements.
+- **Your reset.** It has no cascade layers, so Tailwind v3 builds accept it, and a reset such as `* { padding: 0 }` can't strip the components' spacing. If your app orders its CSS with layers, use `styles.layered.css`: the same rules in `@layer theme, base, utilities`.
+- **Your theme's variables.** It sets no `--spacing`, `--text-*` or `--font-*`. Its utilities have the kit's values written in and read only the `--signoff-*` tokens.
+- **Your content inside the components.** What `renderTool`, `renderData` and `renderOutput` return, a custom approval `preview` and `DiffReview`'s `actions` sit in a `data-signoff-slot` element the kit's rules don't reach. Your CSS styles it, and it inherits the component's text color and font.
+
+### Dark mode
+
+Light is the default. Add `class="dark"` (or `data-theme="dark"`) to `<html>` or any ancestor for the dark palette. To follow the OS setting instead, also import `signoff-ui/theme.auto.css`; `class="light"` on `<html>` still forces light.
 
 ## Render a run
 
@@ -485,5 +493,5 @@ Diff and chart colors keep the kit's cyan and magenta, which your palette may no
 ## Next steps
 
 - [AG-UI agents](/docs/ag-ui): render LangGraph, CrewAI or Mastra agents with the same components.
-- [Components](/gallery): each component in isolation, with its install command and usage.
+- [Components](/components): each component in isolation, with its install command and usage.
 - [The playground](/): a full run with approvals and diff review, driven from the keyboard.

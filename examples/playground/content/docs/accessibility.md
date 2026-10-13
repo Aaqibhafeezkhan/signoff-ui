@@ -26,7 +26,7 @@ Accessible names, announcements and keyboard hints are labels like the visible t
 
 ## Motion
 
-All animation is behind `motion-safe`, and the number tweening in `RunMeter` honours `prefers-reduced-motion`.
+All animation is behind `motion-safe`, and the number tweening in `RunMeter` honors `prefers-reduced-motion`.
 
 ## Contrast
 
@@ -36,8 +36,8 @@ The test covers the kit's own palette. If you map the tokens to your own, as [Th
 
 ## Document outline
 
-Titles take a `headingLevel`; source lists are labelled lists and approval cards are named groups rather than landmarks, so a long conversation does not flood landmark navigation.
+Titles take a `headingLevel`; source lists are labeled lists and approval cards are named groups rather than landmarks, so a long conversation does not flood landmark navigation.
 
 ## How it's tested
 
-Every component has axe checks in Vitest (jsdom). `pnpm a11y` also runs axe in Chrome against the playground at each stage of a run, the gallery, the docs and a phone viewport, in the dark and light themes, which covers color contrast with real layout. CI runs both on every pull request, and both currently report no violations.
+Every component has axe checks in Vitest (jsdom). `pnpm a11y` also runs axe in Chrome against the playground at each stage of a run, the components page, the docs and a phone viewport, in the dark and light themes, which covers color contrast with real layout. CI runs both on every pull request, and both currently report no violations.

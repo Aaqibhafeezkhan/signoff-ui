@@ -59,7 +59,7 @@ A test renders every component through the states it has (pending, edited, decid
 
 Every label, in European Portuguese.
 
-```ts title="labels-pt.ts"
+```ts title="labels-pt.ts" collapse
 import type { SignoffLabels } from 'signoff-ui';
 
 // Every label in European Portuguese. Typed as `SignoffLabels`, so a missing one fails to compile.
