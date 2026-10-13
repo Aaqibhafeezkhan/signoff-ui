@@ -55,8 +55,15 @@ async function audit(page, label) {
 const pending = '[data-slot="signoff-approval-card"][data-status="pending"]';
 // Let enter animations settle so contrast is measured at full opacity.
 const settle = (page) => page.waitForTimeout(800);
+// The pages are regenerated daily, so `next start` serves them with stale-while-revalidate: a page
+// visited again would come from Chrome's cache, revalidated in the background by a request that
+// networkidle waits on for good. Routing every request through Playwright turns that cache off.
+const uncached = async (page) => {
+  await page.route('**/*', (route) => route.continue());
+  return page;
+};
 
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+const page = await uncached(await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' }));
 await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
 await page.waitForSelector(pending, { timeout: 60_000 });
 await settle(page);
@@ -146,7 +153,7 @@ await settle(page);
 await audit(page, 'docs /docs/components/tool-call-timeline · a sub-agent open, 390px viewport');
 
 // The light theme, with a light OS: the site follows it until the reader picks.
-const light = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
+const light = await uncached(await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' }));
 await light.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
 await light.waitForSelector(pending, { timeout: 60_000 });
 await settle(light);

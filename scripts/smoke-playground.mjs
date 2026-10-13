@@ -106,6 +106,22 @@ try {
     dates.map((date) => date.toISOString()).join(', '),
   );
 
+  // The header's stars and the footer's downloads are fetched again each day (lib/stats.ts), and the
+  // pages that show them are regenerated as often, rather than keeping the first build's numbers.
+  if (!process.env.BASE_URL) {
+    const { routes } = JSON.parse(
+      readFileSync(join(import.meta.dirname, '../examples/playground/.next/prerender-manifest.json'), 'utf8'),
+    );
+    const revalidated = ['/', '/components', '/docs', '/docs/getting-started', '/docs/components/approval-card'].map(
+      (path) => `${path} ${routes[path]?.initialRevalidateSeconds}`,
+    );
+    check(
+      revalidated.every((line) => line.endsWith(' 86400')),
+      'the pages with the star count and the downloads are regenerated daily',
+      revalidated.join(', '),
+    );
+  }
+
   // The home page describes the project for search engines (schema.org), with this version.
   const kit = JSON.parse(readFileSync(join(import.meta.dirname, '../packages/signoff-ui/package.json'), 'utf8'));
   const homeHtml = await (await fetch(`${BASE}/`)).text();
@@ -659,6 +675,8 @@ try {
   // header's theme switch, which re-themes the page and the frames, with no axe violations
   // (contrast included) and remembered on the next visit.
   const gallery = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+  // Reloaded below: no stale-while-revalidate copy from Chrome's cache (see scripts/a11y-audit.mjs).
+  await gallery.route('**/*', (route) => route.continue());
   await gallery.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
   const anchors = ['agent-status', 'tool-call-timeline', 'approval-card', 'diff-review', 'run-meter', 'sources'];
   anchors.push('theming', 'labels', 'agent-message', 'ag-ui', 'acp');

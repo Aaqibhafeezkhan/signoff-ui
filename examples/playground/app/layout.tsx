@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image' },
 };
 
+// Every page has the header's star count and the footer's weekly downloads (lib/stats.ts), so each is
+// regenerated once a day with the day's numbers. Next.js needs a literal here: keep it REVALIDATE's value.
+export const revalidate = 86400;
+
 export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
