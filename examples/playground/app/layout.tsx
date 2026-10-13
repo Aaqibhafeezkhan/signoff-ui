@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/next';
 import { GeistSans } from 'geist/font/sans';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
@@ -38,6 +39,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Skip to content
         </a>
         {children}
+        {/* Vercel Web Analytics: page views, from a script it adds in production builds only. */}
+        <Analytics />
       </body>
     </html>
   );
