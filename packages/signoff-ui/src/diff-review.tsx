@@ -1297,6 +1297,9 @@ function LineContent({
         wrap
           ? 'min-w-0 flex-1 pr-3 break-all whitespace-pre-wrap'
           : 'pr-6 whitespace-pre @max-[30rem]:min-w-0 @max-[30rem]:flex-1 @max-[30rem]:pr-3 @max-[30rem]:break-all @max-[30rem]:whitespace-pre-wrap',
+        // A rejected hunk's lines are muted, with no syntax colors or word highlights, and its added
+        // lines struck through: muted rather than faded, so the text keeps its 4.5:1 contrast.
+        rejected && 'text-signoff-fg-muted',
         rejected && line.type === 'add' && 'decoration-signoff-hot/50 line-through',
       )}
     >
@@ -1304,11 +1307,15 @@ function LineContent({
       {pieces.map((p, i) => (
         <span
           key={i}
-          className={cn(
-            TOKEN_CLASS[p.kind],
-            p.changed && 'rounded-[3px]',
-            p.changed && (line.type === 'add' ? 'bg-signoff-add-strong' : 'bg-signoff-del-strong'),
-          )}
+          className={
+            rejected
+              ? undefined
+              : cn(
+                  TOKEN_CLASS[p.kind],
+                  p.changed && 'rounded-[3px]',
+                  p.changed && (line.type === 'add' ? 'bg-signoff-add-strong' : 'bg-signoff-del-strong'),
+                )
+          }
         >
           {p.text}
         </span>
@@ -1384,7 +1391,6 @@ function UnifiedRow({
         // Wrapped lines (under 30rem) keep their numbers by their first line.
         'flex @max-[30rem]:items-start',
         ROW_BG[line.type],
-        rejected && 'opacity-55',
         selected && 'shadow-[inset_3px_0_0_var(--signoff-ring)]',
         selected && !ROW_BG[line.type] && 'bg-signoff-accent/8',
         head && 'outline-signoff-ring outline-1 -outline-offset-1',
@@ -1570,7 +1576,6 @@ function SplitCell({
       className={cn(
         'flex min-w-0',
         ROW_BG[line.type],
-        rejected && 'opacity-55',
         selected && 'shadow-[inset_3px_0_0_var(--signoff-ring)]',
         selected && !ROW_BG[line.type] && 'bg-signoff-accent/8',
         head && 'outline-signoff-ring outline-1 -outline-offset-1',

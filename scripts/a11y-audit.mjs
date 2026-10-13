@@ -151,6 +151,12 @@ await page
   .click();
 await settle(page);
 await audit(page, 'docs /docs/components/tool-call-timeline · a sub-agent open, 390px viewport');
+// Under 30rem a review wraps its lines, so axe measures each one, the rejected hunk's too.
+for (const path of ['/docs/components/diff-review', '/components']) {
+  await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  await settle(page);
+  await audit(page, `${path} · a rejected hunk, 390px viewport`);
+}
 
 // The light theme, with a light OS: the site follows it until the reader picks.
 const light = await uncached(await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' }));
@@ -167,6 +173,11 @@ await light.setViewportSize({ width: 390, height: 844 });
 await light.goto(`${BASE}/docs/components/approval-card`, { waitUntil: 'networkidle' });
 await settle(light);
 await audit(light, 'light · /docs/components/approval-card · 390px viewport');
+for (const path of ['/docs/components/diff-review', '/components']) {
+  await light.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  await settle(light);
+  await audit(light, `light · ${path} · a rejected hunk, 390px viewport`);
+}
 await browser.close();
 if (server) process.kill(-server.pid);
 

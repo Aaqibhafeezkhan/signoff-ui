@@ -47,6 +47,20 @@ describe('DiffReview', () => {
     expect(first).toHaveAttribute('data-decision', 'pending');
   });
 
+  it("mutes a rejected hunk's lines rather than fading them, so the text keeps its contrast", async () => {
+    const user = userEvent.setup();
+    render(<DiffReview files={files} />);
+    const first = hunks()[0]!;
+    const colored = '[class*="text-signoff-code-"], .bg-signoff-add-strong, .bg-signoff-del-strong';
+    expect(first.querySelector(colored)).not.toBeNull();
+    await user.click(within(first).getByRole('button', { name: 'Reject hunk 1' }));
+    const code = [...first.querySelectorAll('[data-line] > span:last-child')];
+    expect(code.length).toBeGreaterThan(0);
+    expect(code.every((line) => line.classList.contains('text-signoff-fg-muted'))).toBe(true);
+    expect(first.querySelector(colored)).toBeNull();
+    expect(first.querySelector('[data-line][class*="opacity-"]')).toBeNull();
+  });
+
   it('supports keyboard review: j/k, a, r, u and auto-advance', async () => {
     const user = userEvent.setup();
     render(<DiffReview files={files} />);

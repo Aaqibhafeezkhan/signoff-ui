@@ -79,11 +79,12 @@ const UI_PAIRS: Array<[string, string]> = [
 const CODE = ['code-keyword', 'code-string', 'code-number', 'code-comment', 'code-punctuation'];
 /**
  * DiffReview paints translucent line backgrounds on --signoff-surface, and word highlights on top of
- * those. Lines carry line numbers, the +/− sign and syntax-colored code; highlights carry code.
+ * those. Lines carry line numbers, the +/− sign and syntax-colored code; highlights carry code. A
+ * rejected hunk's lines are muted text on the same backgrounds.
  */
 const DIFF_PAIRS: Array<[string, string[]]> = [
-  ...['fg', 'fg-subtle', 'accent-fg', ...CODE].map((fg): [string, string[]] => [fg, ['add-bg']]),
-  ...['fg', 'fg-subtle', 'hot-fg', ...CODE].map((fg): [string, string[]] => [fg, ['del-bg']]),
+  ...['fg', 'fg-muted', 'fg-subtle', 'accent-fg', ...CODE].map((fg): [string, string[]] => [fg, ['add-bg']]),
+  ...['fg', 'fg-muted', 'fg-subtle', 'hot-fg', ...CODE].map((fg): [string, string[]] => [fg, ['del-bg']]),
   ...['fg', ...CODE].map((fg): [string, string[]] => [fg, ['add-bg', 'add-strong']]),
   ...['fg', ...CODE].map((fg): [string, string[]] => [fg, ['del-bg', 'del-strong']]),
 ];
