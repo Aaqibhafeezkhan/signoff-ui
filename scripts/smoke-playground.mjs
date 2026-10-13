@@ -326,14 +326,39 @@ try {
     'docs search: "dark mode" and "tailwind v3" find Getting started, "storage" finds useApprovalPolicy\'s option',
     [darkMode[0], tailwind3[0], storage.find((text) => text.includes('storage'))].join(' | '),
   );
-  // / focuses it too: the shortcut it keeps on a site with Ask, which takes ⌘K.
+  // Without Ask (no model key, as here), / is not bound: no single-key shortcut on the page (WCAG
+  // 2.1.4). On a site with Ask, which takes ⌘K, the search takes / instead.
   await docs.evaluate(() => document.activeElement?.blur());
   await docs.keyboard.press('/');
   check(
-    await docs.evaluate(() => document.activeElement?.hasAttribute('data-docs-search') ?? false),
-    'docs: / focuses the search',
+    !(await docs.evaluate(() => document.activeElement?.hasAttribute('data-docs-search') ?? false)),
+    'docs without Ask: / does not focus the search, only ⌘K does',
   );
   await docs.close();
+
+  // The search box shows the reader's own shortcut, ⌘K on a Mac and Ctrl K elsewhere, set once the
+  // page has hydrated, with no hydration mismatch.
+  for (const [platform, label] of [
+    ['MacIntel', '⌘K'],
+    ['Win32', 'Ctrl K'],
+  ]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await context.addInitScript((value) => {
+      Object.defineProperty(Navigator.prototype, 'platform', { get: () => value });
+    }, platform);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+    await page.goto(`${BASE}/docs`, { waitUntil: 'networkidle' });
+    const shown = await page.getByRole('navigation', { name: 'Docs' }).locator('kbd').textContent();
+    const mismatch = errors.filter((text) => /hydrat/i.test(text));
+    check(
+      shown === label && mismatch.length === 0,
+      `docs on ${platform}: the search box shows ${label}`,
+      `${shown}${mismatch.length ? `, ${mismatch.join(' | ')}` : ''}`,
+    );
+    await context.close();
+  }
 
   // /gallery is now /components, anchors and all; /docs/components goes there too.
   for (const from of ['/gallery', '/docs/components']) {

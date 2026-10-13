@@ -4,14 +4,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { NavGroup, SearchIndex } from '@/lib/docs';
+import { useIsApple } from '@/lib/platform';
 import { Sheet } from '../controls';
 import { MenuIcon } from '../icons';
 
 /*
  * The docs navigation: a sticky sidebar on wide screens, a bar with a menu button on phones and
  * tablets. Both have the search box, over every page's title, sections and text, and every prop.
- * / focuses it, and so does ⌘K or Ctrl+K unless the site has Ask, which takes ⌘K. The index
- * loads the first time the search is used.
+ * ⌘K or Ctrl+K focuses it; on a site with Ask, which takes ⌘K, / does instead. The index loads
+ * the first time the search is used.
  */
 
 let index: SearchIndex | undefined;
@@ -146,7 +147,7 @@ function NavLinks({
           }}
           placeholder="Search docs"
           autoComplete="off"
-          className="border-line focus-visible:outline-cyan-soft bg-code text-fg placeholder:text-fg-subtle h-9 w-full rounded-lg border pr-12 pl-3 text-[13.5px] focus-visible:border-transparent focus-visible:outline-2 [&::-webkit-search-cancel-button]:hidden"
+          className="border-line focus-visible:outline-cyan-soft bg-code text-fg placeholder:text-fg-subtle h-9 w-full rounded-lg border pr-16 pl-3 text-[13.5px] focus-visible:border-transparent focus-visible:outline-2 [&::-webkit-search-cancel-button]:hidden"
         />
         <kbd
           aria-hidden="true"
@@ -224,21 +225,23 @@ export function DocsSidebar({
   ask = false,
 }: {
   nav: NavGroup[];
-  /** The site has Ask, which takes ⌘K (components/ask.tsx); the search keeps `/`. */
+  /** The site has Ask, which takes ⌘K (components/ask.tsx); the search takes `/` instead. */
   ask?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const current = nav.flatMap((group) => group.items).find((item) => item.href === pathname);
-  const shortcut = ask ? '/' : '⌘K';
+  const apple = useIsApple();
+  const shortcut = ask ? '/' : apple ? '⌘K' : 'Ctrl K';
 
-  // ⌘K / Ctrl+K, or / outside a text field: the search box, in the sidebar or, on phones and tablets, in the menu.
+  // ⌘K / Ctrl+K, or with Ask / outside a text field: the search box, in the sidebar or, on phones and
+  // tablets, in the menu. Without Ask, no single key is bound (WCAG 2.1.4).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const command = event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !ask;
       const target = event.target as HTMLElement | null;
       const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
-      const slash = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typing;
+      const slash = ask && event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typing;
       if (!command && !slash) return;
       event.preventDefault();
       loadIndex();

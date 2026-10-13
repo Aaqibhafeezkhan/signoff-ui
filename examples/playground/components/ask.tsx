@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { AskDialog } from 'ondocs/react';
 import 'ondocs/react/styles.css';
 import { useSyncExternalStore } from 'react';
+import { useIsApple } from '@/lib/platform';
 import { SparkIcon } from './icons';
 
 const SUGGESTIONS = [
@@ -22,13 +23,14 @@ function subscribe(onChange: () => void) {
 const theme = () => (document.documentElement.classList.contains('light') ? 'light' : 'dark');
 
 /**
- * The header's Ask button and ondocs's dialog behind it, opened by ⌘K or Ctrl+K too. Rendered only
- * when the server has a model key (lib/ask.ts). The dialog's code loads the first time it is
- * wanted; citations open through the router.
+ * The header's Ask button and ondocs's dialog behind it, opened by ⌘K or Ctrl+K too (the button
+ * shows the one this keyboard has). Rendered only when the server has a model key (lib/ask.ts).
+ * The dialog's code loads the first time it is wanted; citations open through the router.
  */
 export function Ask({ className = '' }: { className?: string }) {
   const router = useRouter();
   const current = useSyncExternalStore(subscribe, theme, () => 'dark' as const);
+  const apple = useIsApple();
   return (
     <AskDialog
       shortcut="k"
@@ -53,7 +55,7 @@ export function Ask({ className = '' }: { className?: string }) {
             Ask
           </span>
           <kbd className="border-line-strong text-fg-subtle rounded border px-1 font-mono text-[10.5px] max-md:hidden pointer-coarse:hidden">
-            ⌘K
+            {apple ? '⌘K' : 'Ctrl K'}
           </kbd>
         </button>
       }
