@@ -2,6 +2,7 @@ import type { ComponentDoc } from '@/lib/components';
 import { shadcnAdd } from '@/lib/site';
 import { CopyButton } from '../copy-button';
 import { PromptLine } from '../terminal';
+import { CodeScroll } from './code';
 import { CodeBlock } from './code-block';
 import { Tabs } from './tabs';
 
@@ -29,13 +30,18 @@ function Panel({ command, code, label }: { command: string; code: string; label:
   return (
     <div>
       <div className="border-line flex items-start gap-2 border-b py-1.5 pr-1.5 pl-4">
-        <code className="min-w-0 flex-1 py-1.5 font-mono text-[13px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
-          {command.split('\n').map((line) => (
-            <span key={line} className="block">
-              <PromptLine command={line} />
-            </span>
-          ))}
-        </code>
+        {/* Commands are code: they scroll, faded at the right edge, rather than wrapping. */}
+        <CodeScroll className="min-w-0 flex-1 self-center">
+          <pre className="term command-pre" role="group" aria-label={label.replace(/^Copy the /, 'The ')} tabIndex={0}>
+            <code>
+              {command.split('\n').map((line) => (
+                <span key={line} className="term-line">
+                  <PromptLine command={line} />
+                </span>
+              ))}
+            </code>
+          </pre>
+        </CodeScroll>
         <CopyButton text={command} label={label} />
       </div>
       <CodeBlock bare code={code} language="tsx" />

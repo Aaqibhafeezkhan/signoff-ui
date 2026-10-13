@@ -34,25 +34,30 @@ export function TerminalBlock({
   title,
   text,
   lines,
-  wrap = true,
+  wrap,
   className = '',
 }: {
   title: string;
   /** Output to tokenize; or `lines`, already tokenized. */
   text?: string;
   lines?: TermLine[];
-  /** Output wraps by default, so it reads without scrolling sideways. */
+  /**
+   * Output wraps, so it reads without scrolling sideways; output in columns (a table) scrolls like
+   * code instead, so they stay aligned. The sibling sites' rule; pass it to decide.
+   */
   wrap?: boolean;
   className?: string;
 }) {
+  const tokens = lines ?? tokenizeTerminal(text ?? '');
+  const columns = tokens.some((line) => /^\s*\|.*\|\s*$/.test(line.map((token) => token.text).join('')));
   return (
-    <figure data-code-block data-wraps={wrap || undefined} className={`code-block relative ${className}`}>
+    <figure data-code-block data-wraps={(wrap ?? !columns) || undefined} className={`code-block relative ${className}`}>
       <figcaption className="code-title truncate pr-12">{title}</figcaption>
       <CopyCodeButton />
       <CodeScroll>
         {/* A scrollable group the keyboard can reach, like Shiki's blocks, named by the bar. */}
         <pre className="term" role="group" aria-label={title} tabIndex={0}>
-          <TermLines lines={lines ?? tokenizeTerminal(text ?? '')} />
+          <TermLines lines={tokens} />
         </pre>
       </CodeScroll>
     </figure>

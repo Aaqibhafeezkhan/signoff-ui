@@ -29,14 +29,18 @@ const LANGUAGES: Record<string, string> = {
   log: 'Log',
 };
 
-/** Output rather than source: a terminal session, a log, an agent's reply. The site's grammar colours it (lib/terminal.ts). */
-const OUTPUT = new Set(['console', 'terminal', 'output', 'log', 'transcript']);
+/**
+ * Output rather than source, which the site's grammar colours (lib/terminal.ts). The sibling sites'
+ * one rule: a transcript, a log or tool output wraps; a terminal session, often in columns,
+ * scrolls like code, with its right edge faded.
+ */
+const OUTPUT: Record<string, boolean> = { output: true, log: true, transcript: true, console: false, terminal: false };
 
 /**
- * Prose-like output wraps, so it reads without scrolling; source code keeps its lines and scrolls
+ * Prose-like text wraps, so it reads without scrolling; source code keeps its lines and scrolls
  * sideways, with its right edge faded while more of it is out of view.
  */
-const WRAPS = new Set(['text', 'txt', 'console', 'output', 'transcript', 'log']);
+const WRAPS = new Set(['text', 'txt']);
 
 /**
  * Highlighted code under a slim bar with its file name (or its language) and a copy button, so the
@@ -57,7 +61,9 @@ export async function CodeBlock({
   collapse?: boolean;
 }) {
   const label = title ?? (language ? (LANGUAGES[language] ?? language) : 'Text');
-  if (OUTPUT.has(language ?? '') && !bare && !collapse) return <TerminalBlock title={label} text={code} />;
+  if (language && language in OUTPUT && !bare && !collapse) {
+    return <TerminalBlock title={label} text={code} wrap={OUTPUT[language]} />;
+  }
   const html = await highlight(code, language);
   const block = (
     <figure
