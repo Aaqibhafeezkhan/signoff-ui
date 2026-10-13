@@ -103,7 +103,7 @@ export function llmsTxt() {
     '## Optional',
     '',
     `- [Playground](${SITE}): a scripted agent run with a review and an approval, with replay and keyboard controls`,
-    `- [Component gallery](${SITE}/gallery): every component in isolation, with install snippets`,
+    `- [Components](${SITE}/components): every component in isolation, with install snippets`,
     `- [npm package](https://www.npmjs.com/package/signoff-ui)`,
     `- [Changelog](${REPO}/blob/main/packages/signoff-ui/CHANGELOG.md)`,
     '',

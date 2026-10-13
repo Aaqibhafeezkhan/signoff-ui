@@ -219,7 +219,8 @@ html:has(dialog:modal) {
   color: inherit;
   text-decoration: none;
 }
-.docs-prose .heading-anchor:hover::after {
+/* A heading links to itself: the # shows on hover and on keyboard focus. */
+.heading-anchor:is(:hover, :focus-visible)::after {
   content: ' #';
   color: var(--color-fg-faint);
 }
@@ -268,6 +269,11 @@ html:has(dialog:modal) {
 .docs-prose li::marker {
   color: var(--color-fg-faint);
 }
+/*
+ * Inline code stays on one line, so an identifier never breaks. A long one (over 28 characters,
+ * marked data-long by components/docs/markdown.tsx) may wrap at its spaces and after its slashes,
+ * and below 40rem anywhere, so it can't widen a phone's page. A table too wide for the page scrolls.
+ */
 .docs-prose code:not(pre code, .code-block code) {
   padding: 0.1em 0.35em;
   -webkit-box-decoration-break: clone;
@@ -278,18 +284,17 @@ html:has(dialog:modal) {
   color: var(--color-fg);
   font-family: var(--font-mono);
   font-size: 0.86em;
-  overflow-wrap: break-word;
+  white-space: nowrap;
 }
-/*
- * In table cells on a phone, code breaks anywhere, so a long identifier can't widen the table past
- * the screen. From 40rem it stays whole, and a table too wide for the page scrolls instead.
- */
-.docs-prose :is(td, th) code:not(pre code, .code-block code) {
-  overflow-wrap: anywhere;
+:is(.docs-prose, .prop-doc) code[data-long]:not(pre code, .code-block code) {
+  white-space: normal;
 }
-@media (min-width: 40rem) {
-  .docs-prose :is(td, th) code:not(pre code, .code-block code) {
-    white-space: nowrap;
+@media (width < 40rem) {
+  :is(.docs-prose, .prop-doc) code[data-long]:not(pre code, .code-block code) {
+    overflow-wrap: anywhere;
+    /* Padding only at its two ends, so a line that breaks inside it still fits the column. */
+    -webkit-box-decoration-break: slice;
+    box-decoration-break: slice;
   }
 }
 .docs-prose blockquote {
@@ -298,6 +303,75 @@ html:has(dialog:modal) {
   border-radius: 0 8px 8px 0;
   background: color-mix(in oklab, var(--color-cyan) 6%, transparent);
   color: var(--color-fg-soft);
+}
+/* Callouts: > [!NOTE], [!TIP] and [!WARNING] (components/docs/markdown.tsx). */
+.docs-prose .callout {
+  --callout: var(--color-line-strong);
+  --callout-fg: var(--color-fg-muted);
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--callout) 45%, var(--color-line));
+  border-left: 3px solid var(--callout);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--callout) 6%, transparent);
+}
+.docs-prose .callout[data-kind='tip'] {
+  --callout: var(--color-cyan);
+  --callout-fg: var(--color-cyan-soft);
+}
+.docs-prose .callout[data-kind='warning'] {
+  --callout: var(--signoff-warn);
+  --callout-fg: var(--signoff-warn-fg);
+}
+.docs-prose .callout > * + * {
+  margin-top: 0.5rem;
+}
+.docs-prose .callout-title {
+  color: var(--callout-fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* Steps: an ordered list after <!-- steps -->, numbered in circles joined by a line. */
+.docs-prose ol.steps {
+  padding-left: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.docs-prose ol.steps > li {
+  position: relative;
+  padding-left: 2.75rem;
+  counter-increment: step;
+}
+.docs-prose ol.steps > li + li {
+  margin-top: 1.5rem;
+}
+.docs-prose ol.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.docs-prose ol.steps > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 2.1rem;
+  bottom: -1.2rem;
+  left: calc(0.875rem - 0.5px);
+  width: 1px;
+  background: var(--color-line);
 }
 .docs-prose hr {
   border-color: var(--color-line);
@@ -354,7 +428,10 @@ html:has(dialog:modal) {
   color: var(--color-fg);
 }
 
-/* Code blocks: Shiki's output with the site's dark theme (the light one is in the markup too). */
+/*
+ * Code blocks: a bar with the file name or the language and the copy button, then Shiki's output
+ * with the site's dark theme (the light one is in the markup too).
+ */
 .code-block {
   overflow: hidden;
   border: 1px solid var(--color-line);
@@ -367,6 +444,10 @@ html:has(dialog:modal) {
   color: var(--color-fg-muted);
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.5;
+}
+.code-title-language {
+  color: var(--color-fg-subtle);
 }
 .code-block-bare {
   margin: 0;
@@ -380,14 +461,13 @@ html:has(dialog:modal) {
   line-height: 1.7;
   scrollbar-width: thin;
 }
-/*
- * Without a file name, the copy button sits over the code's top-right corner. Where it always shows
- * (phones and touch screens), the code starts below it rather than running underneath.
- */
-@media (width < 40rem), (pointer: coarse) {
-  :is(.code-block, .code-block-bare):not(:has(> .code-title)) pre.shiki {
-    padding-top: 2.75rem;
-  }
+/* Source code scrolls, its right edge faded while more is out of view; prose-like output wraps. */
+.code-scroll[data-more] pre.shiki:not(:focus-visible) {
+  mask-image: linear-gradient(to left, transparent, #000 3rem);
+}
+[data-wraps] pre.shiki {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 :is(.code-block, .code-block-bare) pre.shiki:focus-visible {
   outline: 2px solid var(--color-cyan-soft);
@@ -400,6 +480,37 @@ html:has(dialog:modal) {
 .light :is(.code-block, .code-block-bare) pre.shiki span {
   color: var(--shiki-light);
   font-style: var(--shiki-light-font-style);
+}
+/* A long block, folded: the summary is the way in. */
+.code-collapse > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-fg-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+.code-collapse > summary:hover {
+  border-color: var(--color-line-strong);
+  color: var(--color-fg-strong);
+}
+.code-collapse > summary:focus-visible {
+  outline: 2px solid var(--color-cyan-soft);
+  outline-offset: 2px;
+}
+.code-collapse > summary::before {
+  content: '▸' / '';
+  color: var(--color-fg-subtle);
+}
+.code-collapse[open] > summary {
+  margin-bottom: 0.75rem;
+}
+.code-collapse[open] > summary::before {
+  content: '▾' / '';
 }
 
 /* JSDoc in the API reference: compact prose. */
@@ -423,7 +534,7 @@ html:has(dialog:modal) {
   color: var(--color-fg);
   font-family: var(--font-mono);
   font-size: 0.92em;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .prop-doc a {
   color: var(--color-cyan-soft);

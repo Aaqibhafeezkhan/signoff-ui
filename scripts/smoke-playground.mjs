@@ -1,6 +1,6 @@
 // Checks the built playground: link preview metadata and llms.txt, then in Chrome what a visitor
 // sees first on a phone, what the header offers when it was built without a model key
-// (OPENAI_API_KEY, as in CI), the phone menu, and the gallery.
+// (OPENAI_API_KEY, as in CI), the phone menu, the docs shell, and the components page.
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
 //   pnpm smoke:playground   # starts the built playground on :3220, or tests BASE_URL if set
@@ -41,7 +41,7 @@ try {
   // Link previews: each page has its title, description and a 1200×630 image that is served.
   for (const [path, title] of [
     ['/', 'signoff-ui: review what your agent changed and approve what it may do'],
-    ['/gallery', 'Components · signoff-ui'],
+    ['/components', 'Components · signoff-ui'],
     ['/docs/getting-started', 'Getting started · signoff-ui docs'],
     ['/docs/components/approval-card', 'ApprovalCard · signoff-ui docs'],
   ]) {
@@ -63,7 +63,7 @@ try {
   const sitemap = await (await fetch(`${BASE}/sitemap.xml`)).text();
   const robots = await (await fetch(`${BASE}/robots.txt`)).text();
   check(
-    ['/docs/getting-started', '/docs/components/approval-card', '/gallery'].every((path) =>
+    ['/docs/getting-started', '/docs/components/approval-card', '/components'].every((path) =>
       sitemap.includes(`https://signoff-ui.vercel.app${path}</loc>`),
     ) && robots.includes('Sitemap: https://signoff-ui.vercel.app/sitemap.xml'),
     'sitemap.xml lists the docs and components, and robots.txt points to it',
@@ -244,7 +244,7 @@ try {
       !/<link rel="canonical"|<meta property="og:(?:image|url|description)"|<meta name="twitter:image"/.test(
         unknownHtml,
       ) &&
-      ['/docs/getting-started', '/docs/components/diff-review', '/gallery'].every((path) =>
+      ['/docs/getting-started', '/docs/components/diff-review', '/components'].every((path) =>
         unknownHtml.includes(`href="${path}"`),
       ),
     'an unknown address: a 404 titled "Page not found", not indexed, with no canonical or preview of the home page, and the docs navigation',
@@ -281,16 +281,34 @@ try {
     `${[...home.headers].filter(([key]) => /^(x-|referrer)/.test(key)).join('; ')}; favicon ${favicon.status} ${favicon.headers.get('content-type')}`,
   );
 
-  // The docs search finds sections, not only pages.
+  // The docs search finds sections, not only pages, by what they say, and every option and prop.
   const docs = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
   await docs.goto(`${BASE}/docs`, { waitUntil: 'networkidle' });
   await docs.keyboard.press('ControlOrMeta+k');
-  await docs.keyboard.type('theme');
-  const found = await docs.getByRole('list', { name: 'Search results' }).getByRole('link').allInnerTexts();
+  const search = async (query) => {
+    await docs.keyboard.press('ControlOrMeta+a');
+    await docs.keyboard.type(query);
+    const results = docs.getByRole('list', { name: 'Search results' });
+    await results.waitFor({ timeout: 10_000 }).catch(() => {});
+    return results
+      .getByRole('link')
+      .evaluateAll((links) => links.map((a) => `${a.getAttribute('href')} ${a.innerText}`));
+  };
+  const found = await search('theme');
   check(
     found.some((text) => text.includes('Theming')),
     'docs: ⌘K focuses the search, and "theme" finds Theming',
     found.join(', '),
+  );
+  const darkMode = await search('dark mode');
+  const tailwind3 = await search('tailwind v3');
+  const storage = await search('storage');
+  check(
+    darkMode.some((text) => text.startsWith('/docs/getting-started#')) &&
+      tailwind3.some((text) => text.startsWith('/docs/getting-started#')) &&
+      storage.some((text) => text.startsWith('/docs/components/use-approval-policy#useapprovalpolicyoptions-storage')),
+    'docs search: "dark mode" and "tailwind v3" find Getting started, "storage" finds useApprovalPolicy\'s option',
+    [darkMode[0], tailwind3[0], storage.find((text) => text.includes('storage'))].join(' | '),
   );
   // / focuses it too: the shortcut it keeps on a site with Ask, which takes ⌘K.
   await docs.evaluate(() => document.activeElement?.blur());
@@ -300,6 +318,160 @@ try {
     'docs: / focuses the search',
   );
   await docs.close();
+
+  // /gallery is now /components, anchors and all; /docs/components goes there too.
+  for (const from of ['/gallery', '/docs/components']) {
+    const response = await fetch(BASE + from, { redirect: 'manual' });
+    check(
+      response.status === 308 && new URL(response.headers.get('location'), BASE).pathname === '/components',
+      `${from} redirects to /components for good`,
+      `${response.status} ${response.headers.get('location')}`,
+    );
+  }
+
+  // The docs shell. The sidebar in groups, with short labels and the migration guide under Resources.
+  const shell = await browser.newPage({ viewport: { width: 1024, height: 800 }, colorScheme: 'light' });
+  await shell.goto(`${BASE}/docs/comparison`, { waitUntil: 'networkidle' });
+  const sidebar = shell.getByRole('navigation', { name: 'Docs' });
+  const groups = await sidebar.locator('p[id$="-group-0"], p[id*="-group-"]').allInnerTexts();
+  const resources = await sidebar
+    .getByRole('list', { name: /^resources$/i })
+    .getByRole('link')
+    .allInnerTexts();
+  check(
+    JSON.stringify(groups.map((g) => g.toLowerCase())) === '["get started","guides","components","resources"]' &&
+      resources.includes('Migration'),
+    'docs: the sidebar in four groups, the migration guide under Resources',
+    `${groups.join(', ')} · ${resources.join(', ')}`,
+  );
+  // From 1024px, "On this page" is beside the page; the comparison is the last page, with no "Next".
+  const rail = shell.getByRole('navigation', { name: /^on this page$/i });
+  const pager = shell.getByRole('navigation', { name: 'Previous and next pages' });
+  check(
+    (await rail.isVisible()) &&
+      (await rail.getByRole('link').count()) >= 2 &&
+      (await pager.getByText('Next').count()) === 0,
+    'docs at 1024px: "On this page" beside the page, and the pager ends at How it compares',
+  );
+  // The comparison's table has a column for AI Elements as well as assistant-ui.
+  const headers = await shell.locator('main table').first().locator('th').allInnerTexts();
+  check(
+    headers.includes('assistant-ui Elements') && headers.includes('AI Elements'),
+    'docs: the comparison has an AI Elements column',
+    headers.join(', '),
+  );
+  // Edit, report and, when the build has the history, the date of the last change, never after HEAD.
+  const updated = await shell
+    .locator('main time[datetime]')
+    .getAttribute('datetime', { timeout: 1000 })
+    .catch(() => null);
+  check(
+    (await shell.getByRole('link', { name: 'Edit this page on GitHub' }).getAttribute('href')).endsWith(
+      '/edit/main/examples/playground/content/docs/comparison.md',
+    ) &&
+      (await shell.getByRole('link', { name: 'Report an issue' }).getAttribute('href')).includes('/issues/new?') &&
+      (updated === null || new Date(updated) <= head),
+    'docs: edit this page, report an issue, and the last update from git',
+    `updated ${updated}`,
+  );
+  // Page actions: Copy page, and a menu with the Markdown and the two assistants; Escape closes it.
+  await shell.getByRole('button', { name: 'More page actions' }).click();
+  const actions = shell.getByRole('list', { name: 'Page actions' });
+  const actionLinks = await actions.getByRole('link').evaluateAll((links) => links.map((a) => a.href));
+  const actionNames = await actions.locator('li').allInnerTexts();
+  await shell.keyboard.press('Escape');
+  check(
+    ['Copy page as Markdown', 'View as Markdown', 'Open in ChatGPT', 'Open in Claude'].every((name, i) =>
+      actionNames[i]?.startsWith(name),
+    ) &&
+      actionLinks[0].endsWith('/docs/comparison.md') &&
+      actionLinks
+        .slice(1)
+        .every((href) => decodeURIComponent(href).includes('https://signoff-ui.vercel.app/docs/comparison.md')) &&
+      !(await actions.isVisible()) &&
+      (await shell.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'More page actions',
+    'docs: the page actions menu: copy, view as Markdown, ChatGPT and Claude with the .md URL; Escape closes it',
+    actionNames.join(' | '),
+  );
+  await shell.close();
+
+  // Below 1024px, "On this page" is a menu in the docs bar.
+  const tablet = await browser.newPage({ viewport: { width: 768, height: 900 }, colorScheme: 'dark' });
+  await tablet.goto(`${BASE}/docs/getting-started`, { waitUntil: 'networkidle' });
+  const tocButton = tablet.getByRole('button', { name: 'On this page' });
+  await tocButton.click();
+  const tocMenu = tablet.locator('#docs-toc-menu');
+  await tocMenu.getByRole('link', { name: 'Dark mode' }).click();
+  await tablet.waitForTimeout(400);
+  const target = await tablet.evaluate(() => ({
+    hash: location.hash,
+    top: Math.round(document.getElementById('dark-mode')?.getBoundingClientRect().top ?? -1),
+  }));
+  check(
+    !(await tablet.locator('nav[aria-labelledby="toc-heading"]').isVisible()) &&
+      target.hash === '#dark-mode' &&
+      target.top > 100 &&
+      target.top < 300 &&
+      !(await tocMenu.isVisible()),
+    'docs at 768px: "On this page" in the docs bar goes to the section, below the bars, and closes',
+    JSON.stringify(target),
+  );
+
+  // Docs Markdown: a callout, code tabs (Tailwind v4 or not), each block under a bar with its name
+  // or language and the copy button, and steps in the migration guide.
+  const callout = tablet.locator('main aside.callout[data-kind="note"]');
+  const styleTabs = await tablet.getByRole('tablist', { name: 'Code' }).first().getByRole('tab').allInnerTexts();
+  const bars = await tablet.locator('main figure[data-code-block]').evaluateAll((figures) =>
+    figures.map((figure) => {
+      const caption = figure.querySelector('figcaption');
+      const button = figure.querySelector('button[aria-label="Copy code"]');
+      const pre = figure.querySelector('pre');
+      if (!caption || !button || !pre || !caption.textContent.trim()) return 'missing';
+      if (!pre.getClientRects().length) return 'ok';
+      return button.getBoundingClientRect().bottom <= pre.getBoundingClientRect().top + 1 ? 'ok' : 'overlaps';
+    }),
+  );
+  check(
+    (await callout.count()) === 1 &&
+      JSON.stringify(styleTabs) === '["Tailwind v4","Tailwind v3 or no Tailwind"]' &&
+      bars.length > 5 &&
+      bars.every((bar) => bar === 'ok'),
+    'docs: a callout, code tabs, and every code block under a bar with its name and Copy, clear of the code',
+    `${styleTabs.join(', ')} · ${bars.join(', ')}`,
+  );
+  await tablet.goto(`${BASE}/docs/migrating-from-agent-ui-kit`, { waitUntil: 'networkidle' });
+  check(
+    (await tablet.locator('main ol.steps > li').count()) === 3 &&
+      !(await tablet.locator('main').innerText()).includes('<!--'),
+    'docs: numbered steps in the migration guide, and no marker left showing',
+  );
+  await tablet.goto(`${BASE}/docs/labels`, { waitUntil: 'networkidle' });
+  const folded = tablet.locator('main details.code-collapse');
+  check(
+    (await folded.count()) === 1 &&
+      !(await folded.locator('pre').isVisible()) &&
+      (await folded.locator('summary').innerText()).includes('labels-pt.ts'),
+    'docs: the Portuguese labels are folded behind "Show all … lines of labels-pt.ts"',
+  );
+  await tablet.close();
+
+  // Inline code in tables stays whole on a laptop; only long code (over 28 characters) may wrap.
+  const unbroken = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  const broken = [];
+  for (const path of ['/docs', '/docs/limits', '/docs/ag-ui']) {
+    await unbroken.goto(BASE + path, { waitUntil: 'load' });
+    broken.push(
+      ...(await unbroken
+        .locator('main td code, main th code')
+        .evaluateAll((codes) =>
+          codes
+            .filter((code) => !code.dataset.long && code.getClientRects().length > 1)
+            .map((code) => code.textContent),
+        )),
+    );
+  }
+  await unbroken.close();
+  check(broken.length === 0, 'docs at 1440px: no identifier in a table breaks across lines', broken.join(', '));
 
   // The header, the same on the sibling sites: the name and the version on the left; the pages, the
   // theme and GitHub on the right, with a star count only from 10 stars. Then the footer's columns.
@@ -345,20 +517,41 @@ try {
   );
   await wide.close();
 
-  // No page scrolls sideways, on a phone, a tablet or a laptop, in either theme.
+  // No page scrolls sideways, and nothing spills out of a docs article, on a phone, a tablet or a
+  // laptop, in either theme.
   const sideways = [];
   for (const colorScheme of ['light', 'dark']) {
-    for (const width of [390, 768, 1440]) {
+    for (const width of [390, 768, 1024, 1440]) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme });
-      for (const path of ['/', '/gallery', '/docs', '/docs/getting-started', '/docs/components/diff-review', '/nope']) {
+      for (const path of [
+        '/',
+        '/components',
+        '/docs',
+        '/docs/getting-started',
+        '/docs/ag-ui',
+        '/docs/components/diff-review',
+        '/docs/components/use-approval-policy',
+        '/nope',
+      ]) {
         await page.goto(BASE + path, { waitUntil: 'load' });
-        const wider = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        // The page, and a docs article (whose tables and code blocks scroll on their own).
+        const wider = await page.evaluate(() => {
+          const article = document.querySelector('main article');
+          return Math.max(
+            document.documentElement.scrollWidth - innerWidth,
+            article ? article.scrollWidth - article.clientWidth : 0,
+          );
+        });
         if (wider > 0) sideways.push(`${path} at ${width}px, ${colorScheme}: ${wider}px`);
       }
       await page.close();
     }
   }
-  check(sideways.length === 0, 'no page scrolls sideways at 390, 768 or 1440px, light or dark', sideways.join('; '));
+  check(
+    sideways.length === 0,
+    'no page scrolls sideways at 390, 768, 1024 or 1440px, light or dark',
+    sideways.join('; '),
+  );
 
   // On a phone the run starts on load and grows past the screen; the page must not follow it
   // (and scroll the headline away) until the reader scrolls down or starts a run.
@@ -418,8 +611,8 @@ try {
     menuLinks.join(', '),
   );
   await phone.locator('#site-menu').getByRole('link', { name: 'Components' }).click();
-  await phone.waitForURL(/\/gallery$/, { timeout: 10_000 }).catch(() => {});
-  check(new URL(phone.url()).pathname === '/gallery', 'phone: the menu reaches the components page', phone.url());
+  await phone.waitForURL(/\/components$/, { timeout: 10_000 }).catch(() => {});
+  check(new URL(phone.url()).pathname === '/components', 'phone: the menu reaches the components page', phone.url());
   await phoneContext.close();
 
   // Through a whole run from the keyboard: after the review is applied, the reader stays with the
@@ -462,35 +655,35 @@ try {
   check(ttftMs >= 100, 'replay: the new run times its first token from its own request', `TTFT ${ttft?.join('')}`);
   await replay.close();
 
-  // The gallery: the anchors launch posts link to, npm snippets that bring the styles, and the
+  // The components page: the anchors launch posts link to, npm snippets that bring the styles, and the
   // header's theme switch, which re-themes the page and the frames, with no axe violations
   // (contrast included) and remembered on the next visit.
   const gallery = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
-  await gallery.goto(`${BASE}/gallery`, { waitUntil: 'networkidle' });
+  await gallery.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
   const anchors = ['agent-status', 'tool-call-timeline', 'approval-card', 'diff-review', 'run-meter', 'sources'];
   anchors.push('theming', 'labels', 'agent-message', 'ag-ui', 'acp');
   const missing = await gallery.evaluate((ids) => ids.filter((id) => !document.getElementById(id)), anchors);
-  check(missing.length === 0, 'gallery: every section anchor is there', missing.join(', '));
+  check(missing.length === 0, 'components page: every section anchor is there', missing.join(', '));
   const portuguese = await gallery.locator('#labels [lang="pt-PT"]').evaluate((el) => ({
     review: el.querySelector('[data-slot="signoff-diff-review"]')?.getAttribute('aria-label'),
     approval: el.querySelector('[data-slot="signoff-approval-card"]')?.textContent ?? '',
   }));
   check(
     portuguese.review === 'Rever alterações' && portuguese.approval.includes('Aprovação necessária'),
-    'gallery: the labels section is in Portuguese',
+    'components page: the labels section is in Portuguese',
     JSON.stringify(portuguese).slice(0, 200),
   );
   const snippets = await gallery.locator('pre:visible').allInnerTexts();
   check(
     snippets.some((text) => text.includes("import 'signoff-ui/styles.css';")),
-    'gallery: the npm snippets import the styles',
+    'components page: the npm snippets import the styles',
   );
   await gallery.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Light' }).click();
   const frame = await gallery.$eval('[data-shot="approval-card"]', (el) => getComputedStyle(el).backgroundColor);
   const page = await gallery.evaluate(() => getComputedStyle(document.body).backgroundColor);
   check(
     frame === 'rgb(255, 255, 255)' && page === 'rgb(255, 255, 255)',
-    'gallery: the theme switch turns the page and the frames light',
+    'components page: the theme switch turns the page and the frames light',
     `frame ${frame}, page ${page}`,
   );
   await gallery.reload({ waitUntil: 'networkidle' });
@@ -508,13 +701,13 @@ try {
           .join(', ')}`,
     ),
   );
-  check(violations.length === 0, 'gallery, light: no axe violations', violations.join('; '));
+  check(violations.length === 0, 'components page, light: no axe violations', violations.join('; '));
   await gallery.close();
 
   // The ACP demo: a scripted agent's turn, its edit shown as a diff on the card that asks permission,
   // the agent's options as the card's choices, and the turn carrying on after each answer.
   const acpPage = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
-  await acpPage.goto(`${BASE}/gallery#acp`, { waitUntil: 'networkidle' });
+  await acpPage.goto(`${BASE}/components#acp`, { waitUntil: 'networkidle' });
   const acp = acpPage.locator('#acp');
   await acp.getByRole('button', { name: 'Run the ACP agent' }).click();
   const editCard = acp.getByRole('group', { name: /Edit lib\/format\.ts/ });
@@ -525,7 +718,7 @@ try {
     .evaluateAll((els) => els.map((el) => el.dataset.decision).sort());
   check(
     diff.includes('lib/format.ts') && JSON.stringify(choices) === '["allow-always","allow-once","deny-once"]',
-    "gallery: the ACP edit shows its diff and offers the agent's options",
+    "components page: the ACP edit shows its diff and offers the agent's options",
     `${choices.join(', ')} · ${diff.slice(0, 80)}`,
   );
   await acpPage.mouse.move(0, 0);
@@ -542,7 +735,7 @@ try {
   );
   check(
     acpViolations.length === 0,
-    'gallery: the ACP edit card, with its diff, has no axe violations',
+    'components page: the ACP edit card, with its diff, has no axe violations',
     acpViolations.join('; '),
   );
   await editCard.getByRole('button', { name: 'Always' }).click();
@@ -554,7 +747,7 @@ try {
   const edited = await editCard.getAttribute('data-status');
   check(
     acpState === 'done' && edited === 'approved',
-    'gallery: the ACP turn carries on after each answer and ends done',
+    'components page: the ACP turn carries on after each answer and ends done',
     `${acpState}, edit ${edited}`,
   );
   await acpPage.close();
@@ -563,7 +756,7 @@ try {
   // the worker diffs it, the review says it fell back to one replacing hunk, and only the rows near
   // the screen are in the DOM, with no axe violations.
   const large = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
-  await large.goto(`${BASE}/gallery`, { waitUntil: 'networkidle' });
+  await large.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
   const workers = [];
   large.on('worker', (worker) => workers.push(worker.url()));
   await large.evaluate(() => {
@@ -580,7 +773,7 @@ try {
   const nodes = await review.evaluate((el) => el.querySelectorAll('*').length);
   check(
     workers.length > 0 && busiest < 400 && nodes < 20_000,
-    'gallery: a 5,000-line rewrite is diffed in a worker, and renders what is near the screen',
+    'components page: a 5,000-line rewrite is diffed in a worker, and renders what is near the screen',
     `workers ${JSON.stringify(workers)}, longest task ${Math.round(busiest)} ms, ${nodes} elements`,
   );
   await large.addScriptTag({ content: readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8') });
@@ -589,13 +782,17 @@ try {
       (v) => v.id,
     ),
   );
-  check(largeViolations.length === 0, 'gallery: the large review has no axe violations', largeViolations.join(', '));
+  check(
+    largeViolations.length === 0,
+    'components page: the large review has no axe violations',
+    largeViolations.join(', '),
+  );
   await large.close();
 
   // On a phone, diff hunks, code and the compact run meter scroll sideways: each must be reachable
   // from the keyboard while it does (axe's scrollable-region-focusable, WCAG 2.1.1).
   const narrow = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
-  await narrow.goto(`${BASE}/gallery`, { waitUntil: 'networkidle' });
+  await narrow.goto(`${BASE}/components`, { waitUntil: 'networkidle' });
   await narrow.waitForTimeout(800);
   await narrow.addScriptTag({ content: readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8') });
   const unreachable = await narrow.evaluate(async () =>
@@ -603,7 +800,11 @@ try {
       await window.axe.run(document, { runOnly: ['scrollable-region-focusable'], resultTypes: ['violations'] })
     ).violations.flatMap((v) => v.nodes.map((n) => n.target.join(' '))),
   );
-  check(unreachable.length === 0, 'gallery, 390px: every sideways scroller is reachable', unreachable.join(', '));
+  check(
+    unreachable.length === 0,
+    'components page, 390px: every sideways scroller is reachable',
+    unreachable.join(', '),
+  );
   await narrow.close();
 } finally {
   await browser.close();

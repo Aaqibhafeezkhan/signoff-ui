@@ -14,7 +14,7 @@ export type Page = 'docs' | 'components';
 // The logo goes home, to the playground.
 const PAGES: Array<{ page: Page; href: string; label: string }> = [
   { page: 'docs', href: '/docs', label: 'Docs' },
-  { page: 'components', href: '/gallery', label: 'Components' },
+  { page: 'components', href: '/components', label: 'Components' },
 ];
 
 const MENU_ID = 'site-menu';

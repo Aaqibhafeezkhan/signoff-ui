@@ -2,16 +2,42 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { NavGroup, SearchIndex } from '@/lib/docs';
 import { Sheet } from '../controls';
 import { MenuIcon } from '../icons';
 
 /*
- * The docs navigation: a sticky sidebar on wide screens, a bar with a menu button on phones. Both
- * have the search box, a filter over page and section titles. / focuses it, and so does ⌘K or
- * Ctrl+K unless the site has Ask, which takes ⌘K.
+ * The docs navigation: a sticky sidebar on wide screens, a bar with a menu button on phones and
+ * tablets. Both have the search box, over every page's title, sections and text, and every prop.
+ * / focuses it, and so does ⌘K or Ctrl+K unless the site has Ask, which takes ⌘K. The index
+ * loads the first time the search is used.
  */
+
+let index: SearchIndex | undefined;
+let loading: Promise<void> | undefined;
+const listeners = new Set<() => void>();
+
+function loadIndex() {
+  loading ??= fetch('/docs/search-index.json')
+    .then((response) => (response.ok ? (response.json() as Promise<SearchIndex>) : []))
+    .catch(() => [])
+    .then((loaded) => {
+      index = loaded;
+      for (const listener of listeners) listener();
+    });
+}
+
+function useSearchIndex() {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    () => index,
+    () => undefined,
+  );
+}
 
 /** Lowercase words, with common endings dropped, so "theme" finds "Theming" and "approvals" "approval". */
 function terms(text: string) {
@@ -28,28 +54,54 @@ function hit(query: string[], text: string) {
   return query.every((q) => words.some((word) => word.startsWith(q)));
 }
 
+/** A line of the text around the first term, for a match in a section's body. */
+function snippet(query: string[], text: string) {
+  const escaped = query[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const at = new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}`, 'iu').exec(text)?.index ?? 0;
+  const start = Math.max(0, text.lastIndexOf(' ', Math.max(0, at - 40)));
+  const end = text.indexOf(' ', Math.min(text.length, at + 90));
+  return `${start > 0 ? '…' : ''}${text.slice(start, end === -1 ? undefined : end).trim()}${end === -1 ? '' : '…'}`;
+}
+
+interface Result {
+  title: string;
+  page?: string;
+  href: string;
+  snippet?: string;
+}
+
+/** Title matches first (pages, then sections), then sections whose text matches. */
 function matches(query: string, index: SearchIndex) {
   const q = terms(query);
   if (q.length === 0) return [];
-  const results: Array<{ title: string; page?: string; href: string }> = [];
+  const ranked: Array<Result & { rank: number }> = [];
   for (const page of index) {
-    if (hit(q, `${page.title} ${page.description}`)) results.push({ title: page.title, href: page.href });
+    if (hit(q, `${page.title} ${page.description}`)) ranked.push({ title: page.title, href: page.href, rank: 0 });
+    else if (hit(q, page.text))
+      ranked.push({ title: page.title, href: page.href, snippet: snippet(q, page.text), rank: 2 });
     for (const section of page.sections) {
-      if (hit(q, section.title)) results.push({ title: section.title, page: page.title, href: section.href });
+      if (hit(q, section.title)) ranked.push({ title: section.title, page: page.title, href: section.href, rank: 1 });
+      else if (hit(q, `${section.title} ${section.text}`)) {
+        ranked.push({
+          title: section.title,
+          page: page.title,
+          href: section.href,
+          snippet: snippet(q, section.text),
+          rank: 2,
+        });
+      }
     }
   }
-  return results.slice(0, 40);
+  return ranked.sort((a, b) => a.rank - b.rank).slice(0, 40);
 }
 
 function NavLinks({
   nav,
-  index,
   shortcut,
   onNavigate,
   autoFocusSearch = false,
 }: {
   nav: NavGroup[];
-  index: SearchIndex;
   shortcut: string;
   onNavigate?: () => void;
   autoFocusSearch?: boolean;
@@ -58,7 +110,8 @@ function NavLinks({
   const [query, setQuery] = useState('');
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const results = matches(query, index);
+  const index = useSearchIndex();
+  const results = index ? matches(query, index) : [];
 
   useEffect(() => {
     if (autoFocusSearch) inputRef.current?.focus();
@@ -83,7 +136,11 @@ function NavLinks({
           data-docs-search
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onFocus={loadIndex}
+          onChange={(event) => {
+            loadIndex();
+            setQuery(event.target.value);
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Escape') setQuery('');
           }}
@@ -102,15 +159,22 @@ function NavLinks({
       {query.trim() ? (
         <div>
           <p className="sr-only" aria-live="polite">
-            {results.length === 1 ? '1 result' : `${results.length} results`}
+            {index ? (results.length === 1 ? '1 result' : `${results.length} results`) : ''}
           </p>
-          {results.length ? (
+          {!index ? (
+            <p className="text-fg-subtle px-2.5 text-[13px]">Searching…</p>
+          ) : results.length ? (
             <ul className="flex flex-col gap-0.5" aria-label="Search results">
               {results.map((result) => (
                 <li key={result.href}>
                   <Link href={result.href} onClick={onNavigate} className={`${link(false)} flex-col items-start`}>
                     {result.page && <span className="text-fg-subtle font-mono text-[10.5px]">{result.page}</span>}
                     <span>{result.title}</span>
+                    {result.snippet && (
+                      <span className="text-fg-subtle mt-0.5 line-clamp-2 text-[12.5px] leading-snug">
+                        {result.snippet}
+                      </span>
+                    )}
                   </Link>
                 </li>
               ))}
@@ -152,13 +216,14 @@ function NavLinks({
   );
 }
 
+/** Where a docs page puts its "On this page" menu in the bar below 1024px (components/docs/toc.tsx). */
+export const TOC_SLOT_ID = 'docs-toc-slot';
+
 export function DocsSidebar({
   nav,
-  index,
   ask = false,
 }: {
   nav: NavGroup[];
-  index: SearchIndex;
   /** The site has Ask, which takes ⌘K (components/ask.tsx); the search keeps `/`. */
   ask?: boolean;
 }) {
@@ -167,7 +232,7 @@ export function DocsSidebar({
   const current = nav.flatMap((group) => group.items).find((item) => item.href === pathname);
   const shortcut = ask ? '/' : '⌘K';
 
-  // ⌘K / Ctrl+K, or / outside a text field: the search box, in the sidebar or, on phones, in the menu.
+  // ⌘K / Ctrl+K, or / outside a text field: the search box, in the sidebar or, on phones and tablets, in the menu.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const command = event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !ask;
@@ -176,6 +241,7 @@ export function DocsSidebar({
       const slash = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typing;
       if (!command && !slash) return;
       event.preventDefault();
+      loadIndex();
       const input = [...document.querySelectorAll<HTMLInputElement>('[data-docs-search]')].find(
         (el) => el.offsetParent !== null,
       );
@@ -188,7 +254,7 @@ export function DocsSidebar({
 
   return (
     <>
-      {/* Phones and tablets: the current page and a menu button, under the site header. */}
+      {/* Phones and tablets: the current page and a menu button, then the page's sections, under the site header. */}
       <div className="border-line/80 bg-ink/95 sticky top-14 z-30 -mx-4 flex h-12 items-center gap-3 border-b px-4 backdrop-blur-md sm:-mx-6 sm:px-6 lg:hidden">
         <button
           type="button"
@@ -208,9 +274,10 @@ export function DocsSidebar({
             </>
           )}
         </button>
+        <div id={TOC_SLOT_ID} className="ml-auto shrink-0" />
       </div>
       <Sheet id="docs-menu" open={open} onClose={() => setOpen(false)} title="Docs">
-        {open && <NavLinks nav={nav} index={index} shortcut={shortcut} onNavigate={() => setOpen(false)} />}
+        {open && <NavLinks nav={nav} shortcut={shortcut} onNavigate={() => setOpen(false)} />}
       </Sheet>
 
       {/* Wide screens: a sticky sidebar. */}
@@ -218,7 +285,7 @@ export function DocsSidebar({
         aria-label="Docs"
         className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] [scrollbar-width:thin] overflow-y-auto overscroll-contain py-8 pr-2 lg:block"
       >
-        <NavLinks nav={nav} index={index} shortcut={shortcut} />
+        <NavLinks nav={nav} shortcut={shortcut} />
       </nav>
     </>
   );

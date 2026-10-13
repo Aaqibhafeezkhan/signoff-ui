@@ -1,6 +1,6 @@
 [AG-UI](https://docs.ag-ui.com) is the open protocol that LangGraph, CrewAI, Mastra, Pydantic AI and other agent frameworks use to stream runs to a frontend. `signoff-ui/ag-ui` turns an AG-UI agent into the same message parts the AI SDK produces, so every component works with it unchanged, approvals included.
 
-Want to see it first? The [components page](/gallery#ag-ui) runs a real `@ag-ui/client` agent replaying a LangGraph-style run, with an interrupt you can approve or deny.
+Want to see it first? The [components page](/components#ag-ui) runs a real `@ag-ui/client` agent replaying a LangGraph-style run, with an interrupt you can approve or deny.
 
 ## Install
 
@@ -66,7 +66,7 @@ Create the agent once, outside the component or in a `useMemo`: the hook subscri
 | `respond`    | Answers a tool-call interrupt; pass it as `AgentMessage`'s `onToolApproval`     |
 | `resolve`    | Answers any interrupt with your own payload                                     |
 | `editInput`  | Arguments a person edited, sent with the approval; pass it as `onToolInputEdit` |
-| `stop`       | Aborts the run in progress; it ends as cancelled, so it reads as `stopped`      |
+| `stop`       | Aborts the run in progress; it ends as canceled, so it reads as `stopped`       |
 
 ## How events map
 

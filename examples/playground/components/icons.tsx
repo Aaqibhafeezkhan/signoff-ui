@@ -75,6 +75,14 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Stroke>
+  );
+}
+
 export function SparkIcon(props: IconProps) {
   return (
     <Stroke strokeWidth={1.8} {...props}>

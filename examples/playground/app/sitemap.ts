@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { componentHref, COMPONENTS } from '@/lib/components';
+import { componentHref, COMPONENTS, componentSources } from '@/lib/components';
 import { GUIDES } from '@/lib/docs';
 import { lastModified } from '@/lib/git';
 import { SITE_URL } from '@/lib/site';
@@ -18,11 +18,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   });
   return [
     page('', 1, [`${PG}/app/(home)`, `${PG}/components/hero.tsx`, `${PG}/components/landing.tsx`]),
-    page('/gallery', 0.8, [`${PG}/app/gallery`, `${PG}/components/demos`]),
+    page('/components', 0.8, [`${PG}/app/components`, `${PG}/components/demos`]),
     ...GUIDES.map((doc) => page(doc.href, 0.8, [`${PG}/content/docs/${doc.slug}.md`])),
-    // A component's page: its "How it works", and its source, whose types are the API reference.
-    ...COMPONENTS.map((c) =>
-      page(componentHref(c.slug), 0.7, [`${PG}/content/components/${c.slug}.md`, `packages/signoff-ui/src/${c.file}`]),
-    ),
+    ...COMPONENTS.map((c) => page(componentHref(c.slug), 0.7, componentSources(c))),
   ];
 }

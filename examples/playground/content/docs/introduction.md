@@ -104,4 +104,4 @@ To read them instead, [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) list
 - [Agent Client Protocol](/docs/acp): an ACP prompt turn, its permission requests and its edits, through `signoff-ui/acp`.
 - [useApprovalPolicy](/docs/components/use-approval-policy): approval rules on the page and in your route.
 - [useDiffReview](/docs/components/use-diff-review): the review in your own markup.
-- [Components](/gallery): each component in isolation, with install snippets.
+- [Components](/components): each component in isolation, with install snippets.
