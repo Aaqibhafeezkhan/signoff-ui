@@ -473,7 +473,7 @@ try {
 
   // Docs Markdown: a callout, code tabs (Tailwind v4 or not), each block under a bar with its name
   // or language and the copy button, and steps in the migration guide.
-  const callout = tablet.locator('main aside.callout[data-kind="note"]');
+  const callout = tablet.locator('main [role="note"].callout[data-kind="note"]');
   const styleTabs = await tablet.getByRole('tablist', { name: 'Code' }).first().getByRole('tab').allInnerTexts();
   const bars = await tablet.locator('main figure[data-code-block]').evaluateAll((figures) =>
     figures.map((figure) => {
@@ -487,10 +487,11 @@ try {
   );
   check(
     (await callout.count()) === 1 &&
+      (await tablet.locator('main aside.callout').count()) === 0 &&
       JSON.stringify(styleTabs) === '["Tailwind v4","Tailwind v3 or no Tailwind"]' &&
       bars.length > 5 &&
       bars.every((bar) => bar === 'ok'),
-    'docs: a callout, code tabs, and every code block under a bar with its name and Copy, clear of the code',
+    'docs: a callout (a note, not a landmark), code tabs, and every code block under a bar with its name and Copy, clear of the code',
     `${styleTabs.join(', ')} · ${bars.join(', ')}`,
   );
   await tablet.goto(`${BASE}/docs/migrating-from-agent-ui-kit`, { waitUntil: 'networkidle' });
