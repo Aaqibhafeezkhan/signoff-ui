@@ -132,7 +132,7 @@ export function RunControls({
 }
 
 const iconButton =
-  'inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-raised text-fg transition-colors hover:border-line-strong hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-soft disabled:cursor-not-allowed disabled:opacity-45';
+  'tap-target relative inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-raised text-fg transition-colors hover:border-line-strong hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-soft disabled:cursor-not-allowed disabled:opacity-45';
 
 /** Phones: pause, replay and a button for the rest of the controls, next to the status pill. */
 export function CompactRunControls({

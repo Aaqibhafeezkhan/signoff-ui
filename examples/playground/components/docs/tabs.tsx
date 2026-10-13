@@ -30,7 +30,7 @@ export function Tabs({ label, labels, children }: { label: string; labels: strin
               event.preventDefault();
               select((i + step + labels.length) % labels.length, true);
             }}
-            className={`focus-visible:outline-cyan-soft -mb-px cursor-pointer border-b-2 px-2.5 py-2 font-mono text-[12px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 ${
+            className={`tap-target focus-visible:outline-cyan-soft relative -mb-px cursor-pointer border-b-2 px-2.5 py-2 font-mono text-[12px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 ${
               selected === i ? 'border-cyan text-fg' : 'text-fg-subtle hover:text-fg border-transparent'
             }`}
           >

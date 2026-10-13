@@ -117,6 +117,22 @@ body {
   font-feature-settings: 'ss01', 'cv11';
 }
 
+/*
+ * On a touch screen a small control gets a hit area of at least 44 by 44 px without changing how
+ * it looks. The control must be positioned (relative or absolute).
+ */
+@media (pointer: coarse) {
+  .tap-target::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* The page behind a modal sheet stays put. */
 html:has(dialog:modal) {
   overflow: hidden;
@@ -233,6 +249,13 @@ html:has(dialog:modal) {
 .docs-prose > :first-child {
   margin-top: 0;
 }
+/*
+ * Prose reads at about 75 characters a line (35rem at 15px); code, tables, callouts, steps, cards
+ * and demos keep the column's full width.
+ */
+.docs-prose > :is(p, ul:not(.cards), ol:not(.steps, .cards), blockquote, h2, h3, h4) {
+  max-width: 35rem;
+}
 .docs-prose .heading-anchor {
   color: inherit;
   text-decoration: none;
@@ -283,6 +306,9 @@ html:has(dialog:modal) {
 }
 .docs-prose li + li {
   margin-top: 0.5rem;
+}
+.docs-prose .cards > li + li {
+  margin-top: 0;
 }
 .docs-prose li::marker {
   color: var(--color-fg-faint);
@@ -351,6 +377,44 @@ html:has(dialog:modal) {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+/*
+ * Cards: a list after <!-- cards -->, each item a card with its bold lead as the title. Two columns
+ * from 40rem, three when there are exactly three, and an odd last card spans the row, so no row
+ * is left with one card.
+ */
+.docs-prose :is(ul, ol).cards {
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 0;
+  list-style: none;
+}
+@media (min-width: 40rem) {
+  .docs-prose :is(ul, ol).cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .docs-prose :is(ul, ol).cards:has(> li:nth-child(3):last-child) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .docs-prose :is(ul, ol).cards:not(:has(> li:nth-child(3):last-child)) > li:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+.docs-prose .cards > li {
+  margin: 0;
+  padding: 0.9rem 1.05rem 1rem;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.docs-prose .cards > li > strong:first-child,
+.docs-prose .cards > li > p:first-child > strong:first-child {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 14.5px;
+  line-height: 1.45;
 }
 /* Steps: an ordered list after <!-- steps -->, numbered in circles joined by a line. */
 .docs-prose ol.steps {
@@ -517,6 +581,13 @@ pre.shiki .line.diff-add {
 }
 pre.shiki .line.diff-del {
   background: var(--signoff-del-bg);
+}
+/* The DiffReview card's glimpse on the home page: a few lines, cut rather than wrapped. */
+.code-block .kit-preview-code pre.shiki {
+  overflow: hidden;
+  padding: 0.6rem 1rem;
+  font-size: 12px;
+  line-height: 1.65;
 }
 /* A type in the API reference, inline: Shiki's spans with the theme's colour for the page's theme. */
 .type-code span {

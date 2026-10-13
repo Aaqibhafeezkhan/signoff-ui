@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
+import { highlight } from '@/lib/highlight';
 import { CodeBlock } from './docs/code-block';
 import { CallsToAction } from './hero';
 import { ArrowRightIcon } from './icons';
@@ -13,26 +14,47 @@ import { shadcnAdd } from '@/lib/site';
  * the only client code is the copy button.
  */
 
-const KIT: Array<{ name: string; id: string; description: ReactNode; meta: string }> = [
+interface KitItem {
+  name: string;
+  id: string;
+  description: ReactNode;
+  /** One line at the card's foot; or `keys`, the shortcuts as key caps. */
+  meta?: string;
+  keys?: Array<{ keys: string[]; action: string }>;
+  /** The sign-off pair: a wide card with a glimpse of the component. */
+  preview?: 'diff' | 'approval';
+}
+
+// The sign-off pair first, wide, then the hooks behind them and the rest of the run: at four
+// columns that is rows of 2, 4 and 4, and at two, rows of 2.
+const KIT: KitItem[] = [
   {
     name: 'DiffReview',
     id: 'diff-review',
     description:
       'Accept or reject an agent’s edits hunk by hunk, across files, with your own controls in its header. Returns each file with only the accepted hunks applied.',
-    meta: 'J K move · A R decide',
-  },
-  {
-    name: 'useDiffReview',
-    id: 'use-diff-review',
-    description: 'The same review without its markup: its state, keyboard and result, for your own design system.',
-    meta: 'your markup, its keyboard',
+    keys: [
+      { keys: ['J', 'K'], action: 'move' },
+      { keys: ['A', 'R'], action: 'decide' },
+    ],
+    preview: 'diff',
   },
   {
     name: 'ApprovalCard',
     id: 'approval-card',
     description:
       'Approve or deny a tool call once, for the session or always: exactly what will run, how risky it is, and a reason the agent reads. Automatic decisions are shown as such.',
-    meta: 'Y approve · N deny',
+    keys: [
+      { keys: ['Y'], action: 'approve' },
+      { keys: ['N'], action: 'deny' },
+    ],
+    preview: 'approval',
+  },
+  {
+    name: 'useDiffReview',
+    id: 'use-diff-review',
+    description: 'The same review without its markup: its state, keyboard and result, for your own design system.',
+    meta: 'your markup, its keyboard',
   },
   {
     name: 'useApprovalPolicy',
@@ -57,7 +79,7 @@ const KIT: Array<{ name: string; id: string; description: ReactNode; meta: strin
     id: 'tool-call-timeline',
     description:
       'Every tool call with its state, duration and a waterfall, and sub-agents nested under the call that started them. Errors show inline; input and output on demand.',
-    meta: '↑ ↓ between calls',
+    keys: [{ keys: ['↑', '↓'], action: 'between calls' }],
   },
   {
     name: 'RunMeter',
@@ -85,6 +107,73 @@ const KIT: Array<{ name: string; id: string; description: ReactNode; meta: strin
     meta: 'signoff-ui/ag-ui',
   },
 ];
+
+// Part of the change the scripted run proposes (lib/scenario.ts), for the DiffReview card.
+const PREVIEW_DIFF = [
+  '+  const { success, reset } = await ratelimit.limit(ip);',
+  '+  if (!success) {',
+  "-  model: openai('gpt-4o'),",
+  "+  model: openai('gpt-4.1-mini'),",
+].join('\n');
+
+/** A glimpse of a review: a few changed lines, highlighted at build time. Decoration; the card's text says it. */
+async function DiffPreview() {
+  // Shiki's HTML for the lines above; not focusable, since the card is already a link.
+  const html = (await highlight(PREVIEW_DIFF, 'diff')).replace(' tabindex="0"', '');
+  return (
+    <div aria-hidden="true" className="code-block">
+      <div className="code-title flex items-center justify-between gap-3">
+        <span className="truncate">app/api/chat/route.ts</span>
+        <span className="shrink-0">
+          <span className="text-cyan-soft">+11</span> <span className="text-magenta-soft">−1</span>
+        </span>
+      </div>
+      <div className="kit-preview-code" dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+/** A glimpse of an approval: what will run and how risky it is. Decoration; the card's text says it. */
+function ApprovalPreview() {
+  return (
+    <div aria-hidden="true" className="code-block px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-magenta-soft font-mono text-[10.5px] font-medium tracking-[0.08em] uppercase">
+          Approval required
+        </span>
+        <span className="border-magenta/40 text-magenta-soft rounded-full border px-2 py-px text-[11px] font-medium">
+          High risk
+        </span>
+      </div>
+      <p className="text-fg-subtle mt-2.5 font-mono text-[11.5px]">~/acme/chat-app</p>
+      <p className="mt-0.5 truncate font-mono text-[13px]">
+        <span className="term-prompt">$ </span>
+        <span className="term-command">pnpm add @upstash/ratelimit</span>
+      </p>
+    </div>
+  );
+}
+
+/** Shortcuts as key caps, each with what it does. */
+function KeyHints({ hints }: { hints: NonNullable<KitItem['keys']> }) {
+  return (
+    <span className="text-fg-subtle flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-[11px]">
+      {hints.map((hint) => (
+        <span key={hint.action} className="inline-flex items-center gap-1">
+          {hint.keys.map((key) => (
+            <kbd
+              key={key}
+              className="border-line-strong bg-surface text-fg-soft inline-flex h-5 min-w-5 items-center justify-center rounded-[4px] border border-b-2 px-1 text-[10.5px]"
+            >
+              {key}
+            </kbd>
+          ))}
+          <span className="ml-0.5">{hint.action}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string; language: string }> = [
   {
@@ -212,17 +301,27 @@ export function Landing() {
         </SectionHeading>
         <ul className="mt-8 grid gap-3 sm:mt-10 sm:grid-cols-2 lg:grid-cols-4">
           {KIT.map((item) => (
-            <li key={item.id} className="flex">
+            // min-w-0: the preview's lines are cut, so they mustn't widen the column.
+            <li key={item.id} className={`flex min-w-0 ${item.preview ? 'lg:col-span-2' : ''}`}>
               <a
                 href={`/docs/components/${item.id}`}
-                className="group border-line bg-raised/40 focus-visible:outline-cyan-soft hover:border-line-strong hover:bg-surface-2 relative flex w-full flex-col rounded-xl border p-4 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5"
+                className="group border-line bg-raised/40 focus-visible:outline-cyan-soft hover:border-line-strong hover:bg-surface-2 relative flex w-full min-w-0 flex-col rounded-xl border p-4 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5"
               >
                 <span className="flex items-center justify-between gap-3">
                   <span className="text-fg font-mono text-[14px] font-semibold">{item.name}</span>
                   <ArrowRightIcon className="text-fg-faint group-hover:text-fg-muted size-4 transition-[color,translate] group-hover:translate-x-0.5 motion-reduce:transition-none" />
                 </span>
                 <span className="text-fg-muted mt-2 text-[13.5px] leading-relaxed">{item.description}</span>
-                <span className="text-fg-subtle mt-auto pt-3 font-mono text-[11px] sm:pt-4">{item.meta}</span>
+                {item.preview && (
+                  <div className="mt-4">{item.preview === 'diff' ? <DiffPreview /> : <ApprovalPreview />}</div>
+                )}
+                <span className="mt-auto pt-3 sm:pt-4">
+                  {item.keys ? (
+                    <KeyHints hints={item.keys} />
+                  ) : (
+                    <span className="text-fg-subtle font-mono text-[11px]">{item.meta}</span>
+                  )}
+                </span>
               </a>
             </li>
           ))}

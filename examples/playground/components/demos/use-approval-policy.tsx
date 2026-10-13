@@ -90,7 +90,7 @@ export function UseApprovalPolicyDemo() {
               key={command}
               type="button"
               onClick={() => setParts((all) => [...all, ask(command)])}
-              className="border-line text-fg-soft hover:text-fg focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 font-mono text-xs focus-visible:outline-2"
+              className="tap-target border-line text-fg-soft hover:text-fg hover:border-line-strong focus-visible:outline-cyan-soft relative inline-flex h-7 cursor-pointer items-center rounded-md border px-2 font-mono text-xs transition-colors focus-visible:outline-2"
             >
               {command}
             </button>
@@ -98,7 +98,7 @@ export function UseApprovalPolicyDemo() {
           <button
             type="button"
             onClick={() => setParts((all) => [...all, ask('npm test'), ask('npm run lint')])}
-            className="border-line text-fg-soft hover:text-fg focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2"
+            className="tap-target border-line text-fg-soft hover:text-fg hover:border-line-strong focus-visible:outline-cyan-soft relative inline-flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs transition-colors focus-visible:outline-2"
           >
             two at once
           </button>
@@ -142,13 +142,17 @@ export function UseApprovalPolicyDemo() {
         </div>
         <div>
           <h3 className="text-fg mb-1.5 font-medium">Audit trail</h3>
-          <ol className="text-fg-muted flex flex-col gap-1 font-mono text-[11px] leading-relaxed">
-            {log.map((event, i) => (
-              <li key={`${event.at}-${i}`}>
-                <AuditLine event={event} />
-              </li>
-            ))}
-          </ol>
+          {log.length === 0 ? (
+            <p className="text-fg-subtle">No decisions yet: each one lands here, with who made it.</p>
+          ) : (
+            <ol className="text-fg-muted flex flex-col gap-1 font-mono text-[11px] leading-relaxed">
+              {log.map((event, i) => (
+                <li key={`${event.at}-${i}`}>
+                  <AuditLine event={event} />
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
       </aside>
     </div>

@@ -24,7 +24,7 @@ export default function NotFound() {
       <Header />
       <main id="main" className="mx-auto w-full max-w-[1320px] px-4 py-16 sm:px-6 sm:py-20">
         <p className="text-cyan-soft font-mono text-[12px]">404</p>
-        <h1 className="text-fg-strong mt-2 text-[28px] leading-tight font-semibold tracking-[-0.025em] sm:text-[34px]">
+        <h1 className="text-fg-strong mt-2 text-[30px] leading-tight font-semibold tracking-[-0.025em] sm:text-[36px]">
           Page not found
         </h1>
         <p className="text-fg-muted mt-3 max-w-[42rem] text-[15px] leading-relaxed">

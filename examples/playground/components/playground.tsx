@@ -430,7 +430,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
             <button
               type="button"
               onClick={replay}
-              className="border-line hover:bg-raised focus-visible:outline-cyan-soft text-fg hover:border-line-strong ml-auto inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2"
+              className="border-line hover:bg-raised focus-visible:outline-cyan-soft text-fg hover:border-line-strong inline-flex h-10 cursor-pointer items-center justify-center rounded-lg border px-3 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 max-sm:w-full sm:ml-auto sm:h-8"
             >
               Replay run
             </button>
@@ -497,6 +497,8 @@ function ReviewStep({ files, onSubmit }: { files: FileChange[]; onSubmit: (resul
 function AppliedChanges({ files, output }: { files: FileChange[]; output: ReviewOutput }) {
   const decisions = decisionsFrom(output);
   const parsed = files.map((f) => parseFileChange(f));
+  // Out of every hunk in the review, decided or not: "Applied 0 of 4", not "0 of 0".
+  const total = parsed.reduce((sum, file) => sum + file.hunks.length, 0);
   return (
     <div className="border-line bg-raised/60 rounded-xl border">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
@@ -513,7 +515,7 @@ function AppliedChanges({ files, output }: { files: FileChange[]; output: Review
           <path d="M5 12.5 9.5 17 19 7.5" />
         </svg>
         <span className="text-fg text-[13px] font-semibold">
-          Applied {output.accepted} of {output.accepted + output.rejected} hunks
+          Applied {output.accepted} of {total} hunks
         </span>
         <ul className="text-fg-muted flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs" aria-label="Files">
           {parsed.map((file) => (

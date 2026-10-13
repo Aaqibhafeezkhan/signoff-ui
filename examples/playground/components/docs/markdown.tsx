@@ -16,6 +16,7 @@ import { Tabs } from './tabs';
  *
  *   > [!NOTE], > [!TIP] or > [!WARNING]     a callout (GitHub's alert syntax)
  *   <!-- steps --> before an ordered list    numbered steps
+ *   <!-- cards --> before a list             a card per item, its bold lead as the title
  *   ```tsx tab="Label"                       consecutive blocks with a tab each become one set of tabs
  *   ```ts title="file.ts"                    a file name in the block's bar
  *   ```ts collapse                           a long block, folded behind "Show all N lines"
@@ -172,21 +173,24 @@ function callouts() {
   return visit;
 }
 
-/** An ordered list right after `<!-- steps -->` is a list of steps; the marker itself goes. */
-function steps() {
-  const marker = (node: MdastNode | undefined) =>
-    node?.type === 'html' && /^<!--\s*steps\s*-->$/.test(node.value?.trim() ?? '');
+/**
+ * A list right after a marker gets a layout: `<!-- steps -->` before an ordered list numbers its
+ * items as steps, `<!-- cards -->` before any list makes each item a card. The marker itself goes.
+ */
+function listLayouts() {
+  const marker = (node: MdastNode | undefined) => /^<!--\s*(steps|cards)\s*-->$/.exec(node?.value?.trim() ?? '')?.[1];
   return (tree: MdastNode) => {
     const visit = (node: MdastNode) => {
       if (!node.children) return;
       node.children.forEach((child, i) => {
         const next = node.children![i + 1];
-        if (marker(child) && next?.type === 'list' && next.ordered) {
-          next.data = { ...next.data, hProperties: { ...next.data?.hProperties, className: ['steps'] } };
+        const layout = child.type === 'html' ? marker(child) : undefined;
+        if (layout && next?.type === 'list' && (layout === 'cards' || next.ordered)) {
+          next.data = { ...next.data, hProperties: { ...next.data?.hProperties, className: [layout] } };
         }
         visit(child);
       });
-      node.children = node.children.filter((child) => !marker(child));
+      node.children = node.children.filter((child) => !(child.type === 'html' && marker(child)));
     };
     visit(tree);
   };
@@ -274,7 +278,7 @@ export function DocMarkdown({ markdown }: { markdown: string }) {
   return (
     <div className="docs-prose">
       <Markdown
-        remarkPlugins={[remarkGfm, steps]}
+        remarkPlugins={[remarkGfm, listLayouts]}
         rehypePlugins={[labelTables, callouts, codeTabs]}
         components={components}
       >
