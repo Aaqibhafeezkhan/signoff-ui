@@ -205,7 +205,7 @@ try {
     body: JSON.stringify({ question: 'How do I install it?' }),
   });
   const askButtons = await Promise.all(
-    ['/', '/docs', '/gallery'].map(async (path) =>
+    ['/', '/docs', '/components'].map(async (path) =>
       (await (await fetch(BASE + path)).text()).includes('data-ask-trigger'),
     ),
   );

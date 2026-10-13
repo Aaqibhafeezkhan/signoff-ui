@@ -15,7 +15,7 @@ The playground runs a scripted agent and needs no key. For live mode, copy `exam
 
 ```
 packages/signoff-ui/   the library: src/ (components, lib/, styles/), test/, build scripts
-examples/playground/     the playground and the component gallery (Next.js)
+examples/playground/     the site: the playground, the components page and the docs (Next.js)
 examples/nextjs-minimal/ the README quickstart, against a scripted model
 examples/coding-agent/   the reference app: approval rules and reviews, against a scripted model
 registry.json            the shadcn registry, generated from src/
@@ -39,7 +39,7 @@ pnpm --filter signoff-ui lint:package   # publint and attw
 pnpm registry:check   # registry.json matches src/
 pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 build, your content in slots
 pnpm build:playground && pnpm smoke:playground
-pnpm a11y             # axe in Chrome, across the built playground, gallery and docs
+pnpm a11y             # axe in Chrome, across the built playground, components page and docs
 pnpm --filter nextjs-minimal build && pnpm smoke:nextjs
 pnpm examples:check   # examples/coding-agent asks for the version of signoff-ui this repository publishes
 pnpm --filter coding-agent test && pnpm smoke:coding-agent
@@ -62,7 +62,7 @@ pnpm add --save-dev react@^18.2.0 react-dom@^18.2.0 @types/react@^18 @types/reac
 2. Export it from `src/index.ts`, and helpers with no React from `src/core.ts` too.
 3. Add tests in `packages/signoff-ui/test/`, including an axe check. Every render must be safe on the server: no clock or random reads while rendering (`test/server-render.test.tsx`).
 4. Add it to `ITEMS` in `scripts/registry.mjs` and run `pnpm registry:generate`, which works out the files and dependencies from its imports.
-5. Show it in the gallery (`examples/playground/app/gallery/page.tsx`, with a demo in `examples/playground/components/demos/`), and document it on the docs site: an entry in `examples/playground/lib/components.ts` and how it behaves in `examples/playground/content/components/<slug>.md`. The README lists components in one table; add it there if it is one people should know about.
+5. Show it on the components page (`examples/playground/app/components/page.tsx`, with a demo in `examples/playground/components/demos/`), and document it on the docs site: an entry in `examples/playground/lib/components.ts` and how it behaves in `examples/playground/content/components/<slug>.md`. The README lists components in one table; add it there if it is one people should know about.
 
 ## Changesets
 
