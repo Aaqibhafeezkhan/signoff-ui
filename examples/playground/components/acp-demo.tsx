@@ -8,6 +8,7 @@ import {
   DiffReview,
   deriveAgentState,
   type ApprovalDecision,
+  type ToolMeta,
 } from 'signoff-ui';
 import {
   acpToolName,
@@ -27,9 +28,12 @@ import {
   type AcpSessionUpdate,
   type AcpTurn,
 } from 'signoff-ui/acp';
+import { AFTER, BEFORE, ROOT } from '@/lib/acp-script';
+import { FileOutput } from './file-output';
+import { JsonBlock, TerminalBlock } from './terminal';
+import { tokenizeTerminal, tokenizeTerminalLine } from '@/lib/terminal';
 
 const PROMPT = 'The formatDuration test fails. Fix it.';
-const ROOT = '/home/dev/app';
 const SESSION = 'sess_demo';
 
 /** What an ACP client implements for the agent: the methods `ClientSideConnection` calls. */
@@ -38,18 +42,19 @@ interface AcpClient {
   requestPermission(params: AcpRequestPermissionRequest): Promise<AcpRequestPermissionResponse>;
 }
 
-const BEFORE = `export function formatDuration(ms: number): string {
-  if (ms < 1000) return \`\${Math.round(ms)}ms\`;
-  return \`\${(ms / 1000).toFixed(1)}s\`;
-}
-`;
-
-const AFTER = `export function formatDuration(ms: number): string {
-  if (ms < 1000) return \`\${Math.round(ms)}ms\`;
-  // Truncate to tenths: 59,950 ms is 59.9s, not 60.0s.
-  return \`\${(Math.floor(ms / 100) / 10).toFixed(1)}s\`;
-}
-`;
+/** The read call's output is the file's source: code in the site's block, its path from the project root. */
+const TOOLS: Record<string, ToolMeta> = {
+  read: {
+    renderOutput: (output, part) => {
+      const path = String((part.input as { path?: unknown } | undefined)?.path ?? 'file');
+      return typeof output === 'string' ? (
+        <FileOutput path={path.replace(`${ROOT}/`, '')} content={output} />
+      ) : (
+        <JsonBlock value={output} title="Output" />
+      );
+    },
+  },
+};
 
 const ONCE_OR_ALWAYS: AcpPermissionOption[] = [
   { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
@@ -257,11 +262,31 @@ function Run({ onReset }: { onReset: () => void }) {
           message={message}
           streaming={turn.status === 'streaming'}
           active={!finished}
-          renderTool={(part) =>
-            turn.permissions[part.toolCallId] ? (
-              <Permission turn={turn} toolCallId={part.toolCallId} onDecide={(d) => decide(part.toolCallId, d)} />
-            ) : undefined
-          }
+          tools={TOOLS}
+          renderTool={(part) => {
+            if (!turn.permissions[part.toolCallId]) return undefined;
+            const call = turn.toolCalls[part.toolCallId];
+            // A command that ran once allowed: what it printed, under its approval.
+            const printed =
+              call?.kind === 'execute' && part.state === 'output-available' && typeof part.output === 'string'
+                ? part.output
+                : undefined;
+            const command = (part.input as { command?: unknown } | undefined)?.command;
+            return (
+              <div className="flex flex-col gap-2">
+                <Permission turn={turn} toolCallId={part.toolCallId} onDecide={(d) => decide(part.toolCallId, d)} />
+                {printed !== undefined && (
+                  <TerminalBlock
+                    title={ROOT}
+                    lines={[
+                      ...(typeof command === 'string' ? [tokenizeTerminalLine(`$ ${command}`)] : []),
+                      ...tokenizeTerminal(printed),
+                    ]}
+                  />
+                )}
+              </div>
+            );
+          }}
         />
       ) : null}
     </div>

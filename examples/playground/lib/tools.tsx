@@ -1,5 +1,8 @@
-import { inferLanguage, Markdown, type ToolMeta } from 'signoff-ui';
+import type { ToolMeta, ToolPart } from 'signoff-ui';
 import type { SVGProps } from 'react';
+import { FileOutput } from '@/components/file-output';
+import { JsonBlock, TerminalBlock } from '@/components/terminal';
+import { tokenizeTerminal, tokenizeTerminalLine, type TermLine } from './terminal';
 
 const Icon = (props: SVGProps<SVGSVGElement>) => (
   <svg
@@ -49,9 +52,39 @@ export const DiffIcon = () => (
 const field = (key: string) => (input: unknown) =>
   input && typeof input === 'object' && key in input ? String((input as Record<string, unknown>)[key]) : undefined;
 
-interface FileOutput {
+interface FileResult {
   path: string;
   content: string;
+}
+
+interface CommandResult {
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+}
+
+/**
+ * What a command printed, as a terminal: the command after a dim prompt, its output in the site's
+ * grammar, and how it exited. Output of another shape shows as JSON.
+ */
+export function CommandOutput({ output, part }: { output: unknown; part: ToolPart }) {
+  const input = (part.input ?? {}) as { command?: unknown; cwd?: unknown };
+  const result: CommandResult | undefined =
+    typeof output === 'object' && output !== null && ('stdout' in output || 'stderr' in output)
+      ? (output as CommandResult)
+      : undefined;
+  if (typeof output !== 'string' && !result) return <JsonBlock value={output} title="Output" />;
+  const text = result ? [result.stdout, result.stderr].filter(Boolean).join('\n') : String(output);
+  const lines: TermLine[] = [];
+  if (typeof input.command === 'string') lines.push(tokenizeTerminalLine(`$ ${input.command}`));
+  if (text) lines.push(...tokenizeTerminal(text));
+  if (typeof result?.exitCode === 'number') {
+    lines.push([
+      { text: 'exit code ', kind: 'info' },
+      { text: String(result.exitCode), kind: result.exitCode === 0 ? 'ok' : 'error' },
+    ]);
+  }
+  return <TerminalBlock title={typeof input.cwd === 'string' ? input.cwd : 'Terminal'} lines={lines} />;
 }
 
 export const toolMeta: Record<string, ToolMeta> = {
@@ -68,8 +101,8 @@ export const toolMeta: Record<string, ToolMeta> = {
     icon: <FileIcon />,
     summary: field('path'),
     renderOutput: (output) => {
-      const file = output as FileOutput;
-      return <Markdown>{'```' + inferLanguage(file.path) + '\n' + file.content.trimEnd() + '\n```'}</Markdown>;
+      const file = output as FileResult;
+      return <FileOutput path={file.path} content={file.content} />;
     },
   },
   web_search: {
@@ -90,6 +123,7 @@ export const toolMeta: Record<string, ToolMeta> = {
     icon: <TerminalIcon />,
     summary: field('command'),
     risk: 'high',
+    renderOutput: (output, part) => <CommandOutput output={output} part={part} />,
   },
   review_changes: {
     label: 'Propose changes',

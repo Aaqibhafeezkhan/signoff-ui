@@ -6,7 +6,7 @@ import { ROUTE_NEW, ROUTE_OLD } from '@/lib/scenario';
 
 const FILES: FileChange[] = [{ path: 'app/api/chat/route.ts', oldContent: ROUTE_OLD, newContent: ROUTE_NEW }];
 
-const SIGN = { add: '+', del: '-', context: ' ' } as const;
+const SIGN = { add: '+', del: '−', context: ' ' } as const;
 
 /**
  * The same review in markup of its own: a list of hunks with Keep and Drop buttons, styled with the
@@ -34,29 +34,37 @@ export function UseDiffReviewDemo() {
                 {...review.getItemProps(index)}
                 className="border-line focus-visible:outline-cyan-soft data-[decision=accepted]:border-cyan/50 data-[decision=rejected]:border-magenta/50 rounded-lg border p-2 focus-visible:outline-2"
               >
-                <div className="mb-1.5 flex items-center gap-2">
-                  <span className="text-fg-subtle font-mono text-[11px]">{item.hunk?.header}</span>
-                  <span className="text-fg-muted ml-auto text-xs">
-                    {decision === 'pending' ? 'not decided' : decision}
+                <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                  <span className="term-path font-mono text-[11px] whitespace-nowrap">{item.hunk?.header}</span>
+                  <span className="ml-auto flex items-center gap-2">
+                    <span className="text-fg-muted text-xs">{decision === 'pending' ? 'not decided' : decision}</span>
+                    <button
+                      {...review.getDecisionProps(index, 'rejected')}
+                      className="border-line text-fg-soft hover:text-fg aria-pressed:bg-raised focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2"
+                    >
+                      Drop
+                    </button>
+                    <button
+                      {...review.getDecisionProps(index, 'accepted')}
+                      className="border-line text-fg-soft hover:text-fg aria-pressed:bg-raised focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2"
+                    >
+                      Keep
+                    </button>
                   </span>
-                  <button
-                    {...review.getDecisionProps(index, 'rejected')}
-                    className="border-line text-fg-soft hover:text-fg aria-pressed:bg-raised focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2"
-                  >
-                    Drop
-                  </button>
-                  <button
-                    {...review.getDecisionProps(index, 'accepted')}
-                    className="border-line text-fg-soft hover:text-fg aria-pressed:bg-raised focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2"
-                  >
-                    Keep
-                  </button>
                 </div>
-                <pre className="text-fg-soft font-mono text-[12px] leading-5 break-all whitespace-pre-wrap">
+                {/* The changed lines in the site's add and del colours; a line wraps under its text, not its sign. */}
+                <pre className="overflow-hidden rounded-md font-mono text-[12px] leading-5">
                   {item.hunk?.lines
                     .filter((line) => line.type !== 'context')
-                    .map((line) => `${SIGN[line.type]} ${line.content}`)
-                    .join('\n')}
+                    .map((line, i) => (
+                      <span key={i} className={`diff-line diff-line-${line.type}`}>
+                        <span className="diff-sign" aria-hidden="true">
+                          {SIGN[line.type]}
+                        </span>
+                        <span className="sr-only">{line.type === 'add' ? 'Added: ' : 'Removed: '}</span>
+                        <span className="diff-text">{line.content || ' '}</span>
+                      </span>
+                    ))}
                 </pre>
               </div>
             </li>

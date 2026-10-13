@@ -1,4 +1,5 @@
 import { highlight } from '@/lib/highlight';
+import { TerminalBlock } from '../terminal';
 import { CodeScroll, CopyCodeButton } from './code';
 
 // What a block's bar says without a file name.
@@ -16,7 +17,20 @@ const LANGUAGES: Record<string, string> = {
   json: 'JSON',
   python: 'Python',
   py: 'Python',
+  yaml: 'YAML',
+  yml: 'YAML',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  diff: 'Diff',
+  patch: 'Diff',
+  console: 'Terminal',
+  terminal: 'Terminal',
+  output: 'Output',
+  log: 'Log',
 };
+
+/** Output rather than source: a terminal session, a log, an agent's reply. The site's grammar colours it (lib/terminal.ts). */
+const OUTPUT = new Set(['console', 'terminal', 'output', 'log', 'transcript']);
 
 /**
  * Prose-like output wraps, so it reads without scrolling; source code keeps its lines and scrolls
@@ -42,8 +56,9 @@ export async function CodeBlock({
   bare?: boolean;
   collapse?: boolean;
 }) {
-  const html = await highlight(code, language);
   const label = title ?? (language ? (LANGUAGES[language] ?? language) : 'Text');
+  if (OUTPUT.has(language ?? '') && !bare && !collapse) return <TerminalBlock title={label} text={code} />;
+  const html = await highlight(code, language);
   const block = (
     <figure
       data-code-block

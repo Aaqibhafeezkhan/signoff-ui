@@ -1,9 +1,11 @@
 import kit from 'signoff-ui/package.json';
+import { HighlightedFilesProvider } from '@/components/file-output';
 import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
 import { Hero } from '@/components/hero';
 import { Landing } from '@/components/landing';
 import { PlaygroundIsland } from '@/components/playground-island';
+import { highlightFiles, PLAYGROUND_FILES } from '@/lib/demo-code';
 import { pageMetadata } from '@/lib/metadata';
 import { AUTHOR, GITHUB_URL, NPM_URL, PACKAGE, SITE_URL, TAGLINE } from '@/lib/site';
 
@@ -32,7 +34,9 @@ const STRUCTURED_DATA = {
   author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
 };
 
-export default function Page() {
+export default async function Page() {
+  // The files the scripted agent reads, highlighted now rather than in the browser.
+  const files = await highlightFiles(PLAYGROUND_FILES);
   return (
     <div className="min-h-dvh">
       <script
@@ -55,7 +59,9 @@ export default function Page() {
             <Hero />
           </div>
           {/* Live mode is offered only when the server has a key; the scripted run is always the default. */}
-          <PlaygroundIsland liveAvailable={Boolean(process.env.OPENAI_API_KEY)} />
+          <HighlightedFilesProvider files={files}>
+            <PlaygroundIsland liveAvailable={Boolean(process.env.OPENAI_API_KEY)} />
+          </HighlightedFilesProvider>
         </div>
         <Landing />
       </main>

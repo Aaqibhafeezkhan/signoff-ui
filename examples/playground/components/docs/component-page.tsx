@@ -2,9 +2,11 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import { getStylingHooks } from '@/lib/api';
+import { AG_UI_FILES, highlightFiles } from '@/lib/demo-code';
 import { componentAbout, componentHref, componentSources, stateValues, type ComponentDoc } from '@/lib/components';
 import { getHeadings, type Heading } from '@/lib/docs';
 import { DEMOS } from '../demos';
+import { HighlightedFilesProvider } from '../file-output';
 import { ApiReference } from './api-reference';
 import { DocShell } from './article';
 import { CodeBlock } from './code-block';
@@ -106,7 +108,7 @@ function Theming({ component, hooks }: { component: ComponentDoc; hooks: ReturnT
                   <span className={chip}>{s.attribute}</span>
                   {s.slot && (
                     <span className="text-fg-subtle ml-1.5 text-[12.5px]">
-                      on <code className="text-fg-soft font-mono">{s.slot}</code>
+                      on <code className="inline-code">{s.slot}</code>
                     </span>
                   )}
                   {s.values && (
@@ -154,8 +156,10 @@ export function componentHeadings(component: ComponentDoc, hasTheming: boolean):
   ];
 }
 
-export function ComponentPage({ component }: { component: ComponentDoc }) {
+export async function ComponentPage({ component }: { component: ComponentDoc }) {
   const Demo = DEMOS[component.slug];
+  // The AG-UI demo's agent reads a file: its highlighting, from the build.
+  const files = component.slug === 'use-ag-ui-agent' ? await highlightFiles(AG_UI_FILES) : {};
   const hooks = getStylingHooks(component.file);
   const hasTheming = hooks.slots.length > 0;
   const href = componentHref(component.slug);
@@ -172,7 +176,9 @@ export function ComponentPage({ component }: { component: ComponentDoc }) {
       headings={componentHeadings(component, hasTheming)}
     >
       <H2 id="example">Example</H2>
-      <Preview>{Demo ? <Demo /> : null}</Preview>
+      <Preview>
+        <HighlightedFilesProvider files={files}>{Demo ? <Demo /> : null}</HighlightedFilesProvider>
+      </Preview>
       <p className="text-fg-subtle mt-3 text-[13px]">
         Interactive, and the same on the{' '}
         <Link

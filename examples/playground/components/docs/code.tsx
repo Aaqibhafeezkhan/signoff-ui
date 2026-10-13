@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CopyButton } from '../copy-button';
 import { CheckIcon, CopyIcon } from '../icons';
 
@@ -38,8 +38,11 @@ export function CopyCodeButton() {
   );
 }
 
-/** Highlighted code that marks itself while more of it is out of view to the right, for the fade. */
-export function CodeScroll({ html }: { html: string }) {
+/**
+ * Highlighted code that marks itself while more of it is out of view to the right, for the fade:
+ * Shiki's HTML from the build, or a `<pre>` rendered here (components/terminal.tsx).
+ */
+export function CodeScroll({ html, children }: { html?: string; children?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   useEffect(() => {
@@ -55,6 +58,13 @@ export function CodeScroll({ html }: { html: string }) {
       pre.removeEventListener('scroll', update);
     };
   }, []);
+  if (html === undefined) {
+    return (
+      <div ref={ref} className="code-scroll" data-more={more || undefined}>
+        {children}
+      </div>
+    );
+  }
   return (
     <div ref={ref} className="code-scroll" data-more={more || undefined} dangerouslySetInnerHTML={{ __html: html }} />
   );
@@ -143,8 +153,14 @@ export function PackageInstall({ command }: { command: string }) {
         aria-labelledby={`${id}-${manager}`}
         className="flex items-start gap-2 py-1.5 pr-1.5 pl-4"
       >
-        <code className="text-fg min-w-0 flex-1 py-1.5 font-mono text-[13px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
-          {text.split('/').flatMap((part, i) => (i === 0 ? [part] : ['/', <wbr key={i} />, part]))}
+        <code className="min-w-0 flex-1 py-1.5 font-mono text-[13px] leading-relaxed [overflow-wrap:anywhere] whitespace-pre-wrap">
+          {/* The prompt, dim, as in every terminal block; Copy takes the command alone. */}
+          <span className="term-prompt" aria-hidden="true">
+            ${' '}
+          </span>
+          <span className="term-command">
+            {text.split('/').flatMap((part, i) => (i === 0 ? [part] : ['/', <wbr key={i} />, part]))}
+          </span>
         </code>
         <CopyButton text={text} label={`Copy the ${manager} command`} />
       </div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import { getDescription, getInterface, getSignature, getType, type InterfaceDoc, type PropDoc } from '@/lib/api';
+import { highlightType } from '@/lib/highlight';
 import type { ApiEntry, ComponentDoc } from '@/lib/components';
 import { CodeBlock } from './code-block';
 import { FencedCode, InlineCode, type HastNode } from './markdown';
@@ -33,6 +34,13 @@ function Doc({ children }: { children: string }) {
 
 export const propId = (owner: string, prop: string) => `${owner}-${prop}`.toLowerCase();
 
+/** A type, highlighted like the code blocks (Shiki, at build time), inline. */
+async function TypeCode({ type, className }: { type: string; className: string }) {
+  const html = await highlightType(type);
+  // Shiki's spans: escaped text from the package's own declarations.
+  return <code className={`type-code font-mono ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function Prop({ owner, prop }: { owner: string; prop: PropDoc }) {
   return (
     <div
@@ -49,19 +57,18 @@ function Prop({ owner, prop }: { owner: string; prop: PropDoc }) {
       </dt>
       <dd className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <code className="text-cyan-soft font-mono text-[12.5px] leading-relaxed [overflow-wrap:anywhere]">
-            {prop.type}
-          </code>
+          <TypeCode type={prop.type} className="text-[12.5px] leading-relaxed [overflow-wrap:anywhere]" />
           {prop.defaultValue && (
             <span className="text-fg-subtle text-[12.5px]">
-              Default <code className="text-fg font-mono">{prop.defaultValue}</code>
+              Default <TypeCode type={prop.defaultValue} className="" />
             </span>
           )}
         </div>
         {prop.values && (
-          <code className="text-fg-muted mt-0.5 block font-mono text-[12px] leading-relaxed [overflow-wrap:anywhere]">
-            {prop.values.join(' | ')}
-          </code>
+          <TypeCode
+            type={prop.values.join(' | ')}
+            className="mt-0.5 block text-[12px] leading-relaxed [overflow-wrap:anywhere]"
+          />
         )}
         <Doc>{prop.description}</Doc>
       </dd>
@@ -90,9 +97,8 @@ function PropList({ owner, doc }: { owner: string; doc: InterfaceDoc }) {
         </p>
       ) : doc.element ? (
         <p className="text-fg-muted mt-3 text-[13.5px] leading-relaxed">
-          Other props go to the root <code className="text-fg font-mono text-[12.5px]">{`<${doc.element}>`}</code>:{' '}
-          <Code>className</Code> (merged with tailwind-merge), <Code>id</Code>, <Code>aria-*</Code>, <Code>data-*</Code>{' '}
-          and event handlers.
+          Other props go to the root <Code>{`<${doc.element}>`}</Code>: <Code>className</Code> (merged with
+          tailwind-merge), <Code>id</Code>, <Code>aria-*</Code>, <Code>data-*</Code> and event handlers.
         </p>
       ) : doc.extends ? (
         <p className="text-fg-muted mt-3 text-[13.5px] leading-relaxed">
@@ -104,7 +110,7 @@ function PropList({ owner, doc }: { owner: string; doc: InterfaceDoc }) {
 }
 
 function Code({ children }: { children: ReactNode }) {
-  return <code className="text-fg font-mono text-[12.5px]">{children}</code>;
+  return <code className="inline-code">{children}</code>;
 }
 
 function H3({ id, children }: { id: string; children: ReactNode }) {

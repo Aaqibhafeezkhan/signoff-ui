@@ -41,10 +41,10 @@ export function RunMeterDemo() {
             className="@max-sm:text-[11px] @max-sm:[&>span]:px-1.5"
           />
           <p className="text-signoff-fg-muted mt-4 max-w-sm text-[13px] leading-relaxed">
-            Pass <code className="text-signoff-fg font-mono text-[12px]">totalUsage</code> from{' '}
-            <code className="text-signoff-fg font-mono text-[12px]">streamText</code> through message metadata, and
-            timing from <code className="text-signoff-fg font-mono text-[12px]">useRunTiming(status, messages)</code>.
-            Cost is an estimate from the pricing you supply.
+            Pass <code className="inline-code">totalUsage</code> from <code className="inline-code">streamText</code>{' '}
+            through message metadata, and timing from{' '}
+            <code className="inline-code">useRunTiming(status, messages)</code>. Cost is an estimate from the pricing
+            you supply.
           </p>
         </figure>
       </div>

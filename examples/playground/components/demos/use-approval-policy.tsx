@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import {
+  decisionEffect,
   describeRule,
   ToolApprovalBatch,
   ToolApprovalCard,
@@ -38,6 +39,35 @@ function answer(part: ToolPart, response: ToolApprovalResponse): ToolPart {
     state: response.approved ? 'approval-responded' : 'output-denied',
     approval: { id: response.id, approved: response.approved, reason: response.reason },
   } as ToolPart;
+}
+
+/**
+ * One audit event in the output colours: who decided dim, an allow green and a deny red, the
+ * command bright; rule changes in the accent.
+ */
+function AuditLine({ event }: { event: ApprovalAuditEvent }) {
+  if (event.type === 'decision') {
+    const command = (event.request.input as { command?: unknown } | undefined)?.command;
+    return (
+      <>
+        <span className="term-info">{event.by === 'rule' ? 'rule' : 'you'} </span>
+        <span className={decisionEffect(event.decision).approved ? 'term-ok' : 'term-error'}>{event.decision}</span>
+        {typeof command === 'string' && (
+          <>
+            <span className="term-marker"> · </span>
+            <span className="term-command">{command}</span>
+          </>
+        )}
+      </>
+    );
+  }
+  if (event.type === 'session-cleared') return <span className="term-info">session cleared</span>;
+  return (
+    <>
+      <span className="term-rule">{event.type} </span>
+      <span className="term-string">{describeRule(event.rule)}</span>
+    </>
+  );
 }
 
 /**
@@ -95,7 +125,7 @@ export function UseApprovalPolicyDemo() {
                     <span className={rule.effect === 'allow' ? 'text-cyan-soft' : 'text-magenta-soft'}>
                       {rule.effect === 'allow' ? 'Allow' : 'Deny'}
                     </span>{' '}
-                    <span className="text-fg-soft font-mono break-all">{describeRule(rule)}</span>
+                    <span className="text-fg-soft font-mono [overflow-wrap:anywhere]">{describeRule(rule)}</span>
                     <span className="text-fg-subtle"> · {rule.scope}</span>
                   </span>
                   <button
@@ -112,14 +142,10 @@ export function UseApprovalPolicyDemo() {
         </div>
         <div>
           <h3 className="text-fg mb-1.5 font-medium">Audit trail</h3>
-          <ol className="text-fg-muted flex flex-col gap-1 font-mono text-[11px]">
+          <ol className="text-fg-muted flex flex-col gap-1 font-mono text-[11px] leading-relaxed">
             {log.map((event, i) => (
               <li key={`${event.at}-${i}`}>
-                {event.type === 'decision'
-                  ? `${event.by === 'rule' ? 'rule' : 'you'}: ${event.decision} · ${String((event.request.input as { command?: string })?.command ?? '')}`
-                  : event.type === 'session-cleared'
-                    ? 'session cleared'
-                    : `${event.type}: ${describeRule(event.rule)}`}
+                <AuditLine event={event} />
               </li>
             ))}
           </ol>
