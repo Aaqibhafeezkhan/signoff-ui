@@ -418,6 +418,11 @@ try {
     'header: name and version on the left; Docs, Components, the theme and GitHub on the right',
     githubName,
   );
+  // Vercel Web Analytics, rendered once in the root layout: its script is added once to the page.
+  const insights = await wide.evaluate(
+    () => document.querySelectorAll('script[src="/_vercel/insights/script.js"]').length,
+  );
+  check(insights === 1, 'Vercel Web Analytics: its script is on the page once', `${insights} scripts`);
   await wide.evaluate(() => scrollTo(0, 3000));
   check(
     (await banner.evaluate((el) => el.getBoundingClientRect().top)) === 0,
