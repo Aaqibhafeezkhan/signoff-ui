@@ -19,6 +19,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter signoff-ui test",
     "test:coverage": "pnpm --filter signoff-ui test:coverage",
+    "test:site": "pnpm --filter playground test",
     "coverage:summary": "node scripts/coverage-summary.mjs",
     "media": "node scripts/capture-media.mjs",
     "changeset": "changeset",

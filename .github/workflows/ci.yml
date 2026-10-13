@@ -52,6 +52,9 @@ jobs:
       - name: Test, with coverage and its thresholds
         run: pnpm test:coverage
 
+      - name: Site tests (code colours at 4.5:1 in both themes, the output grammar)
+        run: pnpm test:site
+
       - name: Coverage in the job summary
         if: ${{ !cancelled() }}
         run: node scripts/coverage-summary.mjs >> "$GITHUB_STEP_SUMMARY"
