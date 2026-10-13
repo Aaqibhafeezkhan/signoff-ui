@@ -517,7 +517,8 @@ describe('the Portuguese in the docs', () => {
     const tested = body(readFileSync(join(root, 'packages/signoff-ui/test/labels-pt.ts'), 'utf8'));
     const gallery = readFileSync(join(root, 'examples/playground/lib/labels-pt.ts'), 'utf8');
     const guide = readFileSync(join(root, 'examples/playground/content/docs/labels.md'), 'utf8');
-    const block = /```ts title="labels-pt.ts"\n([\s\S]*?)```/.exec(guide)?.[1];
+    // The fence may say more after its title, such as `collapse`, which folds the block on the site.
+    const block = /```ts title="labels-pt.ts"[^\n]*\n([\s\S]*?)```/.exec(guide)?.[1];
     expect(gallery.split('\n')[0]).toBe("import type { SignoffLabels } from 'signoff-ui';");
     expect(body(gallery)).toBe(tested);
     expect(block).toBe(gallery);
