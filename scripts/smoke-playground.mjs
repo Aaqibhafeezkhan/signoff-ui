@@ -150,6 +150,73 @@ try {
     undescribed.join(' | ') || `${components.length} components`,
   );
 
+  // The docs as an MCP server for agents, with no model key: initialize, the three tools, and a
+  // search that finds the section that answers, at its address on the site.
+  const mcp = async (id, method, params) => {
+    const response = await fetch(`${BASE}/api/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }),
+    });
+    const text = await response.text();
+    const data = text.startsWith('{') ? text : (/^data: (.+)$/m.exec(text)?.[1] ?? '{}');
+    return { status: response.status, ...JSON.parse(data) };
+  };
+  const initialized = await mcp(1, 'initialize', {
+    protocolVersion: '2025-11-25',
+    capabilities: {},
+    clientInfo: { name: 'smoke-playground', version: '0' },
+  });
+  const tools = await mcp(2, 'tools/list');
+  const searched = await mcp(3, 'tools/call', {
+    name: 'search',
+    arguments: { query: 'approve a tool call for the whole session' },
+  });
+  const searchResults = JSON.parse(searched.result?.content?.[0]?.text ?? '{}').results ?? [];
+  check(
+    initialized.status === 200 &&
+      initialized.result?.serverInfo?.name === 'signoff-ui' &&
+      ['search', 'fetch', 'list_pages'].every((name) => tools.result?.tools?.some((tool) => tool.name === name)) &&
+      searchResults[0]?.url?.startsWith('https://signoff-ui.vercel.app/docs/components/approval-card#'),
+    '/api/mcp: initialize, the search, fetch and list_pages tools, and a search that finds ApprovalCard',
+    `${initialized.status} ${tools.result?.tools?.map((tool) => tool.name).join(', ')} · ${searchResults[0]?.url}`,
+  );
+
+  // Without OPENAI_API_KEY (as in CI) there is no Ask: the endpoint answers 404, and no page has the button.
+  const askResponse = await fetch(`${BASE}/api/ask`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ question: 'How do I install it?' }),
+  });
+  const askButtons = await Promise.all(
+    ['/', '/docs', '/gallery'].map(async (path) =>
+      (await (await fetch(BASE + path)).text()).includes('data-ask-trigger'),
+    ),
+  );
+  check(
+    askResponse.status === 404 && askButtons.every((shown) => !shown),
+    'no model key: /api/ask answers 404, and no page shows the Ask button',
+    `${askResponse.status}, ${askButtons.join(', ')}`,
+  );
+
+  // The docs home says how to add the MCP server to an agent; llms.txt names it too.
+  const docsHome = await (await fetch(`${BASE}/docs`)).text();
+  const llmsTxt = await (await fetch(`${BASE}/llms.txt`)).text();
+  check(
+    docsHome.includes('id="use-these-docs-from-your-agent"') &&
+      [
+        'https://cursor.com/en/install-mcp?name=signoff-ui',
+        'https://insiders.vscode.dev/redirect/mcp/install?name=signoff-ui',
+        'https://claude.ai/customize/connectors?modal=add-custom-connector&amp;connectorName=signoff-ui',
+      ].every((text) => docsHome.includes(text)) &&
+      // The command is highlighted on the page, so it is read from the page's Markdown.
+      (await (await fetch(`${BASE}/docs.md`)).text()).includes(
+        'claude mcp add --transport http signoff-ui https://signoff-ui.vercel.app/api/mcp',
+      ) &&
+      llmsTxt.includes('(https://signoff-ui.vercel.app/api/mcp)'),
+    'docs home: "Use these docs from your agent" with the Cursor, VS Code, Claude and Claude Code installs; llms.txt has the MCP server',
+  );
+
   // Each docs page is also Markdown at its URL plus .md, for "Copy page" and coding agents.
   for (const [path, heading] of [
     ['/docs.md', '# Introduction\n'],
@@ -242,6 +309,13 @@ try {
       storage.some((text) => text.startsWith('/docs/components/use-approval-policy#useapprovalpolicyoptions-storage')),
     'docs search: "dark mode" and "tailwind v3" find Getting started, "storage" finds useApprovalPolicy\'s option',
     [darkMode[0], tailwind3[0], storage.find((text) => text.includes('storage'))].join(' | '),
+  );
+  // / focuses it too: the shortcut it keeps on a site with Ask, which takes ⌘K.
+  await docs.evaluate(() => document.activeElement?.blur());
+  await docs.keyboard.press('/');
+  check(
+    await docs.evaluate(() => document.activeElement?.hasAttribute('data-docs-search') ?? false),
+    'docs: / focuses the search',
   );
   await docs.close();
 
@@ -437,7 +511,7 @@ try {
       ['Docs', 'Changelog', 'Issues'].every((label, i) => project[i] === label) &&
       project[3]?.startsWith('npm') &&
       project[4]?.startsWith(`v${kit.version}`) &&
-      ['llms.txt', 'llms-full.txt'].every((label) => agents.includes(label)),
+      ['llms.txt', 'llms-full.txt', 'MCP server'].every((label) => agents.includes(label)),
     'footer: Project, For agents and More by Diogo Esteves',
     `${columns.join(', ')} · ${project.join(', ')} · ${agents.join(', ')}`,
   );

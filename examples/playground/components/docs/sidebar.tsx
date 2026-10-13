@@ -10,7 +10,8 @@ import { MenuIcon } from '../icons';
 /*
  * The docs navigation: a sticky sidebar on wide screens, a bar with a menu button on phones and
  * tablets. Both have the search box, over every page's title, sections and text, and every prop.
- * ⌘K or Ctrl+K focuses it. The index loads the first time the search is used.
+ * / focuses it, and so does ⌘K or Ctrl+K unless the site has Ask, which takes ⌘K. The index
+ * loads the first time the search is used.
  */
 
 let index: SearchIndex | undefined;
@@ -96,10 +97,12 @@ function matches(query: string, index: SearchIndex) {
 
 function NavLinks({
   nav,
+  shortcut,
   onNavigate,
   autoFocusSearch = false,
 }: {
   nav: NavGroup[];
+  shortcut: string;
   onNavigate?: () => void;
   autoFocusSearch?: boolean;
 }) {
@@ -149,7 +152,7 @@ function NavLinks({
           aria-hidden="true"
           className="border-line-strong text-fg-subtle pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border px-1.5 font-mono text-[10.5px] lg:block pointer-coarse:hidden"
         >
-          ⌘K
+          {shortcut}
         </kbd>
       </div>
 
@@ -216,15 +219,27 @@ function NavLinks({
 /** Where a docs page puts its "On this page" menu in the bar below 1024px (components/docs/toc.tsx). */
 export const TOC_SLOT_ID = 'docs-toc-slot';
 
-export function DocsSidebar({ nav }: { nav: NavGroup[] }) {
+export function DocsSidebar({
+  nav,
+  ask = false,
+}: {
+  nav: NavGroup[];
+  /** The site has Ask, which takes ⌘K (components/ask.tsx); the search keeps `/`. */
+  ask?: boolean;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const current = nav.flatMap((group) => group.items).find((item) => item.href === pathname);
+  const shortcut = ask ? '/' : '⌘K';
 
-  // ⌘K / Ctrl+K: the search box, in the sidebar or, on phones and tablets, in the menu.
+  // ⌘K / Ctrl+K, or / outside a text field: the search box, in the sidebar or, on phones and tablets, in the menu.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'k' || !(event.metaKey || event.ctrlKey)) return;
+      const command = event.key.toLowerCase() === 'k' && (event.metaKey || event.ctrlKey) && !ask;
+      const target = event.target as HTMLElement | null;
+      const typing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+      const slash = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typing;
+      if (!command && !slash) return;
       event.preventDefault();
       loadIndex();
       const input = [...document.querySelectorAll<HTMLInputElement>('[data-docs-search]')].find(
@@ -235,7 +250,7 @@ export function DocsSidebar({ nav }: { nav: NavGroup[] }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [ask]);
 
   return (
     <>
@@ -262,7 +277,7 @@ export function DocsSidebar({ nav }: { nav: NavGroup[] }) {
         <div id={TOC_SLOT_ID} className="ml-auto shrink-0" />
       </div>
       <Sheet id="docs-menu" open={open} onClose={() => setOpen(false)} title="Docs">
-        {open && <NavLinks nav={nav} onNavigate={() => setOpen(false)} />}
+        {open && <NavLinks nav={nav} shortcut={shortcut} onNavigate={() => setOpen(false)} />}
       </Sheet>
 
       {/* Wide screens: a sticky sidebar. */}
@@ -270,7 +285,7 @@ export function DocsSidebar({ nav }: { nav: NavGroup[] }) {
         aria-label="Docs"
         className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] [scrollbar-width:thin] overflow-y-auto overscroll-contain py-8 pr-2 lg:block"
       >
-        <NavLinks nav={nav} />
+        <NavLinks nav={nav} shortcut={shortcut} />
       </nav>
     </>
   );

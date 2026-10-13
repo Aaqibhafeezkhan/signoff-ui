@@ -76,3 +76,4 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/mcp@2.0.67'
   - '@ai-sdk/openai@4.0.84'
   - '@ai-sdk/react@4.0.131'
+  - ondocs@0.10.0

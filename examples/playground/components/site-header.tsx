@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -18,23 +19,30 @@ const PAGES: Array<{ page: Page; href: string; label: string }> = [
 
 const MENU_ID = 'site-menu';
 
+// Its own chunk (with ondocs's styles), loaded only on a site that has Ask; still in the server's HTML.
+const Ask = dynamic(() => import('./ask').then((m) => m.Ask));
+
 const focusRing = 'focus-visible:outline-cyan-soft focus-visible:outline-2';
 // No display: each button sets its own, so `hidden` on one doesn't compete with it.
 const iconButton = `border-line text-fg-muted hover:border-line-strong hover:text-fg h-8 items-center justify-center gap-1.5 rounded-lg border transition-colors focus-visible:outline-offset-2 ${focusRing}`;
 
 /**
- * The same header as the sibling sites: the name and version on the left; the pages, the theme
- * and GitHub on the right. Phones keep the name and version, and the rest moves into a menu.
+ * The same header as the sibling sites: the name and version on the left; the pages, Ask, the
+ * theme and GitHub on the right. Phones keep the name, the version and Ask, and the rest moves into
+ * a menu.
  */
 export function SiteHeader({
   page,
   version,
   stars,
+  ask = false,
 }: {
   page?: Page;
   version: string;
   /** Shown once there are enough to mean something (lib/stats.ts). */
   stars?: number;
+  /** The Ask button and dialog (⌘K), when the server can answer (lib/ask.ts). On phones too, as an icon. */
+  ask?: boolean;
 }) {
   const pathname = usePathname();
   // The section's link is current on any page in it, and "page" on its own page.
@@ -77,6 +85,7 @@ export function SiteHeader({
               </Link>
             ))}
           </nav>
+          {ask && <Ask />}
           <ThemeSwitch className="hidden md:flex" />
           <a
             href={GITHUB_URL}
