@@ -1,22 +1,20 @@
 import { PACKAGE } from './site';
 
 /*
- * Numbers about the project, with no token. A request that fails or is slow gives `undefined`, and
- * the page leaves the number out rather than guess it. Each is fetched again once a day, and the
- * pages that show them are regenerated as often (`revalidate` in app/layout.tsx).
+ * Numbers about the project, fetched when the site builds, with no token. A request that fails or
+ * is slow gives `undefined`, and the page leaves the number out rather than guess it. `no-store`:
+ * each build reads them fresh, rather than from a data cache that outlives the deployment, and the
+ * pages stay static all the same (`dynamic = 'force-static'` in app/layout.tsx).
  */
 
 /** Under this many stars, the header shows the GitHub icon alone. */
 export const MIN_STARS = 10;
 
-/** How long a number is kept, in seconds. */
-export const REVALIDATE = 86_400;
-
 async function fetchJson<T>(url: string): Promise<T | undefined> {
   try {
     const response = await fetch(url, {
       headers: { accept: 'application/json', 'user-agent': `${PACKAGE}-site` },
-      next: { revalidate: REVALIDATE },
+      cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
     return response.ok ? ((await response.json()) as T) : undefined;
@@ -25,36 +23,30 @@ async function fetchJson<T>(url: string): Promise<T | undefined> {
   }
 }
 
-/**
- * One request a day per server process, shared by every page it renders: a build renders many at once,
- * and GitHub answers 60 requests an hour without a token.
- */
-function daily<T>(load: () => Promise<T>) {
-  let value: Promise<T> | undefined;
-  let loadedAt = 0;
-  return () => {
-    if (!value || Date.now() - loadedAt >= REVALIDATE * 1000) {
-      loadedAt = Date.now();
-      value = load();
-    }
-    return value;
-  };
-}
+// One request per build process, shared by the many pages it renders: GitHub answers 60 requests an
+// hour without a token.
+let stars: Promise<number | undefined> | undefined;
 
 /** The repository's stars, or undefined when GitHub can't be reached or the count is under MIN_STARS. */
-export const getStars = daily(() =>
-  fetchJson<{ stargazers_count?: number }>(`https://api.github.com/repos/dgesteves/${PACKAGE}`).then((repo) => {
-    const count = repo?.stargazers_count;
-    return typeof count === 'number' && count >= MIN_STARS ? count : undefined;
-  }),
-);
+export function getStars() {
+  stars ??= fetchJson<{ stargazers_count?: number }>(`https://api.github.com/repos/dgesteves/${PACKAGE}`).then(
+    (repo) => {
+      const count = repo?.stargazers_count;
+      return typeof count === 'number' && count >= MIN_STARS ? count : undefined;
+    },
+  );
+  return stars;
+}
+
+let downloads: Promise<number | undefined> | undefined;
 
 /** npm downloads over the last week, or undefined when the registry's API can't be reached. */
-export const getWeeklyDownloads = daily(() =>
-  fetchJson<{ downloads?: number }>(`https://api.npmjs.org/downloads/point/last-week/${PACKAGE}`).then((week) =>
-    typeof week?.downloads === 'number' ? week.downloads : undefined,
-  ),
-);
+export function getWeeklyDownloads() {
+  downloads ??= fetchJson<{ downloads?: number }>(`https://api.npmjs.org/downloads/point/last-week/${PACKAGE}`).then(
+    (week) => (typeof week?.downloads === 'number' ? week.downloads : undefined),
+  );
+  return downloads;
+}
 
 /** 1234 → "1.2k", 980 → "980". */
 export function compactNumber(value: number) {
