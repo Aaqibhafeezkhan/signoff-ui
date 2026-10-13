@@ -75,6 +75,14 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
+export function SparkIcon(props: IconProps) {
+  return (
+    <Stroke strokeWidth={1.8} {...props}>
+      <path d="M12 4.5 13.6 9a1.5 1.5 0 0 0 .9.9l4.5 1.6-4.5 1.6a1.5 1.5 0 0 0-.9.9L12 18.5 10.4 14a1.5 1.5 0 0 0-.9-.9L5 11.5 9.5 9.9a1.5 1.5 0 0 0 .9-.9L12 4.5Z" />
+    </Stroke>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Stroke {...props}>
