@@ -4,7 +4,7 @@
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
 //   pnpm smoke:playground   # starts the built playground on :3220, or tests BASE_URL if set
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -69,6 +69,56 @@ try {
     'sitemap.xml lists the docs and components, and robots.txt points to it',
   );
 
+  // Each page has its own canonical address and a description short enough for search results.
+  const decode = (text) =>
+    text
+      .replace(/&amp;/g, '&')
+      .replace(/&#x27;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<');
+  const metaOf = (html, key) =>
+    decode(new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)"`).exec(html)?.[1] ?? '') || undefined;
+  const pages = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+  const offPage = [];
+  for (const url of pages) {
+    const html = await (await fetch(BASE + new URL(url).pathname)).text();
+    const canonical = /<link rel="canonical" href="([^"]*)"/.exec(html)?.[1];
+    const description = metaOf(html, 'description') ?? '';
+    if (canonical !== url || !description || description.length > 160) {
+      offPage.push(`${url}: canonical ${canonical}, description ${description.length} characters`);
+    }
+  }
+  check(
+    pages.length > 20 && offPage.length === 0,
+    'every page: its own canonical address and a description of 160 characters or fewer',
+    offPage.join('; '),
+  );
+
+  // Sitemap dates come from git: none is later than the commit the site was built from (the build's
+  // own time always is). A shallow clone leaves out the dates it can't know.
+  const head = new Date(
+    execFileSync('git', ['log', '-1', '--format=%cI'], { cwd: import.meta.dirname, encoding: 'utf8' }).trim(),
+  );
+  const dates = [...sitemap.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((match) => new Date(match[1]));
+  check(
+    dates.every((date) => date <= head),
+    'sitemap.xml: each page dated by its last commit, never by the build',
+    dates.map((date) => date.toISOString()).join(', '),
+  );
+
+  // The home page describes the project for search engines (schema.org), with this version.
+  const kit = JSON.parse(readFileSync(join(import.meta.dirname, '../packages/signoff-ui/package.json'), 'utf8'));
+  const homeHtml = await (await fetch(`${BASE}/`)).text();
+  const ld = /<script type="application\/ld\+json">([^<]*)<\/script>/.exec(homeHtml)?.[1];
+  const structured = ld ? JSON.parse(ld) : {};
+  check(
+    structured['@type'] === 'SoftwareSourceCode' &&
+      structured.version === kit.version &&
+      structured.codeRepository === 'https://github.com/dgesteves/signoff-ui',
+    'home: JSON-LD SoftwareSourceCode with the version and the repository',
+    ld?.slice(0, 160),
+  );
+
   // Docs for LLMs, built from the README, the docs and the registry: no HTML, and every component described
   // in words (its screenshot's indented <source srcset> lines once stood in for the description).
   for (const [path, heading] of [
@@ -122,10 +172,15 @@ try {
   check(
     unknown.status === 404 &&
       unknownHtml.includes('<title>Page not found · signoff-ui</title>') &&
+      /<meta name="robots" content="noindex"/.test(unknownHtml) &&
+      metaOf(unknownHtml, 'description') === 'There is no page at this address.' &&
+      !/<link rel="canonical"|<meta property="og:(?:image|url|description)"|<meta name="twitter:image"/.test(
+        unknownHtml,
+      ) &&
       ['/docs/getting-started', '/docs/components/diff-review', '/gallery'].every((path) =>
         unknownHtml.includes(`href="${path}"`),
       ),
-    'an unknown address: a 404 titled "Page not found", with the docs navigation',
+    'an unknown address: a 404 titled "Page not found", not indexed, with no canonical or preview of the home page, and the docs navigation',
     `${unknown.status}`,
   );
 
@@ -172,6 +227,60 @@ try {
   );
   await docs.close();
 
+  // The header, the same on the sibling sites: the name and the version on the left; the pages, the
+  // theme and GitHub on the right, with a star count only from 10 stars. Then the footer's columns.
+  const wide = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
+  await wide.goto(`${BASE}/docs/getting-started`, { waitUntil: 'networkidle' });
+  const banner = wide.getByRole('banner');
+  const pagesNav = banner.getByRole('navigation', { name: 'Pages' });
+  const github = banner.getByRole('link', { name: /on GitHub/ });
+  const githubName = (await github.getAttribute('aria-label')) ?? '';
+  const starCount = /, ([\d,]+) stars$/.exec(githubName)?.[1];
+  check(
+    (await banner.locator('[data-version]').innerText()) === `v${kit.version}` &&
+      JSON.stringify(await pagesNav.getByRole('link').allInnerTexts()) === '["Docs","Components"]' &&
+      (await pagesNav.boundingBox()).x > 720 &&
+      (await banner.getByRole('radiogroup', { name: 'Theme' }).isVisible()) &&
+      (await github.isVisible()) &&
+      (starCount === undefined || Number(starCount.replace(/,/g, '')) >= 10),
+    'header: name and version on the left; Docs, Components, the theme and GitHub on the right',
+    githubName,
+  );
+  await wide.evaluate(() => scrollTo(0, 3000));
+  check(
+    (await banner.evaluate((el) => el.getBoundingClientRect().top)) === 0,
+    'header: stays at the top as the page scrolls',
+  );
+  const footer = wide.getByRole('contentinfo');
+  const columns = await footer.getByRole('navigation').evaluateAll((els) => els.map((el) => el.ariaLabel));
+  const project = await footer.getByRole('navigation', { name: 'Project' }).getByRole('link').allInnerTexts();
+  const agents = await footer.getByRole('navigation', { name: 'For agents' }).getByRole('link').allInnerTexts();
+  check(
+    JSON.stringify(columns) === '["Project","For agents","More by Diogo Esteves"]' &&
+      ['Docs', 'Changelog', 'Issues'].every((label, i) => project[i] === label) &&
+      project[3]?.startsWith('npm') &&
+      project[4]?.startsWith(`v${kit.version}`) &&
+      ['llms.txt', 'llms-full.txt'].every((label) => agents.includes(label)),
+    'footer: Project, For agents and More by Diogo Esteves',
+    `${columns.join(', ')} · ${project.join(', ')} · ${agents.join(', ')}`,
+  );
+  await wide.close();
+
+  // No page scrolls sideways, on a phone, a tablet or a laptop, in either theme.
+  const sideways = [];
+  for (const colorScheme of ['light', 'dark']) {
+    for (const width of [390, 768, 1440]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme });
+      for (const path of ['/', '/gallery', '/docs', '/docs/getting-started', '/docs/components/diff-review', '/nope']) {
+        await page.goto(BASE + path, { waitUntil: 'load' });
+        const wider = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+        if (wider > 0) sideways.push(`${path} at ${width}px, ${colorScheme}: ${wider}px`);
+      }
+      await page.close();
+    }
+  }
+  check(sideways.length === 0, 'no page scrolls sideways at 390, 768 or 1440px, light or dark', sideways.join('; '));
+
   // On a phone the run starts on load and grows past the screen; the page must not follow it
   // (and scroll the headline away) until the reader scrolls down or starts a run.
   const phoneContext = await browser.newContext({
@@ -210,9 +319,25 @@ try {
   check(scrollY === 0, 'phone: the page stays on the headline while the run streams', `scrolled to ${scrollY}px`);
   check((await phone.getByRole('radio', { name: 'Live' }).count()) === 0, 'header: no Live mode without a model key');
 
-  // The pages stay reachable on a phone, through the menu.
+  // On a phone the header keeps the name and the version, and the rest is in the menu.
   await phone.evaluate(() => scrollTo(0, 0));
+  const phoneBanner = phone.getByRole('banner');
+  check(
+    (await phoneBanner.locator('[data-version]').isVisible()) &&
+      (await phoneBanner.getByRole('link', { name: 'signoff-ui', exact: true }).isVisible()) &&
+      !(await phoneBanner.getByRole('radiogroup', { name: 'Theme' }).isVisible()) &&
+      !(await phoneBanner.getByRole('link', { name: /on GitHub/ }).isVisible()),
+    'phone: the header shows the name and the version, and a menu for the rest',
+  );
   await phone.getByRole('button', { name: 'Menu' }).click();
+  const menu = phone.locator('#site-menu');
+  const menuLinks = await menu.getByRole('link').allInnerTexts();
+  check(
+    ['Docs', 'Components', 'GitHub', 'npm'].every((label) => menuLinks.some((text) => text.startsWith(label))) &&
+      (await menu.getByRole('radiogroup', { name: 'Theme' }).isVisible()),
+    'phone: the menu has every page, the theme, GitHub and npm',
+    menuLinks.join(', '),
+  );
   await phone.locator('#site-menu').getByRole('link', { name: 'Components' }).click();
   await phone.waitForURL(/\/gallery$/, { timeout: 10_000 }).catch(() => {});
   check(new URL(phone.url()).pathname === '/gallery', 'phone: the menu reaches the components page', phone.url());
