@@ -1,12 +1,45 @@
+import kit from 'signoff-ui/package.json';
 import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
 import { Hero } from '@/components/hero';
 import { Landing } from '@/components/landing';
 import { PlaygroundIsland } from '@/components/playground-island';
+import { pageMetadata } from '@/lib/metadata';
+import { AUTHOR, GITHUB_URL, NPM_URL, PACKAGE, SITE_URL, TAGLINE } from '@/lib/site';
+
+export const metadata = pageMetadata({
+  // "signoff-ui: review what your agent changed and approve what it may do"
+  title: `${PACKAGE}: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1, -1)}`,
+  // Search results show about 160 characters.
+  description:
+    'React components for multi-file diff review and tool approvals with AI SDK 6 & 7, AG-UI, ACP and assistant-ui. Watch a scripted agent run, no API key needed.',
+  path: '/',
+});
+
+// What search engines read about the project (schema.org), with the version this site was built with.
+const STRUCTURED_DATA = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareSourceCode',
+  name: PACKAGE,
+  description: TAGLINE,
+  url: SITE_URL,
+  codeRepository: GITHUB_URL,
+  sameAs: [NPM_URL],
+  programmingLanguage: 'TypeScript',
+  runtimePlatform: 'React 18, React 19',
+  license: 'https://opensource.org/licenses/MIT',
+  version: kit.version,
+  author: { '@type': 'Person', name: AUTHOR.name, url: AUTHOR.url },
+};
 
 export default function Page() {
   return (
     <div className="min-h-dvh">
+      <script
+        type="application/ld+json"
+        // JSON in a script element: escape `<` so no string in it can close the element.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
+      />
       <Header />
       <div className="grid-backdrop pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70vh]" aria-hidden="true" />
       <main id="main">

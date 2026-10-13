@@ -1,15 +1,28 @@
 import type { MetadataRoute } from 'next';
 import { componentHref, COMPONENTS } from '@/lib/components';
 import { GUIDES } from '@/lib/docs';
+import { lastModified } from '@/lib/git';
 import { SITE_URL } from '@/lib/site';
 
-// Every page, built with the site.
+const PG = 'examples/playground';
+
+/**
+ * Every page, each dated by the last commit to what it is made from. Without that history (a
+ * shallow clone), the date is left out rather than set to the build's.
+ */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
+  const page = (path: string, priority: number, sources: string[]) => ({
+    url: `${SITE_URL}${path}`,
+    lastModified: lastModified(...sources),
+    priority,
+  });
   return [
-    { url: SITE_URL, lastModified, priority: 1 },
-    { url: `${SITE_URL}/gallery`, lastModified, priority: 0.8 },
-    ...GUIDES.map((doc) => ({ url: `${SITE_URL}${doc.href}`, lastModified, priority: 0.8 })),
-    ...COMPONENTS.map((c) => ({ url: `${SITE_URL}${componentHref(c.slug)}`, lastModified, priority: 0.7 })),
+    page('', 1, [`${PG}/app/(home)`, `${PG}/components/hero.tsx`, `${PG}/components/landing.tsx`]),
+    page('/gallery', 0.8, [`${PG}/app/gallery`, `${PG}/components/demos`]),
+    ...GUIDES.map((doc) => page(doc.href, 0.8, [`${PG}/content/docs/${doc.slug}.md`])),
+    // A component's page: its "How it works", and its source, whose types are the API reference.
+    ...COMPONENTS.map((c) =>
+      page(componentHref(c.slug), 0.7, [`${PG}/content/components/${c.slug}.md`, `packages/signoff-ui/src/${c.file}`]),
+    ),
   ];
 }

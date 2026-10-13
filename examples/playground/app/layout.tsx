@@ -1,26 +1,18 @@
 import { GeistSans } from 'geist/font/sans';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { PACKAGE, TAGLINE } from '@/lib/site';
+import { PACKAGE } from '@/lib/site';
 import { THEME_SCRIPT } from '@/lib/theme';
 import { GeistMono } from './fonts';
 import './globals.css';
 
-// "signoff-ui: review what your agent changed and approve what it may do"
-const title = `${PACKAGE}: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1, -1)}`;
-// Search results show about 160 characters.
-const description =
-  'React components for multi-file diff review and tool approvals with AI SDK 6 & 7, AG-UI, ACP and assistant-ui. Watch a scripted agent run, no API key needed.';
-
-// app/opengraph-image.png is the top of docs/media/hero.png (`pnpm media og`); the docs and the
-// components page draw their own (lib/og.tsx).
+// What every page shares. Each page sets its own title, description, canonical address and preview
+// (lib/metadata.ts), so a page without them, like the 404, inherits none of the home page's.
 export const metadata: Metadata = {
   metadataBase: new URL('https://signoff-ui.vercel.app'),
-  title,
-  description,
-  alternates: { canonical: '/' },
-  openGraph: { type: 'website', siteName: 'signoff-ui', title, description, url: '/' },
-  twitter: { card: 'summary_large_image', title, description },
+  title: PACKAGE,
+  openGraph: { type: 'website', siteName: PACKAGE },
+  twitter: { card: 'summary_large_image' },
 };
 
 export const viewport: Viewport = {
