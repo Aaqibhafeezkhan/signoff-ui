@@ -187,7 +187,7 @@ export function getApprovalStatus(part: ToolPart): ApprovalStatus | undefined {
 export interface ToolTiming {
   /** First time the call was observed (input started streaming). */
   startedAt?: number | undefined;
-  /** When execution began: input complete, or approval granted. */
+  /** When execution began: input complete, or approval granted. Unset while the call waits for approval. */
   runningAt?: number | undefined;
   /** When the call settled (output, error or denial). */
   endedAt?: number | undefined;
@@ -212,6 +212,10 @@ export function observeToolTimings(prev: ToolTimings, tools: readonly ToolPart[]
     }
     if (current.startedAt === undefined || current.endedAt !== undefined) continue;
     if (phase === 'running' && current.runningAt === undefined) write(tool.toolCallId, { ...current, runningAt: now });
+    // A call can look running before its approval request arrives (AI SDK 6 renders `input-available`
+    // first; AG-UI does between TOOL_CALL_END and the interrupt). Its run starts again once approved.
+    else if (phase === 'awaiting-approval' && current.runningAt !== undefined)
+      write(tool.toolCallId, { ...current, runningAt: undefined });
     else if (isSettledPhase(phase))
       write(tool.toolCallId, { ...current, runningAt: current.runningAt ?? now, endedAt: now });
   }
