@@ -55,8 +55,9 @@ export interface UseAgUiAgentResult {
   /** Answer any interrupt with your own payload (match its `responseSchema`). */
   resolve: (entry: AgUiResumeEntry) => Promise<void>;
   /**
-   * Arguments a person edited for a tool call, sent as the approval's `input` when it is approved.
-   * Pass it as `AgentMessage`'s `onToolInputEdit`, so approval cards offer editing.
+   * Arguments a person edited for a tool call, sent as the approval payload's `editedArgs` (and as
+   * `input`, deprecated) when it is approved. Pass it as `AgentMessage`'s `onToolInputEdit`, so
+   * approval cards offer editing.
    */
   editInput: (toolCallId: string, input: unknown) => void;
   /**

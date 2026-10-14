@@ -166,6 +166,24 @@ describe('reduceAgUiRun', () => {
     // Answers for interrupts that aren't open are ignored.
     expect(answerAgUiInterrupt(run, { id: 'nope', approved: true })).toBe(run);
   });
+
+  it('sends edited arguments as editedArgs, the AG-UI field, with input as an alias', () => {
+    const edited = answerAgUiInterrupt(withInterrupt(), { id: 'int1', approved: true, input: { command: 'npm test' } });
+    expect(getAgUiResume(edited)).toEqual([
+      {
+        interruptId: 'int1',
+        status: 'resolved',
+        payload: { approved: true, editedArgs: { command: 'npm test' }, input: { command: 'npm test' } },
+      },
+    ]);
+    // A denial carries no arguments to run.
+    const denied = answerAgUiInterrupt(withInterrupt(), {
+      id: 'int1',
+      approved: false,
+      input: { command: 'npm test' },
+    });
+    expect(getAgUiResume(denied)?.[0]?.payload).toEqual({ approved: false });
+  });
 });
 
 describe('fromAgUiMessages', () => {
@@ -302,6 +320,32 @@ describe('fromAgUiMessages', () => {
     expect(fromAgUiMessages(messages.slice(0, 1), denied)[0]!.parts[1]).toMatchObject({
       state: 'output-denied',
       approval: { id: 'int1', approved: false, reason: 'Pin it' },
+    });
+  });
+
+  it('keeps a denied call denied when the agent then reports a result for it', () => {
+    // AG-UI's resumed run emits a ToolCallResult against the call, a denied one too.
+    const messages: Message[] = [
+      { id: 'a1', role: 'assistant', toolCalls: [call('tc1', 'run_command', '{"command":"rm -rf build"}')] },
+      { id: 't1', role: 'tool', toolCallId: 'tc1', content: '{"denied":true}' },
+    ];
+    const denied = answerAgUiInterrupt(withInterrupt(), { id: 'int1', approved: false, reason: 'Not that' });
+    const resumed = fold([{ type: EventType.RUN_STARTED, threadId: 't', runId: 'r2' }], denied);
+    expect(fromAgUiMessages(messages, resumed)[0]!.parts[0]).toEqual({
+      type: 'dynamic-tool',
+      toolName: 'run_command',
+      toolCallId: 'tc1',
+      state: 'output-denied',
+      input: { command: 'rm -rf build' },
+      approval: { id: 'int1', requestReason: undefined, reason: 'Not that', approved: false },
+    });
+    // A result with an error, or an interrupt that was cancelled, is still a no.
+    messages[1] = { id: 't1', role: 'tool', toolCallId: 'tc1', content: '', error: 'Denied by user' };
+    expect(fromAgUiMessages(messages, denied)[0]!.parts[0]).toMatchObject({ state: 'output-denied' });
+    const cancelled = answerAgUiInterrupt(withInterrupt(), { interruptId: 'int1', status: 'cancelled' });
+    expect(fromAgUiMessages(messages, cancelled)[0]!.parts[0]).toMatchObject({
+      state: 'output-denied',
+      approval: { approved: false },
     });
   });
 });
@@ -595,7 +639,7 @@ function withInterrupt() {
 /** A real `@ag-ui/client` agent that plays one scripted event list per run. */
 class ScriptedAgent extends AbstractAgent {
   inputs: RunAgentInput[] = [];
-  constructor(private readonly scripts: ((input: RunAgentInput) => BaseEvent[])[]) {
+  constructor(readonly scripts: ((input: RunAgentInput) => BaseEvent[])[]) {
     super({ threadId: 'thread-1' });
   }
   run(input: RunAgentInput): Observable<BaseEvent> {
@@ -649,16 +693,98 @@ describe('useAgUiAgent', () => {
     expect(agent.messages).toEqual([]);
   });
 
-  it('sends edited arguments as the approval payload’s input', async () => {
+  it('sends edited arguments as the approval payload’s editedArgs, and input', async () => {
     const agent = interruptingAgent();
     agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
     const { result } = renderHook(() => useAgUiAgent(agent));
     await act(() => agent.runAgent());
     act(() => result.current.editInput('tc1', { command: 'pnpm add zod@4' }));
     await act(() => result.current.respond({ id: 'int1', approved: true }));
+    const edited = { command: 'pnpm add zod@4' };
     expect(agent.inputs[1]?.resume).toEqual([
-      { interruptId: 'int1', status: 'resolved', payload: { approved: true, input: { command: 'pnpm add zod@4' } } },
+      { interruptId: 'int1', status: 'resolved', payload: { approved: true, editedArgs: edited, input: edited } },
     ]);
+  });
+
+  it('runs the edited arguments on an agent that follows the spec and reads editedArgs', async () => {
+    // As AWS Strands' AG-UI integration does: editedArgs replaces the call's arguments in full.
+    const original = { command: 'rm -rf build && npm test' };
+    const agent = new ScriptedAgent([
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.TOOL_CALL_START, toolCallId: 'tc1', toolCallName: 'run_command' },
+        { type: EventType.TOOL_CALL_ARGS, toolCallId: 'tc1', delta: JSON.stringify(original) },
+        { type: EventType.TOOL_CALL_END, toolCallId: 'tc1' },
+        {
+          type: EventType.RUN_FINISHED,
+          threadId: 'thread-1',
+          runId,
+          outcome: {
+            type: 'interrupt',
+            interrupts: [
+              {
+                id: 'int1',
+                reason: 'tool_call',
+                toolCallId: 'tc1',
+                message: 'Run it?',
+                responseSchema: {
+                  type: 'object',
+                  properties: { approved: { type: 'boolean' }, editedArgs: { type: 'object' } },
+                  required: ['approved'],
+                },
+              },
+            ],
+          },
+        } as BaseEvent,
+      ],
+      ({ runId, resume }) => {
+        const payload = resume?.[0]?.payload as { approved?: boolean; editedArgs?: typeof original };
+        const args = payload.editedArgs ?? original;
+        return [
+          { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+          { type: EventType.TOOL_CALL_RESULT, messageId: 'tm1', toolCallId: 'tc1', content: JSON.stringify(args) },
+          { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId, outcome: { type: 'success' } } as BaseEvent,
+        ];
+      },
+    ]);
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Run the tests' });
+    const { result } = renderHook(() => useAgUiAgent(agent));
+    await act(() => agent.runAgent());
+    act(() => result.current.editInput('tc1', { command: 'npm test' }));
+    await act(() => result.current.respond({ id: 'int1', approved: true }));
+    expect(result.current.messages[1]!.parts[0]).toMatchObject({
+      state: 'output-available',
+      output: { command: 'npm test' },
+      approval: { approved: true },
+    });
+  });
+
+  it('shows a denied call as denied after the agent reports its result', async () => {
+    const agent = new ScriptedAgent([
+      interruptingAgent().scripts[0]!,
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.TOOL_CALL_RESULT, messageId: 'tm1', toolCallId: 'tc1', content: '{"denied":true}' },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 'm2', role: 'assistant' },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm2', delta: 'Okay, not running it.' },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 'm2' },
+        { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId, outcome: { type: 'success' } } as BaseEvent,
+      ],
+    ]);
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
+    const { result } = renderHook(() => useAgUiAgent(agent));
+    await act(() => agent.runAgent());
+    await act(() => result.current.respond({ id: 'int1', approved: false, reason: 'Not now' }));
+    const reply = result.current.messages[1]!;
+    expect(reply.parts).toMatchObject([
+      { type: 'text', text: 'Adding zod.' },
+      { state: 'output-denied', approval: { id: 'int1', approved: false, reason: 'Not now' } },
+      { type: 'text', text: 'Okay, not running it.' },
+    ]);
+    render(<AgentMessage message={reply} />);
+    const row = screen.getByRole('button', { name: /^Run command/ });
+    expect(row).toHaveTextContent('Denied');
+    expect(row).not.toHaveTextContent('Done');
   });
 
   it('drops an edit when the call is denied', async () => {
