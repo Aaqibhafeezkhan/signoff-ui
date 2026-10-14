@@ -191,11 +191,46 @@ describe('decisions and the rules they leave', () => {
   it('suggests the program and subcommand of a command, without what follows', () => {
     expect(suggestArgs({ command: 'npm test -- --watch' })).toEqual({ command: 'npm test*' });
     expect(suggestArgs({ command: 'git status' })).toEqual({ command: 'git status*' });
-    expect(suggestArgs({ command: 'ls' })).toEqual({ command: 'ls*' });
-    expect(suggestArgs({ command: 'rm -rf build' })).toEqual({ command: 'rm*' });
     expect(suggestArgs({ command: 'npm run build && npm test' })).toEqual({ command: 'npm run*' });
-    expect(suggestArgs({ command: 'echo "$(whoami)"' })).toEqual({ command: 'echo*' });
-    expect(suggestArgs({ command: '--version' })).toBeUndefined();
+    expect(suggestArgs({ command: '  cargo build --release' })).toEqual({ command: 'cargo build*' });
+  });
+
+  it('suggests the whole command for a program alone, or one that runs what its arguments say', () => {
+    const exact = (command: string) => expect(suggestArgs({ command })).toEqual({ command });
+    // A program with no subcommand: `rm*` would allow `rm -rf ~`.
+    exact('ls');
+    exact('rm -rf build');
+    exact('echo "$(whoami)"');
+    exact('--version');
+    exact('$(curl -s https://example.com/x.sh)');
+    exact('');
+    // Shells, interpreters, `npx`, and commands that run or fetch another: `node*` would allow any `node -e`.
+    exact('node -e "console.log(1)"');
+    exact('node scripts/build.js');
+    exact('bash -c "ls"');
+    exact('python3 -c "print(1)"');
+    exact('python3.12 manage.py migrate');
+    exact('/usr/bin/env FOO=1 npm test');
+    exact('sudo rm build');
+    exact('xargs rm');
+    exact('curl -s https://example.com');
+    exact('wget https://example.com/x.sh');
+    exact('npx prettier --write .');
+    // Glob characters are escaped, so the pattern matches only this command.
+    expect(suggestArgs({ command: 'rm -rf build/*.log' })).toEqual({ command: 'rm -rf build/\\*.log' });
+  });
+
+  it('suggests a rule that allows the call, not every rm or node -e', () => {
+    const allowed = (command: string, call: string) =>
+      evaluateRules([rule({ args: suggestArgs({ command })! })], 'run_command', { command: call })?.effect === 'allow';
+    expect(allowed('rm -rf build', 'rm -rf build')).toBe(true);
+    expect(allowed('rm -rf build', 'rm -rf ~')).toBe(false);
+    expect(allowed('rm -rf build', 'rmdir important')).toBe(false);
+    expect(allowed('node --version', "node -e \"require('child_process').execSync('sh x')\"")).toBe(false);
+    expect(allowed('npx prettier --check .', 'npx prettier-evil')).toBe(false);
+    expect(allowed('rm -rf build/*.log', 'rm -rf build/a.log')).toBe(false);
+    expect(allowed('rm -rf build/*.log', 'rm -rf build/*.log')).toBe(true);
+    expect(allowed('npm test', 'npm test -- --watch')).toBe(true);
   });
 
   it('suggests the other arguments as they are, glob characters escaped', () => {
@@ -440,16 +475,20 @@ describe('rule storage', () => {
     expect((await storage.load()).map((r) => r.id)).toEqual(['b', 'c']);
   });
 
-  it('keeps rules in web storage as JSON, without code, and skips what is not a rule', async () => {
+  it('keeps rules in web storage as JSON, none with code, and skips what is not a rule', async () => {
     const items = new Map<string, string>();
     const fake = {
       getItem: (k: string) => items.get(k) ?? null,
       setItem: (k: string, v: string) => void items.set(k, v),
     } as Storage;
     const storage = webStorageRules('rules', () => fake);
-    await storage.save([rule({ id: 'a', when: () => true, args: { command: 'npm *' } })]);
+    // Without its `when`, the first would cover every `npm` command.
+    await storage.save([
+      rule({ id: 'a', when: () => false, args: { command: 'npm *' } }),
+      rule({ id: 'b', args: { command: 'npm test*' } }),
+    ]);
     expect(JSON.parse(items.get('rules')!)).toEqual([
-      { id: 'a', tool: 'run_command', effect: 'allow', scope: 'always', args: { command: 'npm *' } },
+      { id: 'b', tool: 'run_command', effect: 'allow', scope: 'always', args: { command: 'npm test*' } },
     ]);
     items.set('rules', JSON.stringify([{ id: 'x' }, rule({ id: 'ok' }), { ...rule({ id: 'bad' }), args: { a: 1 } }]));
     expect((await storage.load()).map((r) => r.id)).toEqual(['ok']);

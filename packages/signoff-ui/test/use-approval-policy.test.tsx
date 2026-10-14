@@ -209,6 +209,69 @@ describe('useApprovalPolicy', () => {
     expect(ids(await load(storage, [READ, LIST]))).toEqual(['default:read', 'default:list']);
   });
 
+  it('saves no rule with a `when`, so a reload never widens it to any arguments', async () => {
+    const { items, storage: local } = fakeStorage();
+    const storage = webStorageRules('rules', () => local);
+    const tmp: ApprovalRule = {
+      id: 'tmp',
+      tool: 'write_file',
+      when: (input) => (input as { path: string }).path.startsWith('/tmp/'),
+      effect: 'allow',
+      scope: 'always',
+    };
+    const first = await load(storage, []);
+    act(() => first.result.current.addRule(tmp));
+    expect(first.result.current.match('write_file', { path: '/tmp/a' })?.effect).toBe('allow');
+    expect(first.result.current.match('write_file', { path: '/etc/passwd' })).toBeUndefined();
+    first.unmount();
+    expect(JSON.parse(items.get('rules')!)).toEqual([]);
+
+    // The next visit: the rule is gone, not back without its test.
+    const second = await load(storage, []);
+    expect(ids(second)).toEqual([]);
+    expect(second.result.current.match('write_file', { path: '/etc/passwd' })).toBeUndefined();
+    second.unmount();
+
+    // A storage of your own that keeps JSON is not given it either.
+    let json = '[]';
+    const own: ApprovalRuleStorage = {
+      load: () => JSON.parse(json),
+      save: (rules) => void (json = JSON.stringify(rules)),
+    };
+    const third = await load(own, []);
+    act(() => third.result.current.addRule(tmp));
+    expect(json).toBe('[]');
+  });
+
+  it('keeps a default’s `when` over a copy saved without it', async () => {
+    const { items, storage: local } = fakeStorage();
+    const storage = webStorageRules('rules', () => local);
+    const inRepo: ApprovalRule = {
+      id: 'reads-in-repo',
+      tool: 'read_file',
+      when: (input) => !/^[~/]/.test((input as { path: string }).path),
+      effect: 'allow',
+      scope: 'always',
+    };
+    const first = await load(storage, [inRepo, LIST]);
+    // Any change saves the always rules: the default with a `when` is not among them.
+    act(() => first.result.current.addRule({ id: 'mine', tool: 'run_command', effect: 'deny', scope: 'always' }));
+    first.unmount();
+    expect(JSON.parse(items.get('rules')!).map((r: ApprovalRule) => r.id)).toEqual(['default:list', 'mine']);
+
+    const second = await load(storage, [inRepo, LIST]);
+    expect(ids(second)).toEqual(['reads-in-repo', 'default:list', 'mine']);
+    expect(second.result.current.match('read_file', { path: 'src/a.ts' })?.effect).toBe('allow');
+    expect(second.result.current.match('read_file', { path: '~/.ssh/id_ed25519' })).toBeUndefined();
+    second.unmount();
+
+    // A copy an earlier version saved without the `when` loses to the default.
+    items.set('rules', JSON.stringify([{ id: 'reads-in-repo', tool: 'read_file', effect: 'allow', scope: 'always' }]));
+    const third = await load(storage, [inRepo, LIST]);
+    expect(ids(third)).toEqual(['reads-in-repo', 'default:list']);
+    expect(third.result.current.match('read_file', { path: '~/.ssh/id_ed25519' })).toBeUndefined();
+  });
+
   it('is ready after a storage that fails to load', async () => {
     const storage = { load: () => Promise.reject(new Error('offline')), save: vi.fn() };
     const { result } = renderHook(() => useApprovalPolicy({ storage }));

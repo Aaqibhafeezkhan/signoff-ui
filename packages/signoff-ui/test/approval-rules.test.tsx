@@ -150,7 +150,7 @@ describe('ApprovalCard editing', () => {
     await user.type(screen.getByRole('spinbutton', { name: 'retries' }), '0');
     expect(screen.getByText('Edited: approving runs the new arguments.')).toBeInTheDocument();
     // The rule's suggestion follows the edit.
-    expect(screen.getByRole('textbox', { name: 'command matches' })).toHaveValue('rm*');
+    expect(screen.getByRole('textbox', { name: 'command matches' })).toHaveValue('rm -rf build/cache');
     await user.click(screen.getByRole('button', { name: /^Approve/ }));
     expect(onDecide).toHaveBeenLastCalledWith({
       decision: 'allow-once',
