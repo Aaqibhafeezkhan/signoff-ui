@@ -674,12 +674,47 @@ try {
   check(new URL(phone.url()).pathname === '/components', 'phone: the menu reaches the components page', phone.url());
   await phoneContext.close();
 
+  // The run that starts on load leaves the reader where they are: its approval card doesn't take
+  // focus when it comes up, which would scroll the page to it, away from the headline (a phone, no
+  // input) or from the link the reader is on ("Get started" from the keyboard). Replay, below, does.
+  const pendingCard = '[data-slot="signoff-approval-card"][data-status="pending"]';
+  const where = () => {
+    const el = document.activeElement;
+    const focus = !el || el === document.body ? 'body' : `${el.tagName}:${el.textContent?.trim().slice(0, 40)}`;
+    return { y: Math.round(scrollY), focus };
+  };
+  for (const { width, height, touch } of [
+    { width: 390, height: 844, touch: true },
+    { width: 1440, height: 900, touch: false },
+  ]) {
+    const context = await browser.newContext({
+      viewport: { width, height },
+      colorScheme: 'dark',
+      isMobile: touch,
+      hasTouch: touch,
+    });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+    if (!touch) await page.getByRole('link', { name: 'Get started' }).first().focus();
+    const before = await page.evaluate(where);
+    await page.waitForSelector(pendingCard, { timeout: 60_000 });
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(where);
+    check(
+      after.y === before.y && after.focus === before.focus,
+      `${width}px: the approval card of the run on load leaves scroll and focus where the reader left them`,
+      `${JSON.stringify(before)}, then ${JSON.stringify(after)}`,
+    );
+    await context.close();
+  }
+
   // Through a whole run from the keyboard: after the review is applied, the reader stays with the
   // run (the diff folds away above them) and sees it finish at the bottom of the screen, not
-  // scrolled past it into the sections below.
+  // scrolled past it into the sections below. The reader goes to the card: it doesn't come to them.
   const run = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
   await run.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
-  await run.waitForSelector('[data-slot="signoff-approval-card"][data-status="pending"]', { timeout: 60_000 });
+  await run.waitForSelector(pendingCard, { timeout: 60_000 });
+  await run.focus(pendingCard);
   await run.keyboard.press('y');
   await run.waitForSelector('[data-slot="signoff-diff-submit"]', { timeout: 60_000 });
   for (const key of ['a', 'a', 'a', 'r']) await run.keyboard.press(key);
@@ -712,6 +747,14 @@ try {
     .evaluate((el) => /TTFT\s*([\d.]+)(ms|s)/.exec(el.textContent ?? '')?.slice(1));
   const ttftMs = ttft && Number(ttft[0]) * (ttft[1] === 's' ? 1000 : 1);
   check(ttftMs >= 100, 'replay: the new run times its first token from its own request', `TTFT ${ttft?.join('')}`);
+  // Replay is the reader starting a run: the page follows it, and its approval card takes focus, so Y and N work.
+  await replay.waitForSelector(pendingCard, { timeout: 60_000 });
+  const replayFocus = await replay.evaluate(() => document.activeElement?.getAttribute('data-slot'));
+  check(
+    replayFocus === 'signoff-approval-card',
+    'replay: the approval card of a run the reader started takes focus',
+    String(replayFocus),
+  );
   await replay.close();
 
   // The components page: the anchors launch posts link to, npm snippets that bring the styles, and the

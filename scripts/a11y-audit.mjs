@@ -61,6 +61,8 @@ await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
 await page.waitForSelector(pending, { timeout: 60_000 });
 await settle(page);
 await audit(page, 'playground · approval pending');
+// The run started on load, so its card doesn't take focus: go to it, then approve.
+await page.focus(pending);
 await page.keyboard.press('y');
 await page.waitForSelector('[data-slot="signoff-diff-submit"]', { timeout: 60_000 });
 await settle(page);

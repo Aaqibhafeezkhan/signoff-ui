@@ -181,6 +181,8 @@ if (want('gif')) {
   await page.waitForSelector('[data-slot="signoff-agent-message"]', { timeout: 30_000 });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 90, everyNthFrame: 1 });
   await page.waitForSelector(approvalPending, { timeout: 90_000 });
+  // The run started on load, so its card doesn't take focus: go to it, as the reader would.
+  await page.focus(approvalPending);
   await page.waitForTimeout(1600);
   await page.keyboard.press('y');
   await page.waitForSelector(reviewReady, { timeout: 90_000 });
