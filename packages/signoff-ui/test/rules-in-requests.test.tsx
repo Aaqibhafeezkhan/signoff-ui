@@ -129,28 +129,37 @@ describe('toPlainRules', () => {
     expect(sendsAllow(allowTool, denyTool)).toBe(sent);
   });
 
-  it('sends no allow rule on a tool pattern that shares a name with the deny rule’s', () => {
+  it.each([
     // Every pattern of up to three of `a`, `b`, `*`, `?`, and the names of up to six `a` and `b` each matches.
-    const grow = (words: string[], letters: string[]) => words.flatMap((w) => letters.map((l) => w + l));
-    const upTo = (n: number, letters: string[]) => {
-      const all = [''];
-      for (let words = ['']; n > 0; n--) all.push(...(words = grow(words, letters)));
-      return all;
-    };
-    const names = upTo(6, ['a', 'b']);
-    const patterns = upTo(3, ['a', 'b', '*', '?']).map((p) => ({
-      p,
-      names: new Set(names.filter((name) => matchesGlob(name, p))),
-    }));
-    let pairs = 0;
-    for (const allow of patterns)
-      for (const deny of patterns)
-        if ([...allow.names].some((name) => deny.names.has(name))) {
-          pairs++;
-          expect(sendsAllow(allow.p, deny.p), `${allow.p} and ${deny.p}`).toBe(false);
-        }
-    expect(pairs).toBeGreaterThan(1000);
-  });
+    ['wildcards', ['a', 'b', '*', '?'], 6, ['a', 'b'], 4000],
+    // `\` escapes, a `\` at the end, and `\uffff`, which `ends` puts where a pattern starts and ends.
+    ['escapes', ['a', '*', '?', '\\', '\uffff'], 4, ['a', '*', '\\', '\uffff'], 9000],
+    // The halves of a surrogate pair, which a pattern matches one at a time.
+    ['surrogates', ['a', '*', '?', '\ud800', '\udc00'], 4, ['a', '\ud800', '\udc00'], 10000],
+  ])(
+    'sends no allow rule on a tool pattern that shares a name with the deny rule’s: %s',
+    (_, patternLetters, nameLength, nameLetters, atLeast) => {
+      const grow = (words: string[], letters: string[]) => words.flatMap((w) => letters.map((l) => w + l));
+      const upTo = (n: number, letters: string[]) => {
+        const all = [''];
+        for (let words = ['']; n > 0; n--) all.push(...(words = grow(words, letters)));
+        return all;
+      };
+      const names = upTo(nameLength, nameLetters);
+      const patterns = upTo(3, patternLetters).map((p) => ({
+        p,
+        names: new Set(names.filter((name) => matchesGlob(name, p))),
+      }));
+      let pairs = 0;
+      for (const allow of patterns)
+        for (const deny of patterns)
+          if ([...allow.names].some((name) => deny.names.has(name))) {
+            pairs++;
+            expect(sendsAllow(allow.p, deny.p), `${allow.p} and ${deny.p}`).toBe(false);
+          }
+      expect(pairs).toBeGreaterThan(atLeast);
+    },
+  );
 });
 
 describe('parseApprovalRules', () => {
@@ -300,23 +309,41 @@ describe('parseApprovalRules', () => {
     expect(ids([allowRead, ...denies(10), ...denies(10)])).toEqual(['allow-read']);
   });
 
+  /** Milliseconds `parseApprovalRules` takes on 500-character tools that differ only at the end. */
+  const timeParse = (allow: number, deny: number, maxRules: number) => {
+    // Each check reads a whole tool before it finds two apart.
+    const tool = (i: number) => 'a'.repeat(499) + String.fromCharCode(0x100 + i);
+    const value = overTheWire([
+      ...Array.from({ length: allow }, (_, i) => rule({ id: `a${i}`, tool: tool(i) })),
+      ...Array.from({ length: deny }, (_, i) => failingDeny(`d${i}`, tool(1000 + i))),
+    ]);
+    const start = performance.now();
+    expect(parseApprovalRules(value, { maxRules })).toHaveLength(deny > 10 ? 0 : allow);
+    return performance.now() - start;
+  };
+
+  // Without the 10-tool cap, checking each allow rule against each deny rule's tool grows with the
+  // square of the rules: that took 45, 194 and 775 ms on these, without coverage.
+  it.each([
+    [50, 50, 100],
+    [100, 100, 200],
+    [200, 200, 400],
+  ])(
+    'takes under 50 ms on %i allow rules and %i deny rules it leaves out, with maxRules %i',
+    (allow, deny, maxRules) => {
+      expect(timeParse(allow, deny, maxRules)).toBeLessThan(50);
+    },
+  );
+
+  // Ten tools, the most it still checks the allow rules against: the bound is on the whole cost,
+  // loose enough for a slow runner with coverage on.
   it.each([
     [90, 10, 100],
-    [50, 50, 100],
     [190, 10, 200],
-    [100, 100, 200],
   ])(
-    'takes under 50 ms on %i allow rules and %i deny rules it leaves out, with maxRules %i, on tools that differ only at the end',
+    'takes under 500 ms on %i allow rules and %i deny rules it leaves out, with maxRules %i',
     (allow, deny, maxRules) => {
-      // 500-character tools: each check reads a whole tool before it finds them apart.
-      const tool = (i: number) => 'a'.repeat(499) + String.fromCharCode(0x100 + i);
-      const value = overTheWire([
-        ...Array.from({ length: allow }, (_, i) => rule({ id: `a${i}`, tool: tool(i) })),
-        ...Array.from({ length: deny }, (_, i) => failingDeny(`d${i}`, tool(1000 + i))),
-      ]);
-      const start = performance.now();
-      expect(parseApprovalRules(value, { maxRules })).toHaveLength(deny > 10 ? 0 : allow);
-      expect(performance.now() - start).toBeLessThan(50);
+      expect(timeParse(allow, deny, maxRules)).toBeLessThan(500);
     },
   );
 

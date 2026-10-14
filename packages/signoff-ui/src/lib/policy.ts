@@ -361,37 +361,35 @@ export function setToolInput<M extends { parts: readonly unknown[] }>(
 
 /* A person's rules with each request: plain data from the page, checked again on the server. */
 
-/** Past every character code: where a pattern starts and ends, for `mayOverlap`. */
-const EDGE = 0x10000;
-
 /**
- * A tool pattern's parts, marked at both ends with a code no character has, so a pattern with no
- * wildcard can't meet one that needs more characters than it has.
+ * A tool pattern's literal start, and its literal end backwards: what comes before its first
+ * wildcard, and after its last. A `\` escape counts as a wildcard too, which can only make the
+ * pattern seem to match more. Each has a `\uffff` where the pattern starts or ends, so one with no
+ * wildcard can't meet a pattern that needs more characters than it has.
  */
-const edged = (tool: string) => [EDGE, ...globParts(tool), EDGE];
-
-/**
- * Whether two tool patterns, as `edged` parts, could match one name: their literal starts agree,
- * and so do their literal ends. It can say yes for two that never meet, never no for two that do.
- */
-function mayOverlap(x: number[], y: number[]): boolean {
-  // From the start, then from the end, while both are literal (past an end, a part is undefined and
-  // stops it too).
-  for (const end of [0, -1])
-    for (let i = end; x.at(i)! >= 0 && y.at(i)! >= 0; i += end || 1) if (x.at(i) !== y.at(i)) return false;
-  return true;
+function ends(tool: string): string[] {
+  const runs = `\uffff${tool}\uffff`.split(/\\[\s\S]|[*?]/);
+  return [runs[0]!, runs.at(-1)!.split('').reverse().join('')];
 }
+
+/**
+ * Whether two tool patterns, as `ends`, could match one name: of their literal starts one starts
+ * the other, and so it is with their ends. It can say yes for two that never meet, never no for
+ * two that do.
+ */
+const mayOverlap = (x: string[], y: string[]) =>
+  x.every((end, i) => end.slice(0, y[i]!.length) === y[i]!.slice(0, end.length));
 
 /**
  * The rules less the allow rules that left-out deny rules would overrule: those on a tool one of
  * them could name. The calls they cover then go to the page, which has every rule.
  */
-function withoutOverruled(rules: ApprovalRule[], leftOut: Iterable<string>): ApprovalRule[] {
-  // Each pattern in parts once: a pair then costs only the walks in `mayOverlap`.
-  const denied = [...leftOut].map(edged);
+function withoutOverruled(rules: ApprovalRule[], leftOut: string[]): ApprovalRule[] {
+  // Each pattern's ends once: a pair then costs only the two compares in `mayOverlap`.
+  const denied = leftOut.map(ends);
   return rules.filter((rule) => {
-    const parts = rule.effect === 'allow' && edged(rule.tool);
-    return !parts || !denied.some((other) => mayOverlap(parts, other));
+    const tool = rule.effect === 'allow' && ends(rule.tool);
+    return !tool || !denied.some((other) => mayOverlap(tool, other));
   });
 }
 
@@ -444,9 +442,10 @@ const MAX_LEFT_OUT_TOOLS = 10;
  * The rules a client sent, such as a request body's `rules`, checked on the server: each field of
  * the right type and within `limits`, other fields dropped. A rule that fails a check is left out,
  * and so is everything when `value` is not an array. A deny rule left out takes with it the allow
- * rules it could overrule: those on a tool it names, or all of them when its tool is missing, too
- * long, or past `maxRules`, or when the deny rules left out name more than 10 tools. A rule left
- * out still holds on the page, which answers the call when the server asks.
+ * rules it could overrule: those on a tool it names, or all of them when its tool is missing, not
+ * a string or too long, when it comes after the first `maxRules`, or when the deny rules left out
+ * name more than 10 tools. A rule left out still holds on the page, which answers the call when the
+ * server asks.
  */
 export function parseApprovalRules(
   value: unknown,
@@ -492,7 +491,8 @@ export function parseApprovalRules(
     tools.has(undefined) ||
     tools.size > MAX_LEFT_OUT_TOOLS ||
     value.slice(maxRules).some((item) => item?.effect === 'deny');
-  return anyTool ? rules.filter((rule) => rule.effect === 'deny') : withoutOverruled(rules, tools as Set<string>);
+  if (anyTool) return rules.filter((rule) => rule.effect === 'deny');
+  return tools.size ? withoutOverruled(rules, [...tools] as string[]) : rules;
 }
 
 /* Agent Client Protocol: `session/request_permission`, typed here so nothing new is installed. */
