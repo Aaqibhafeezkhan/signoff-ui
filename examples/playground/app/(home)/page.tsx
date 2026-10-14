@@ -6,6 +6,7 @@ import { Hero } from '@/components/hero';
 import { Landing } from '@/components/landing';
 import { PlaygroundIsland } from '@/components/playground-island';
 import { highlightFiles, PLAYGROUND_FILES } from '@/lib/demo-code';
+import { liveModeEnabled } from '@/lib/live';
 import { pageMetadata } from '@/lib/metadata';
 import { AUTHOR, GITHUB_URL, NPM_URL, PACKAGE, SITE_URL, TAGLINE } from '@/lib/site';
 
@@ -58,9 +59,9 @@ export default async function Page() {
           <div className="lg:col-start-1 lg:row-start-1">
             <Hero />
           </div>
-          {/* Live mode is offered only when the server has a key; the scripted run is always the default. */}
+          {/* Live mode is offered only when the server opts in (lib/live.ts); the scripted run is always the default. */}
           <HighlightedFilesProvider files={files}>
-            <PlaygroundIsland liveAvailable={Boolean(process.env.OPENAI_API_KEY)} />
+            <PlaygroundIsland liveAvailable={liveModeEnabled()} />
           </HighlightedFilesProvider>
         </div>
         <Landing />

@@ -3,6 +3,7 @@ import { addUsage } from 'signoff-ui/core';
 import { convertToModelMessages, stepCountIs, streamText, tool } from 'ai';
 import { z } from 'zod';
 import type { AgentUIMessage } from '@/lib/mock-agent';
+import { liveModeEnabled } from '@/lib/live';
 import { FILES, SEARCH_CODE_OUTPUT, WEB_RESULTS } from '@/lib/scenario';
 
 export const maxDuration = 60;
@@ -51,8 +52,11 @@ const tools = {
 };
 
 export async function POST(req: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: 'Live mode needs OPENAI_API_KEY on the server.' }, { status: 501 });
+  if (!liveModeEnabled()) {
+    return Response.json(
+      { error: 'Live mode is off: it needs OPENAI_API_KEY and LIVE_MODE=1 on the server.' },
+      { status: 501 },
+    );
   }
   const { messages }: { messages: AgentUIMessage[] } = await req.json();
   const model = process.env.OPENAI_MODEL ?? 'gpt-5.4-mini';
