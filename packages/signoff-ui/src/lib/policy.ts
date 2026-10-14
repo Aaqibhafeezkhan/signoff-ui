@@ -351,6 +351,12 @@ export function toToolApprovalResponse(
  * Messages with one tool call's input replaced, for approving edited arguments with AI SDK 7: set
  * them with `setMessages` (from `useChat`), then answer the approval. The server runs the call with the
  * input in the messages, after checking it against the tool's schema and `toolApproval` again.
+ * When the tool's schema changed what the model sent (a default filled in, a value coerced, a key
+ * dropped), the approval keeps what the model sent as `inputSchemaInput`, and the server checks the
+ * call against it, so it gets the edit too. The server runs only an edit that comes out of the
+ * schema unchanged, and out of `experimental_refineToolInput` too when that is set: keep the fields
+ * the schema fills in (the card starts an edit from the input it shows, defaults included), and use
+ * transforms that give the same result when run twice.
  * With `experimental_toolApprovalSecret` set, the server signs the input it asked about and refuses
  * any other, so edits fail there by design.
  */
@@ -369,7 +375,12 @@ export function setToolInput<M extends { parts: readonly unknown[] }>(
     );
     if (index === -1) return message;
     const parts = [...message.parts];
-    parts[index] = { ...(parts[index] as object), input };
+    const part = parts[index] as { approval?: unknown };
+    const { approval } = part;
+    parts[index] =
+      typeof approval === 'object' && approval !== null && 'inputSchemaInput' in approval
+        ? { ...part, input, approval: { ...approval, inputSchemaInput: input } }
+        : { ...part, input };
     return { ...message, parts };
   });
 }
