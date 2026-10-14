@@ -109,6 +109,27 @@ describe('the ApprovalCard page: "Done editing" keeps the edit', () => {
     expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once' });
   });
 
+  it('says an edit approved on its card reaches the agent, and it does', async () => {
+    // Approve all answers without a card's edit (below), so the page can't promise an edit is never dropped.
+    expect(page).not.toContain('never dropped');
+    expect(section('Edit the arguments, then approve')).toContain(
+      '`ToolApprovalCard` offers editing only with `onEditInput`, the function that applies the edit, so an edit approved on its card reaches the agent.',
+    );
+    const part = toolPart('approval-requested', {
+      toolName: 'run_command',
+      toolCallId: 'c0',
+      input: { command: 'rm -rf build && npm test' },
+    });
+    const onRespond = vi.fn<(response: ToolApprovalResponse) => void>();
+    const onEditInput = vi.fn();
+    const user = userEvent.setup();
+    render(<ToolApprovalCard part={part} onRespond={onRespond} onEditInput={onEditInput} />);
+    await editThenDone(user);
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onEditInput).toHaveBeenCalledWith('c0', { command: 'npm test' });
+    expect(onRespond).toHaveBeenCalledWith({ id: 'approval_c0', approved: true });
+  });
+
   it('says Approve all answers with the agent’s arguments, and it does', async () => {
     expect(section('Approve all')).toContain(
       "It answers with the agent's arguments and doesn't see an edit made on a card, so approve an edited call on its own card.",
@@ -135,8 +156,8 @@ describe('the ApprovalCard page: "Done editing" keeps the edit', () => {
   });
 });
 
-describe('the ApprovalCard page: only a deliberate press decides', () => {
-  const text = () => section('Only a deliberate press decides');
+describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', () => {
+  const text = () => section('Held keys, focus and the page-wide shortcut');
 
   /** A chat composer, with cards that mount after it, as tool calls do. */
   function Page({ cards = [] }: { cards?: Array<Partial<Parameters<typeof ApprovalCard>[0]>> }) {
@@ -207,6 +228,17 @@ describe('the ApprovalCard page: only a deliberate press decides', () => {
     screen.getByRole('button', { name: 'Send' }).focus();
     await user.keyboard('{Control>}{Enter}{/Control}');
     expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once' });
+  });
+
+  it('globalShortcut leaves ⌘/Ctrl+Enter to a text field of the card’s own editor', async () => {
+    expect(text()).toContain("the text fields of the card's own argument editor count too.");
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ globalShortcut: true, editable: true, onDecide }]} />);
+    await user.click(screen.getByRole('button', { name: L.editArguments }));
+    await user.click(screen.getByRole('textbox', { name: 'command' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
   });
 
   it('with several pending cards, globalShortcut approves the one that mounted first', async () => {
