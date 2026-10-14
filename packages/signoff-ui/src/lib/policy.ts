@@ -362,12 +362,48 @@ export function setToolInput<M extends { parts: readonly unknown[] }>(
 /* A person's rules with each request: plain data from the page, checked again on the server. */
 
 /**
+ * A tool pattern's literal start, and its literal end backwards: what comes before its first
+ * wildcard, and after its last. A `\` escape counts as a wildcard too, which can only make the
+ * pattern seem to match more. Each has a `\uffff` where the pattern starts or ends, so one with no
+ * wildcard can't meet a pattern that needs more characters than it has.
+ */
+function ends(tool: string): string[] {
+  const runs = `\uffff${tool}\uffff`.split(/\\[\s\S]|[*?]/);
+  return [runs[0]!, runs.at(-1)!.split('').reverse().join('')];
+}
+
+/**
+ * Whether two tool patterns, as `ends`, could match one name: of their literal starts one starts
+ * the other, and so it is with their ends. It can say yes for two that never meet, never no for
+ * two that do.
+ */
+const mayOverlap = (x: string[], y: string[]) =>
+  x.every((end, i) => end.slice(0, y[i]!.length) === y[i]!.slice(0, end.length));
+
+/**
+ * The rules less the allow rules that left-out deny rules would overrule: those on a tool one of
+ * them could name. The calls they cover then go to the page, which has every rule.
+ */
+function withoutOverruled(rules: ApprovalRule[], leftOut: string[]): ApprovalRule[] {
+  // Each pattern's ends once: a pair then costs only the two compares in `mayOverlap`.
+  const denied = leftOut.map(ends);
+  return rules.filter((rule) => {
+    const tool = rule.effect === 'allow' && ends(rule.tool);
+    return !tool || !denied.some((other) => mayOverlap(tool, other));
+  });
+}
+
+/**
  * Rules as plain data, to send with a request: copies, as JSON carries them. A rule with a `when`
  * is left out, since `when` is code and without it the rule would cover more calls than it does on
- * the page; the page still applies it when the server asks.
+ * the page. For a deny rule with a `when`, so are the allow rules on the tools it covers, which it
+ * would overrule on the page: the server asks about those calls, and the page answers them with
+ * every rule.
  */
 export function toPlainRules(rules: readonly ApprovalRule[]): ApprovalRule[] {
-  return JSON.parse(JSON.stringify(rules.filter((rule) => !rule.when))) as ApprovalRule[];
+  const sent = rules.filter((rule) => !rule.when);
+  const leftOut = rules.filter((rule) => rule.when && rule.effect === 'deny').map((rule) => rule.tool);
+  return JSON.parse(JSON.stringify(withoutOverruled(sent, leftOut))) as ApprovalRule[];
 }
 
 /** What `parseApprovalRules` accepts from a client. */
@@ -379,8 +415,9 @@ export interface ApprovalRuleLimits {
   /** Characters in one string: an id, a tool, an argument's name or pattern, a reason. Default 500. */
   maxLength?: number | undefined;
   /**
-   * `*` wildcards in one pattern, `**` counting as one. Default 1: with each one more, matching a
-   * long argument takes much longer, enough to hold up the server.
+   * `*` wildcards in one pattern, `**` counting as one. Default 3, enough for a rule on what a
+   * command contains (`git push*--force*`). Matching takes the argument's length times the
+   * pattern's, whatever the number of `*`, so `maxLength` is what bounds it.
    */
   maxWildcards?: number | undefined;
 }
@@ -398,23 +435,33 @@ function wildcards(pattern: string) {
   return count;
 }
 
+/** Tools named by the deny rules `parseApprovalRules` leaves out: past this many, it keeps no allow rule. */
+const MAX_LEFT_OUT_TOOLS = 10;
+
 /**
  * The rules a client sent, such as a request body's `rules`, checked on the server: each field of
  * the right type and within `limits`, other fields dropped. A rule that fails a check is left out,
- * and so is everything when `value` is not an array. A rule left out still holds on the page, which
- * answers the call when the server asks.
+ * and so is everything when `value` is not an array. A deny rule left out takes with it the allow
+ * rules it could overrule: those on a tool it names, or all of them when its tool is missing, not
+ * a string or too long, when it comes after the first `maxRules`, or when the deny rules left out
+ * name more than 10 tools. A rule left out still holds on the page, which answers the call when the
+ * server asks.
  */
 export function parseApprovalRules(
   value: unknown,
-  { maxRules = 100, maxArgs = 20, maxLength = 500, maxWildcards = 1 }: ApprovalRuleLimits = {},
+  { maxRules = 100, maxArgs = 20, maxLength = 500, maxWildcards = 3 }: ApprovalRuleLimits = {},
 ): ApprovalRule[] {
   if (!Array.isArray(value)) return [];
   const text = (v: unknown): v is string => typeof v === 'string' && v.length <= maxLength;
   const pattern = (v: unknown): v is string => text(v) && wildcards(v) <= maxWildcards;
   const rules: ApprovalRule[] = [];
+  // The tool of each deny rule left out: `undefined` when it can't bound the calls the rule covers.
+  const leftOut: Array<string | undefined> = [];
   for (const item of value.slice(0, maxRules)) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const { id, tool, args, effect, scope, createdAt, reason } = item as Record<string, unknown>;
+    // A deny rule counts as left out until it passes every check.
+    if (effect === 'deny') leftOut.push(text(tool) ? tool : undefined);
     if (!text(id) || !pattern(tool)) continue;
     if ((effect !== 'allow' && effect !== 'deny') || (scope !== 'session' && scope !== 'always')) continue;
     if ((createdAt !== undefined && !Number.isFinite(createdAt)) || (reason !== undefined && !text(reason))) continue;
@@ -425,6 +472,7 @@ export function parseApprovalRules(
       if (entries.length > maxArgs || !entries.every(([name, glob]) => text(name) && pattern(glob))) continue;
       checked = Object.fromEntries(entries) as Record<string, string>;
     }
+    if (effect === 'deny') leftOut.pop();
     rules.push({
       id,
       tool,
@@ -435,7 +483,16 @@ export function parseApprovalRules(
       ...(reason !== undefined ? { reason } : {}),
     });
   }
-  return rules;
+  const tools = new Set(leftOut);
+  // A deny rule whose tool can't be read, or one past `maxRules`, could be on any tool. Past a few
+  // tools, no allow rule stays either: each one is checked against each tool, so the check grows
+  // with the number of rules, not its square.
+  const anyTool =
+    tools.has(undefined) ||
+    tools.size > MAX_LEFT_OUT_TOOLS ||
+    value.slice(maxRules).some((item) => item?.effect === 'deny');
+  if (anyTool) return rules.filter((rule) => rule.effect === 'deny');
+  return tools.size ? withoutOverruled(rules, [...tools] as string[]) : rules;
 }
 
 /* Agent Client Protocol: `session/request_permission`, typed here so nothing new is installed. */
