@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@assistant-ui/react": "^0.15.26",
+    "@assistant-ui/react": "^0.15.27",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "signoff-ui": "latest"
@@ -19,6 +19,6 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "~6.0.3",
-    "vite": "^8.3.2"
+    "vite": "^8.3.4"
   }
 }
