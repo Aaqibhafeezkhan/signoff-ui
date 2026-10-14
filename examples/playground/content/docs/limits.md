@@ -70,7 +70,8 @@ Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under 
 - **Lines are commented on, not decided.** A review accepts or rejects whole hunks, or whole files. Lines can be selected to comment on, and the agent gets the comment with its lines, but a hunk cannot be applied in part.
 - **Patches without binaries.** `toPatch()` lists an accepted binary file as changed, without its contents, so `git apply` cannot apply that part; the file's own `content` in the result has it, when you passed contents.
 - **Edited arguments and signed approvals.** With AI SDK 7's `experimental_toolApprovalSecret`, the server signs the arguments it asked about and refuses any other, so arguments edited before approving fail there by design. ACP's `request_permission` has no way to answer with edited arguments, nor a session option: `allow-session` answers `allow_once` and keeps the session rule on the client.
-- **Rules from the client.** Rules made in the browser are that person's choices. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server. `parseApprovalRules` checks the rules a request brings, and by default leaves out a pattern with more than three `*` or 500 characters: matching takes time in proportion to the argument's length times the pattern's, so the length limit is what bounds it. A deny rule it leaves out takes with it the allow rules on the tools it could cover, so the server asks about those calls and the page answers them.
+- **Rules from the client.** Rules made in the browser are a person's grants on top of your server policy. `toToolApproval` can apply them on the server, for that person's runs only; rules that protect other people belong on the server. `parseApprovalRules` checks the rules a request brings, and by default leaves out a pattern with more than three `*` or 500 characters: matching takes time in proportion to the argument's length times the pattern's, so the length limit is what bounds it. A deny rule it leaves out takes with it the allow rules on the tools it could cover, so the server asks about those calls and the page answers them.
+- **Patterns are a convenience, not a sandbox.** An argument pattern matches the whole value from its first character, so a deny rule for `git push*` misses `git status && git push`, `/usr/bin/git push` and `GIT_TRACE=1 git push`. To keep a shell tool from running what it shouldn't, keep an allowlist on the server that denies the rest (`toToolApproval(allowed, { otherwise: 'denied' })` for that tool), or run its commands in a sandbox.
 - **Markdown cost while streaming.** The whole text is parsed again on every delta: about 8 ms at 5k characters, 24 ms at 20k and 67 ms at 50k (jsdom), so very long streamed answers can drop frames.
 - **Citation numbering.** `[n]` markers are numbered over the message's sources after de-duplication by URL (by source id for documents). If your prompt numbers a list of sources that contains duplicates, markers after the first duplicate point one source early. Number unique sources in the prompt.
 - **Run state comes from you.** Parts carry no signal that a run has ended, so tool calls left behind by `stop()` or an interrupted history read "Stopped" only when you pass `active={false}`. `deriveAgentState` reports such a run as `stopped`, which the quickstart's `active` condition covers.
@@ -80,7 +81,9 @@ Measured with `pnpm perf`, with a budget per case; the append's is 16 ms, under 
 
 ## What's next
 
-The next work is on review and approval:
+The next work, with its issue where it has one:
 
-- Adapters: an AI Elements recipe, and AG-UI sub-agents as nested timelines.
+- Adapters: an AI Elements recipe, `DiffReview` and approvals inside an AI Elements chat ([#40](https://github.com/dgesteves/signoff-ui/issues/40), a good first issue).
 - ACP: accepting some hunks of an edit and rejecting others, with the client writing the reviewed file (`fs/write_text_file`).
+- Rules: deny patterns that check each command of a chained line (`a && b`, `a; b`), and see past a path or a variable set in front of a command.
+- Styles: CSS `@scope` for `styles.css`, in place of the selector each rule carries ([#46](https://github.com/dgesteves/signoff-ui/issues/46)).

@@ -4,9 +4,9 @@ Review and approval are where a person has to read carefully and decide quickly,
 
 Every action is a real button. Single-key shortcuts (Y and N on an approval card; J, K, A, R, U, C, E and V in a diff review) only fire while focus is inside the component, which keeps them compliant with WCAG 2.1.4 and out of the way of text fields. They are exposed through `aria-keyshortcuts` and described in visually hidden text. The page-wide ⌘ or Ctrl + Enter approval is opt-in, because it collides with most chat composers.
 
-## Focus is managed, never lost
+## Focus is managed
 
-Deciding an approval moves focus to the card instead of dropping it on `<body>`. Diff hunks use a roving tabindex, so the review is one tab stop that arrow and letter keys navigate; its file list is one more. Writing a comment moves focus to its text area and back to the hunk when it closes. Tool calls follow the disclosure pattern with arrow-key movement. In a run of more than 150 calls, the timeline renders those near the screen; the arrow keys, Home and End still move between all of them, scrolling one that isn't rendered into view, and each call that renders gives its place in the whole list.
+Deciding on an approval card moves focus to the card instead of dropping it on `<body>`. A component that leaves the page takes focus with it: `ToolApprovalBatch` once it has answered its calls, or a card or a review your app removes after a decision. Move focus to what replaces it, such as the next card or the agent's reply. In a review, the hunks share one tab stop, a roving tabindex that J, K and the arrow keys move through, and the file list is one more; each hunk's buttons and each file's controls are in the Tab order too. Writing a comment moves focus to its text area and back to the hunk when it closes. Tool calls follow the disclosure pattern with arrow-key movement. In a run of more than 150 calls, the timeline renders those near the screen; the arrow keys, Home and End still move between all of them, scrolling one that isn't rendered into view, and each call that renders gives its place in the whole list.
 
 ## Scrolling content is reachable
 
@@ -40,4 +40,4 @@ Titles take a `headingLevel`; source lists are labeled lists and approval cards 
 
 ## How it's tested
 
-Every component has axe checks in Vitest (jsdom). `pnpm a11y` also runs axe in Chrome against the playground at each stage of a run, the components page, the docs and a phone viewport, in the dark and light themes, which covers color contrast with real layout. CI runs both on every pull request, and both currently report no violations.
+Every component has axe checks in Vitest (jsdom). `pnpm a11y` also runs axe in Chrome against the playground at each stage of a run, the components page, the docs and a phone viewport, in the dark and light themes, which covers color contrast with real layout. CI runs both on every pull request, and a violation in either fails it.
