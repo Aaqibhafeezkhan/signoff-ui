@@ -9,17 +9,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.131",
+    "@ai-sdk/react": "^4.0.140",
     "signoff-ui": "latest",
-    "ai": "^7.0.128",
-    "next": "^16.4.0",
+    "ai": "^7.0.137",
+    "next": "^16.4.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
