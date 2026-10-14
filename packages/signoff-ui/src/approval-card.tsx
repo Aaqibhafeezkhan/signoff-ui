@@ -105,7 +105,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   /**
    * Let the person edit the arguments before approving: a form for an object of strings, numbers
    * and booleans, JSON otherwise. The edited input comes to `onDecide`: "Done editing" closes the
-   * editor and keeps the edit, "Undo edits" drops it. Default `false`.
+   * editor and keeps the edit, "Undo edits" drops it. An edit is for the `input` it was made
+   * against: new `input`, or a new `status`, drops it. Default `false`.
    */
   editable?: boolean;
   /** The argument patterns a session or always rule starts with. Default: from the input. */
@@ -403,8 +404,22 @@ export function ApprovalCard({
   const [reasonText, setReasonText] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const [editing, setEditing] = useState(false);
-  // The person's edit, kept when the editor closes; `undefined` until they change something.
-  const [edited, setEdited] = useState<EditorValue | undefined>();
+  // The person's edit and the arguments it was made against, kept when the editor closes;
+  // `undefined` until they change something.
+  const [edit, setEdit] = useState<{ base: unknown; value: EditorValue }>();
+  // An edit counts only for the arguments it was made against: new `input` is a new call.
+  const stale = edit !== undefined && !sameValue(edit.base, input);
+  // It also belongs to the pending period it was made in, so a card that asks again does not carry
+  // the last answer's edit. Either drops it, adjusting state during render, not in an effect.
+  const [period, setPeriod] = useState(status);
+  if (period !== status) {
+    setPeriod(status);
+    setEdit(undefined);
+    setEditing(false);
+  } else if (stale) {
+    setEdit(undefined);
+  }
+  const edited = stale ? undefined : edit?.value;
   const editToggleRef = useRef<HTMLButtonElement>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = status === 'pending';
@@ -419,9 +434,11 @@ export function ApprovalCard({
   const editedInput = editable && edited ? editorInput(edited) : undefined;
   const invalid = editedInput?.ok === false;
   const finalInput = editedInput?.ok && !sameValue(editedInput.input, input) ? editedInput.input : undefined;
+  // `null` is an edit like any other (JSON edited to `null`), so not `finalInput ?? input`.
+  const runInput = finalInput !== undefined ? finalInput : input;
 
   // The rule's scope, suggested from the arguments the call will run with.
-  const suggested = useMemo(() => ruleArgs ?? suggestArgs(finalInput ?? input), [ruleArgs, finalInput, input]);
+  const suggested = useMemo(() => ruleArgs ?? suggestArgs(runInput), [ruleArgs, runInput]);
   const [scope, setScope] = useState<{ any: boolean; args: Record<string, string> } | undefined>();
   const scopeArgs = scope ?? { any: !suggested, args: suggested ?? {} };
 
@@ -692,13 +709,13 @@ export function ApprovalCard({
                 <ArgumentsEditor
                   original={input}
                   value={edited ?? editorFor(input)}
-                  onChange={setEdited}
+                  onChange={(value) => setEdit({ base: input, value })}
                   idPrefix={ids}
                   L={L}
                 />
               ) : finalInput !== undefined || preview === undefined || preview === null ? (
                 // An edit shows as what will run, in place of a custom preview of the agent's arguments.
-                <DefaultPreview input={finalInput ?? input} L={L} />
+                <DefaultPreview input={runInput} L={L} />
               ) : (
                 <div data-signoff-slot className="contents">
                   {preview}
@@ -723,7 +740,7 @@ export function ApprovalCard({
                     <button
                       type="button"
                       onClick={() => {
-                        setEdited(undefined);
+                        setEdit(undefined);
                         // This button goes with the edit: keep focus in the card.
                         editToggleRef.current?.focus();
                       }}
@@ -1047,7 +1064,8 @@ export interface ToolApprovalBatchProps extends Omit<ComponentPropsWithoutRef<'d
 /**
  * "Approve all" and "Deny all" for the approvals a run is waiting on together, such as parallel
  * calls. Each is answered once, as Approve or Deny on its own card would; with a critical one among
- * them, Approve all asks for a second press.
+ * them, Approve all asks for a second press. Approve all runs each call with the agent's arguments:
+ * it does not see an edit made on a card (`editable`), so approve an edited call on its own card.
  */
 export function ToolApprovalBatch({
   parts,
