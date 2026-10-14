@@ -115,13 +115,20 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
 
   // Follow the run once the reader has scrolled to its end or started a run themselves.
   // Not from the start: on a phone, following the run that starts on load scrolls past the headline.
+  // The approval card takes focus only then too: focus scrolls the page to it, from wherever the
+  // reader is. The effects read the ref; rendering reads the state.
   const endRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(false);
+  const [following, setFollowing] = useState(false);
+  const follow = useCallback((on: boolean) => {
+    stickRef.current = on;
+    setFollowing(on);
+  }, []);
   // Replay during a run stops it, then starts over once it has settled. Sent straight away, the new
   // request would have the stopped one's end ('ready') land in the middle of it, and its timing too.
   const [restarting, setRestarting] = useState(false);
   const replay = useCallback(() => {
-    stickRef.current = true;
+    follow(true);
     if (!running) {
       startRun();
       return;
@@ -129,7 +136,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     setPaused(false);
     setRestarting(true);
     void stop();
-  }, [running, startRun, stop]);
+  }, [follow, running, startRun, stop]);
   useEffect(() => {
     if (!restarting || running) return;
     const id = setTimeout(() => {
@@ -188,7 +195,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
             onSubmit={(result) => {
               // The review folds into a one-line summary; follow the run on from there, rather than
               // staying where the last hunk was, which is now past the end of the run.
-              stickRef.current = true;
+              follow(true);
               void addToolOutput({
                 tool: 'review_changes',
                 toolCallId: part.toolCallId,
@@ -203,7 +210,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
       }
       return null;
     },
-    [addToolOutput, runId],
+    [addToolOutput, follow, runId],
   );
 
   // Autopilot plays the human: approve the install, then accept everything but the model swap.
@@ -244,11 +251,11 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     // further up in the run or further down the page.
     const onScroll = () => {
       const top = endRef.current?.getBoundingClientRect().top;
-      stickRef.current = top !== undefined && top >= 0 && top <= window.innerHeight + 200;
+      follow(top !== undefined && top >= 0 && top <= window.innerHeight + 200);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [follow]);
   useEffect(() => {
     if (stickRef.current && running) endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, running]);
@@ -412,7 +419,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
               active={derived.state !== 'done' && derived.state !== 'stopped' && derived.state !== 'error'}
               tools={toolMeta}
               onToolApproval={addToolApprovalResponse}
-              approvalProps={{ autoFocus: !autopilot }}
+              approvalProps={{ autoFocus: !autopilot && following }}
               renderTool={review}
               sourcesVariant="cards"
             />
@@ -441,7 +448,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
           <Composer
             disabled={running}
             onSend={(text) => {
-              stickRef.current = true;
+              follow(true);
               void sendMessage({ text });
             }}
             onStop={() => void stop()}
