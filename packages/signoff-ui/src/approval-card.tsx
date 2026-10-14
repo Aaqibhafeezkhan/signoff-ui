@@ -122,9 +122,15 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
    * custom `preview`. Default `true`.
    */
   shortcuts?: boolean;
-  /** Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending. Default `false`. */
+  /**
+   * Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending, except a text field,
+   * where the keys are the field's (a chat composer's send, say). Default `false`.
+   */
   globalShortcut?: boolean;
-  /** Move focus to the card when it mounts in the pending state. Default `false`. */
+  /**
+   * Move focus to the card when it mounts in the pending state, unless focus is in a text field:
+   * the person's next keys would land on the card as shortcuts. Default `false`.
+   */
   autoFocus?: boolean;
   /** Offer an optional free-text reason when denying. Default `true`. */
   allowReason?: boolean;
@@ -511,7 +517,8 @@ export function ApprovalCard({
   }, [announcement]);
 
   useEffect(() => {
-    if (autoFocus && pending) cardRef.current?.focus();
+    // Not out of a text field: the next letter the person types there would land on the card as a shortcut.
+    if (autoFocus && pending && !isTypingTarget(document.activeElement)) cardRef.current?.focus();
     // Only on mount: re-focusing on every render would steal focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -524,8 +531,11 @@ export function ApprovalCard({
     if (!globalShortcut || !pending) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.defaultPrevented) {
+        // In a text field, the card's own included, ⌘/Ctrl+Enter is the field's: a composer's send.
+        if (isTypingTarget(event.target)) return;
         event.preventDefault();
-        approveRef.current();
+        // A held key repeats its keydown: one press, one decision.
+        if (!event.repeat) approveRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -534,7 +544,14 @@ export function ApprovalCard({
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     // Keys on your controls in `preview`, or in a menu it opens in a portal, are theirs.
-    if (!pending || !shortcuts || fromSlot(event)) return;
+    if (!pending || fromSlot(event)) return;
+    // A held key repeats its keydown, and a repeated Enter clicks the focused button again: one press
+    // makes one decision, so holding a key cannot confirm a critical action or answer twice.
+    if (event.repeat && event.key === 'Enter' && !isTypingTarget(event.target)) {
+      event.preventDefault();
+      return;
+    }
+    if (!shortcuts) return;
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
@@ -546,7 +563,7 @@ export function ApprovalCard({
     if (event.shiftKey) {
       if (key === 'n' && has('deny-always')) {
         event.preventDefault();
-        choose('deny-always', reasonOpen ? reasonText : undefined);
+        if (!event.repeat) choose('deny-always', reasonOpen ? reasonText : undefined);
       }
       return;
     }
@@ -559,7 +576,7 @@ export function ApprovalCard({
     const decision = byKey[key];
     if (decision && has(decision)) {
       event.preventDefault();
-      choose(decision);
+      if (!event.repeat) choose(decision);
     }
   };
 
@@ -781,7 +798,8 @@ export function ApprovalCard({
                       if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        deny(reasonText);
+                        // Not a held Enter's repeat, such as the one that opened this field.
+                        if (!e.repeat) deny(reasonText);
                       } else if (e.key === 'Escape') {
                         e.preventDefault();
                         setReasonOpen(false);
@@ -1092,6 +1110,10 @@ export function ToolApprovalBatch({
     );
   });
   if (waiting.length < min) return null;
+  // A held Enter clicks the focused button on every repeat: one press, one answer.
+  const ignoreRepeat = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.repeat && event.key === 'Enter') event.preventDefault();
+  };
   const critical = waiting.some((part) => {
     const meta = tools?.[getToolPartName(part)];
     return (typeof meta?.risk === 'function' ? meta.risk(part.input) : meta?.risk) === 'critical';
@@ -1130,6 +1152,7 @@ export function ToolApprovalBatch({
       <span className="ml-auto flex items-center gap-2">
         <button
           type="button"
+          onKeyDown={ignoreRepeat}
           onClick={() => answerAll('deny-once')}
           className="border-signoff-border-strong text-signoff-fg hover:bg-signoff-surface-2 focus-visible:outline-signoff-ring inline-flex h-7 cursor-pointer items-center rounded-lg border px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2"
         >
@@ -1137,6 +1160,7 @@ export function ToolApprovalBatch({
         </button>
         <button
           type="button"
+          onKeyDown={ignoreRepeat}
           onClick={() => answerAll('allow-once')}
           className={cn(
             'focus-visible:outline-signoff-ring inline-flex h-7 cursor-pointer items-center rounded-lg px-2.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2',
