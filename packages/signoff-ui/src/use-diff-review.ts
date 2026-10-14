@@ -309,9 +309,12 @@ export interface UseDiffReviewResult {
   /**
    * The review's keyboard, for the element that contains it. Keys pressed inside an element with
    * `data-signoff-slot` in it, your own controls, are left to them, and so are keys from a portal
-   * rendered inside it, such as a menu.
+   * rendered inside it, such as a menu. `tabIndex: -1` makes that element focusable, outside the tab
+   * order: Safari and every browser on iOS don't focus a button or a checkbox on click, so focus goes
+   * to the closest focusable element around it, this one rather than the page, and the keys keep
+   * working. Spread your own `tabIndex` after it to replace it.
    */
-  getRootProps(): { onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
+  getRootProps(): { tabIndex: -1; onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
   /** A focusable item: a roving tabindex, its accessible name and its decision. */
   getItemProps(index: number): {
     ref: (el: HTMLElement | null) => void;
@@ -955,7 +958,7 @@ export function useDiffReview({
     submit,
     result,
     toPatch: patch,
-    getRootProps: () => ({ onKeyDown }),
+    getRootProps: () => ({ tabIndex: -1, onKeyDown }),
     getItemProps: (index) => {
       const item = items[index]!;
       const file = fileOf.get(item.id)!;
