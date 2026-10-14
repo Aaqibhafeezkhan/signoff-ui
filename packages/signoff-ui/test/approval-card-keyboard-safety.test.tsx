@@ -176,36 +176,67 @@ describe('ApprovalCard: globalShortcut leaves text fields alone', () => {
 
 describe('ApprovalCard: a text field in a shadow root is a text field too', () => {
   // A web component's chat box: focus and the key events' target outside it are its host element.
-  function shadowComposer() {
+  // At depth 2 the field's component sits in another one's shadow root, as in a component library.
+  function shadowComposer(control: 'textarea' | 'button' = 'textarea', depth = 1) {
     const host = document.createElement('div');
     document.body.append(host);
-    const field = document.createElement('textarea');
-    host.attachShadow({ mode: 'open' }).append(field);
     onTestFinished(() => host.remove());
-    return { host, field };
+    let root = host.attachShadow({ mode: 'open' });
+    for (let level = 1; level < depth; level++) {
+      const inner = document.createElement('div');
+      root.append(inner);
+      root = inner.attachShadow({ mode: 'open' });
+    }
+    const field = document.createElement(control);
+    root.append(field);
+    return { root, field };
   }
 
-  it('autoFocus leaves focus in it, and typing there decides nothing', async () => {
-    const { host, field } = shadowComposer();
+  it.each([
+    ['one shadow root', 1],
+    ['two nested shadow roots', 2],
+  ] as const)('autoFocus leaves focus in a field %s deep, and typing there decides nothing', async (_, depth) => {
+    const { root, field } = shadowComposer('textarea', depth);
     const onDecide = vi.fn();
     const user = userEvent.setup();
     field.focus();
     await user.keyboard('plea');
     render(<Page card={{ autoFocus: true, onDecide }} />);
-    expect(host.shadowRoot?.activeElement).toBe(field);
+    expect(root.activeElement).toBe(field);
     await user.keyboard('se stop');
     expect(onDecide).not.toHaveBeenCalled();
     expect(field).toHaveValue('please stop');
   });
 
-  it.each(['Control', 'Meta'])('with globalShortcut, %s+Enter in it does not approve', async (mod) => {
-    const { field } = shadowComposer();
+  it.each([
+    ['Control', 'one shadow root', 1],
+    ['Meta', 'one shadow root', 1],
+    ['Control', 'two nested shadow roots', 2],
+  ] as const)('with globalShortcut, %s+Enter in a field %s deep does not approve', async (mod, _, depth) => {
+    const { field } = shadowComposer('textarea', depth);
     const onDecide = vi.fn();
     const user = userEvent.setup();
     render(<Page card={{ globalShortcut: true, onDecide }} />);
     field.focus();
     await user.keyboard(`ship it{${mod}>}{Enter}{/${mod}}`);
     expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('a button in a shadow root is not a text field: autoFocus takes focus from it', () => {
+    const { field } = shadowComposer('button');
+    field.focus();
+    render(<Page card={{ autoFocus: true, onDecide: vi.fn() }} />);
+    expect(screen.getByRole('group', { name: 'Run command' })).toHaveFocus();
+  });
+
+  it('with globalShortcut, Control+Enter on a button in a shadow root approves once', async () => {
+    const { field } = shadowComposer('button');
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page card={{ globalShortcut: true, onDecide }} />);
+    field.focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(decisions(onDecide)).toEqual(['allow-once']);
   });
 });
 
