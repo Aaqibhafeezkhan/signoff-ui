@@ -287,6 +287,39 @@ describe('parseApprovalRules', () => {
     expect(ids([allowGit, { ...allowRead, args: { path: '*a*b*c*d' } }])).toEqual(['allow-git']);
   });
 
+  /** A deny rule on `tool` that fails a check (its scope), so `parseApprovalRules` leaves it out. */
+  const failingDeny = (id: string, tool: string) => ({ ...rule({ id, tool, effect: 'deny' }), scope: 'forever' });
+
+  it('keeps no allow rule when the deny rules it leaves out name more than 10 tools', () => {
+    const allowRead = rule({ id: 'allow-read', tool: 'read_file' });
+    const denies = (n: number) => Array.from({ length: n }, (_, i) => failingDeny(`deny-${i}`, `tool_${i}`));
+    const ids = (value: unknown) => parseApprovalRules(overTheWire(value)).map((r) => r.id);
+    expect(ids([allowRead, ...denies(10)])).toEqual(['allow-read']);
+    expect(ids([allowRead, ...denies(11)])).toEqual([]);
+    // A tool named twice counts once.
+    expect(ids([allowRead, ...denies(10), ...denies(10)])).toEqual(['allow-read']);
+  });
+
+  it.each([
+    [90, 10, 100],
+    [50, 50, 100],
+    [190, 10, 200],
+    [100, 100, 200],
+  ])(
+    'takes under 50 ms on %i allow rules and %i deny rules it leaves out, with maxRules %i, on tools that differ only at the end',
+    (allow, deny, maxRules) => {
+      // 500-character tools: each check reads a whole tool before it finds them apart.
+      const tool = (i: number) => 'a'.repeat(499) + String.fromCharCode(0x100 + i);
+      const value = overTheWire([
+        ...Array.from({ length: allow }, (_, i) => rule({ id: `a${i}`, tool: tool(i) })),
+        ...Array.from({ length: deny }, (_, i) => failingDeny(`d${i}`, tool(1000 + i))),
+      ]);
+      const start = performance.now();
+      expect(parseApprovalRules(value, { maxRules })).toHaveLength(deny > 10 ? 0 : allow);
+      expect(performance.now() - start).toBeLessThan(50);
+    },
+  );
+
   it('lets no rule a client sends approve a call the server’s rules deny', () => {
     const SERVER_RULES = [rule({ id: 'server:push', args: { command: 'git push*' }, effect: 'deny' })];
     // The widest rules a client can send: any tool, and any command under the server rule's own id.
