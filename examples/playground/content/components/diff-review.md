@@ -11,7 +11,7 @@ Unified or split review of agent edits across files, with word-level highlights.
 
 `reviewToolOutput(result)` shapes that for the model. It gives a one-sentence summary, each file's decision with its applied contents, the rejected hunks and the comments. A file the reviewer marked viewed has `viewed: true`, and the others have no `viewed` key, so the output stays small. Pass `{ contents: false, patch: toPatch() }` to send a patch instead of contents. It is plain JSON, so it is an AI SDK tool output as it is: `addToolOutput({ tool: 'review_changes', toolCallId, output: reviewToolOutput(result) })`. For an AG-UI agent paused on an interrupt, `reviewResumeEntry(interrupt.id, result)` is the resume entry, with the same payload: pass it to `useAgUiAgent`'s `resolve`.
 
-The review is sent once per state of the review. A double click or a repeated ⌘ or Ctrl + Enter sends one review, until a decision, a comment, a viewed mark or the files change. Files compare by content, so an inline `files` array does not count as a change.
+The review is sent once per state of the review. A double click or a repeated ⌘ or Ctrl + Enter sends one review, until a decision, a comment, a viewed mark or the files change. Files compare by content, so an inline `files` array does not count as a change. Decisions, viewed marks and comments stay with a file's path and a hunk's position in it, not with its content, so when the agent revises the files under the same review, render it with a new `key`, such as the revision's id, to start a fresh review, and clear `decisions`, `viewed` and `comments` too if you control them.
 
 ### Comments
 
