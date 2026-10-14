@@ -90,9 +90,10 @@ export const GUIDES: DocPage[] = [
   {
     slug: 'comparison',
     href: '/docs/comparison',
-    title: 'How it compares',
+    title: 'signoff-ui vs assistant-ui and AI Elements',
     label: 'Comparison',
-    description: 'signoff-ui next to assistant-ui and AI Elements: what each does better, and where this kit differs.',
+    description:
+      'How signoff-ui is different from assistant-ui and AI Elements, what each does better, and how to use them together.',
   },
   {
     slug: 'migrating-from-agent-ui-kit',

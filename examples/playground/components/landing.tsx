@@ -203,7 +203,8 @@ const WORKS_WITH: Array<{ title: string; body: ReactNode; code: string; language
     body: (
       <>
         The protocol editors use to run coding agents. A prompt turn becomes a message, each permission request an
-        approval card with the agent’s own options, and each edit a diff. Pure functions, nothing else to install.
+        approval card that maps the agent’s options to Approve, Always and Deny, and each edit a diff. Pure functions,
+        nothing else to install.
       </>
     ),
     code: "import { reduceAcpTurn, toAcpMessage } from 'signoff-ui/acp';",
@@ -335,7 +336,7 @@ export function Landing() {
           against AI SDK 6 and 7, tested on React 18 and 19 in CI, and prerenders under Next.js 16 with{' '}
           <Code>cacheComponents</Code>.
         </SectionHeading>
-        <ul className="border-line mt-8 grid overflow-hidden rounded-xl border sm:mt-10 md:grid-cols-2">
+        <ul className="border-line mt-8 grid grid-cols-1 overflow-hidden rounded-xl border sm:mt-10 md:grid-cols-2">
           {WORKS_WITH.map((item) => (
             <li
               key={item.title}

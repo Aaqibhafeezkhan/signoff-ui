@@ -181,29 +181,63 @@ export const COMPONENTS: ComponentDoc[] = [
       },
     ],
     types: ['ApprovalChoice', 'ApprovalDecision', 'ToolApprovalResponse', 'RiskLevel', 'ApprovalStatus'],
+    // With the helpers the usage calls, so the imports and the usage run as copied.
     imports: {
-      npm: npm('ApprovalCard, ToolApprovalCard, ToolApprovalBatch'),
-      shadcn: shadcn('ApprovalCard, ToolApprovalCard, ToolApprovalBatch', 'approval-card'),
+      npm: `import {
+  ApprovalCard,
+  ToolApprovalCard,
+  ToolApprovalBatch,
+  isToolPart,
+  setToolInput,
+  useApprovalPolicy,
+  type ApprovalChoice,
+} from 'signoff-ui';`,
+      shadcn: `${shadcn('ApprovalCard, ToolApprovalCard, ToolApprovalBatch, type ApprovalChoice', 'approval-card')}
+${shadcn('useApprovalPolicy', 'use-approval-policy')}
+import { isToolPart } from '@/components/signoff-ui/lib/ai';
+import { setToolInput } from '@/components/signoff-ui/lib/policy';`,
     },
-    usage: `// Bound to an AI SDK tool part in the approval flow, with rules from useApprovalPolicy:
-<ToolApprovalCard
-  part={part}
-  onRespond={addToolApprovalResponse}
-  policy={policy}
-  // Edit the arguments before approving (AI SDK 7: the call runs with the edited input).
-  onEditInput={(id, input) => setMessages((m) => setToolInput(m, id, input))}
-  risk="high"
-/>
+    usage: `import { useChat } from '@ai-sdk/react';
+import { useState } from 'react';
 
-// Or on its own, with every choice:
-<ApprovalCard
-  toolName="run_command"
-  input={{ command: 'pnpm add @upstash/ratelimit' }}
-  risk="high"
-  decisions={['allow-once', 'allow-session', 'allow-always', 'deny-once', 'deny-always']}
-  editable
-  onDecide={({ decision, reason, input, args }) => answer(decision, { reason, input, args })}
-/>`,
+// Bound to the AI SDK tool parts in the approval flow, with rules from useApprovalPolicy. It
+// renders nothing for a call that needs no approval.
+export function Approvals() {
+  const { messages, setMessages, addToolApprovalResponse } = useChat();
+  const policy = useApprovalPolicy();
+  return messages.flatMap((m) =>
+    m.parts.filter(isToolPart).map((part) => (
+      <ToolApprovalCard
+        key={part.toolCallId}
+        part={part}
+        onRespond={addToolApprovalResponse}
+        policy={policy}
+        // Edit the arguments before approving (AI SDK 7: the call runs with the edited input).
+        onEditInput={(id, input) => setMessages((all) => setToolInput(all, id, input))}
+        risk="high"
+      />
+    )),
+  );
+}
+
+// Or on its own, with every choice. The card shows the outcome you pass back as \`status\`.
+export function RunCommandApproval() {
+  const [choice, setChoice] = useState<ApprovalChoice>();
+  return (
+    <ApprovalCard
+      toolName="run_command"
+      input={{ command: 'pnpm add @upstash/ratelimit' }}
+      risk="high"
+      decisions={['allow-once', 'allow-session', 'allow-always', 'deny-once', 'deny-always']}
+      editable
+      status={!choice ? 'pending' : choice.decision.startsWith('allow') ? 'approved' : 'denied'}
+      decision={choice?.decision}
+      reason={choice?.reason}
+      // { decision, reason, input, args }: keep it for the outcome, and send it on to your agent.
+      onDecide={setChoice}
+    />
+  );
+}`,
     keyboard: [
       { keys: ['Y'], action: 'Approve, once' },
       { keys: ['S'], action: 'Approve for this session, when offered' },
