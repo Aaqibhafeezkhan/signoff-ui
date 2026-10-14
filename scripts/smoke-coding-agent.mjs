@@ -3,8 +3,8 @@
 // tests approved for the session from the keyboard, a review with a rejected file and a comment on a
 // line, the revision it brings, then the tests on the session rule, the commit on a default rule and
 // the push blocked by the server's rule. A second run takes the session rule without asking. axe
-// checks each step in dark and light, and a 390px phone must not scroll sideways. Then, with a key on
-// the server, the page must still start on the scripted agent and send only scripted requests. Fails
+// checks each step in dark and light, and a 390px phone must not scroll sideways. Then, with live mode
+// on the server, the page must still start on the scripted agent and send only scripted requests. Fails
 // on any page error or console error, hydration mismatches included.
 //
 //   pnpm build:lib && pnpm smoke:coding-agent   # or test a running app: BASE_URL=http://localhost:3400
@@ -209,9 +209,11 @@ try {
   console.log('pass  390px phone in light: no sideways scroll at any step; axe clean');
 
   if (work) {
-    // A key on the server, and OPENAI_BASE_URL on a closed port, so even a live request leaves nothing.
+    // Live mode on (a key and LIVE_MODE=1), and OPENAI_BASE_URL on a closed port, so even a live
+    // request leaves nothing.
     const keyed = await serve(PORT + 1, {
       OPENAI_API_KEY: 'smoke-placeholder',
+      LIVE_MODE: '1',
       OPENAI_MODEL: '',
       OPENAI_BASE_URL: 'http://127.0.0.1:9/v1',
     });

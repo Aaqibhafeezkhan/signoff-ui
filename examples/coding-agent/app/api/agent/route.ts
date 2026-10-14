@@ -11,7 +11,8 @@ export const maxDuration = 60;
 
 const bodySchema = z.object({
   messages: z.array(z.unknown()),
-  // Live only when the page asks for it: a key on the server spends nothing until a person picks the model.
+  // Live only when the server turns it on (OPENAI_API_KEY and LIVE_MODE=1) and the page asks for it:
+  // a key on the server spends nothing until a person picks the model.
   mode: z.enum(['scripted', 'live']).default('scripted'),
   // The person's own rules, for their own runs: parseApprovalRules keeps those within its limits
   // (100 rules, short strings, one wildcard per pattern), so a crafted rule can't hold up matching.
@@ -25,12 +26,18 @@ export async function POST(req: Request) {
   const rules = parseApprovalRules(body.data.rules);
   let messages: RunMessage[];
   try {
+    // Their shape only: a caller can still send an approval for a call the model never proposed. The
+    // server's rules decide again on every approved call (see "What an approval is" in the README).
     messages = await validateUIMessages<RunMessage>({ messages: body.data.messages });
   } catch {
     return Response.json({ error: 'The messages are not valid UI messages.' }, { status: 400 });
   }
   const agent = agentModel(mode);
-  if (!agent) return Response.json({ error: 'Live mode needs OPENAI_API_KEY on the server.' }, { status: 501 });
+  if (!agent)
+    return Response.json(
+      { error: 'Live mode is off: it needs OPENAI_API_KEY and LIVE_MODE=1 on the server.' },
+      { status: 501 },
+    );
 
   // The project as the run has left it, rebuilt from the reviews in the messages: nothing is kept here.
   const tools = createTools(filesFromMessages(messages));

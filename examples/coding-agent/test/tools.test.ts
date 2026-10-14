@@ -133,9 +133,17 @@ describe('the workspace', () => {
 });
 
 describe('live mode', () => {
-  it('is on with OPENAI_API_KEY, on OPENAI_MODEL or the default', () => {
+  it('is on with OPENAI_API_KEY and LIVE_MODE=1, on OPENAI_MODEL or the default', () => {
     expect(liveModelId({})).toBeUndefined();
-    expect(liveModelId({ OPENAI_API_KEY: 'k' })).toBe(DEFAULT_LIVE_MODEL);
-    expect(liveModelId({ OPENAI_API_KEY: 'k', OPENAI_MODEL: 'gpt-x' })).toBe('gpt-x');
+    expect(liveModelId({ OPENAI_API_KEY: 'k', LIVE_MODE: '1' })).toBe(DEFAULT_LIVE_MODEL);
+    expect(liveModelId({ OPENAI_API_KEY: 'k', LIVE_MODE: '1', OPENAI_MODEL: 'gpt-x' })).toBe('gpt-x');
+  });
+
+  it('stays off with the key alone, or LIVE_MODE alone', () => {
+    expect(liveModelId({ OPENAI_API_KEY: 'k' })).toBeUndefined();
+    expect(liveModelId({ OPENAI_API_KEY: 'k', OPENAI_MODEL: 'gpt-x' })).toBeUndefined();
+    expect(liveModelId({ OPENAI_API_KEY: 'k', LIVE_MODE: 'true' })).toBeUndefined();
+    expect(liveModelId({ LIVE_MODE: '1' })).toBeUndefined();
+    expect(liveModelId({ LIVE_MODE: '1', OPENAI_API_KEY: '' })).toBeUndefined();
   });
 });
