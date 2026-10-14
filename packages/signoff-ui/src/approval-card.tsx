@@ -64,7 +64,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   /**
    * Custom arguments preview. Defaults to a command line for `{ command }` inputs, else JSON.
    * Your content, like `AgentMessage`'s `renderTool`: keys pressed in it, or in a menu it opens in
-   * a portal, are yours, not the card's shortcuts.
+   * a portal, are yours, not the card's shortcuts. Once the person edits the arguments (`editable`),
+   * the card shows the edited ones in its default preview instead.
    */
   preview?: ReactNode;
   /**
@@ -103,7 +104,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   onDeny?: (reason?: string) => void | PromiseLike<void>;
   /**
    * Let the person edit the arguments before approving: a form for an object of strings, numbers
-   * and booleans, JSON otherwise. The edited input comes to `onDecide`. Default `false`.
+   * and booleans, JSON otherwise. The edited input comes to `onDecide`: "Done editing" closes the
+   * editor and keeps the edit, "Undo edits" drops it. Default `false`.
    */
   editable?: boolean;
   /** The argument patterns a session or always rule starts with. Default: from the input. */
@@ -401,7 +403,9 @@ export function ApprovalCard({
   const [reasonText, setReasonText] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const [editing, setEditing] = useState(false);
-  const [edited, setEdited] = useState<EditorValue>(() => editorFor(input));
+  // The person's edit, kept when the editor closes; `undefined` until they change something.
+  const [edited, setEdited] = useState<EditorValue | undefined>();
+  const editToggleRef = useRef<HTMLButtonElement>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = status === 'pending';
   const r = risk ? RISK[risk] : UNRATED;
@@ -411,8 +415,8 @@ export function ApprovalCard({
   const has = (d: ApprovalDecision) => offered.includes(d);
   const remembers = ruleScope && (has('allow-session') || has('allow-always') || has('deny-always'));
 
-  // The arguments a decision runs with: the edited ones, once valid and different.
-  const editedInput = editable && editing ? editorInput(edited) : undefined;
+  // The arguments a decision runs with: the edited ones, once valid and different, editor open or not.
+  const editedInput = editable && edited ? editorInput(edited) : undefined;
   const invalid = editedInput?.ok === false;
   const finalInput = editedInput?.ok && !sameValue(editedInput.input, input) ? editedInput.input : undefined;
 
@@ -685,9 +689,16 @@ export function ApprovalCard({
               </div>
 
               {editing ? (
-                <ArgumentsEditor original={input} value={edited} onChange={setEdited} idPrefix={ids} L={L} />
-              ) : preview === undefined || preview === null ? (
-                <DefaultPreview input={input} L={L} />
+                <ArgumentsEditor
+                  original={input}
+                  value={edited ?? editorFor(input)}
+                  onChange={setEdited}
+                  idPrefix={ids}
+                  L={L}
+                />
+              ) : finalInput !== undefined || preview === undefined || preview === null ? (
+                // An edit shows as what will run, in place of a custom preview of the agent's arguments.
+                <DefaultPreview input={finalInput ?? input} L={L} />
               ) : (
                 <div data-signoff-slot className="contents">
                   {preview}
@@ -696,17 +707,26 @@ export function ApprovalCard({
               {editable && input !== undefined && (
                 <div className="-mt-1.5 flex items-center gap-2">
                   <button
+                    ref={editToggleRef}
                     type="button"
                     aria-expanded={editing}
-                    onClick={() => setEditing((open) => !open)}
+                    onClick={() => {
+                      // Done editing keeps the edit; JSON that does not parse keeps the editor and its error open.
+                      if (editing && invalid) setAnnouncement(L.invalidJson);
+                      else setEditing((open) => !open);
+                    }}
                     className="text-signoff-fg-muted hover:text-signoff-fg focus-visible:outline-signoff-ring cursor-pointer rounded-md px-1 py-0.5 text-xs underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1"
                   >
                     {editing ? L.doneEditing : L.editArguments}
                   </button>
-                  {editing && finalInput !== undefined && (
+                  {(finalInput !== undefined || invalid) && (
                     <button
                       type="button"
-                      onClick={() => setEdited(editorFor(input))}
+                      onClick={() => {
+                        setEdited(undefined);
+                        // This button goes with the edit: keep focus in the card.
+                        editToggleRef.current?.focus();
+                      }}
                       className="text-signoff-fg-muted hover:text-signoff-fg focus-visible:outline-signoff-ring cursor-pointer rounded-md px-1 py-0.5 text-xs underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1"
                     >
                       {L.undoEdits}
