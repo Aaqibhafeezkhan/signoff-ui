@@ -150,8 +150,9 @@ export interface ApprovalPolicy {
   rules: readonly ApprovalRule[];
   /**
    * The rules as they are now, as plain data to send with a request (see `toPlainRules`: a rule
-   * with a `when` stays on the page). The same function for the policy's life, so a transport made
-   * once can call it in `body`, and it has a rule a decision just made before the page re-renders.
+   * with a `when` stays on the page, and a deny one keeps back the allow rules it would overrule,
+   * so the server asks about those calls). The same function for the policy's life, so a transport
+   * made once can call it in `body`, and it has a rule a decision just made before the page re-renders.
    */
   getRules(): ApprovalRule[];
   /** The storage has loaded: after the first render, or once an async storage's promise settles. */

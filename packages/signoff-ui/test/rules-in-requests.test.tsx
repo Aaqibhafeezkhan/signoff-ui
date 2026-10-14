@@ -18,7 +18,14 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { describe, expect, it } from 'vitest';
 import { AgentMessage } from '../src/agent-message';
-import { parseApprovalRules, toPlainRules, toToolApproval, type ApprovalRule } from '../src/lib/policy';
+import {
+  evaluateRules,
+  matchesGlob,
+  parseApprovalRules,
+  toPlainRules,
+  toToolApproval,
+  type ApprovalRule,
+} from '../src/lib/policy';
 import { memoryRuleStorage, useApprovalPolicy } from '../src/use-approval-policy';
 import { AI_SDK_MAJOR } from './utils';
 
@@ -32,6 +39,13 @@ const rule = (overrides: Partial<ApprovalRule>): ApprovalRule => ({
 
 /** What a request body carries, after JSON. */
 const overTheWire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+/** A call as `toolApproval` gets it. */
+const toolCall = (toolName: string, input: unknown) => ({ toolCall: { toolName, input } });
+
+/** What the documented route answers for a call, given what the page sent. */
+const onTheServer = (sent: unknown, toolName: string, input: unknown) =>
+  toToolApproval(parseApprovalRules(overTheWire(sent)))(toolCall(toolName, input));
 
 describe('toPlainRules', () => {
   it('copies each rule as JSON carries it', () => {
@@ -57,6 +71,85 @@ describe('toPlainRules', () => {
     // Sent without its `when`, the rule would approve writes to any file on the server.
     const call = { toolCall: { toolName: 'write_file', input: { path: '.env' } } };
     expect(toToolApproval(plain)(call)).toBe('user-approval');
+  });
+
+  it('leaves out the allow rules a deny rule with a `when` would overrule, so the server asks', () => {
+    const rules = [
+      rule({ id: 'allow-npm', args: { command: 'npm *' } }),
+      rule({ id: 'allow-tools', tool: '*', args: { path: 'src/*' } }),
+      rule({
+        id: 'deny-publish',
+        when: (i) => String((i as { command: string }).command).includes('publish'),
+        effect: 'deny',
+      }),
+      rule({ id: 'allow-read', tool: 'read_file' }),
+      rule({ id: 'allow-github', tool: 'mcp_github_*' }),
+      rule({ id: 'deny-push', args: { command: 'git push*' }, effect: 'deny' }),
+    ];
+    const publish = { command: 'npm publish' };
+    expect(evaluateRules(rules, 'run_command', publish)?.rule.id).toBe('deny-publish');
+
+    const plain = toPlainRules(rules);
+    // Allow rules on other tools, and deny rules, still go.
+    expect(plain.map((r) => r.id)).toEqual(['allow-read', 'allow-github', 'deny-push']);
+    expect(onTheServer(plain, 'run_command', publish)).toBe('user-approval');
+    expect(onTheServer(plain, 'run_command', { command: 'npm test' })).toBe('user-approval');
+    expect(onTheServer(plain, 'run_command', { command: 'git push' })).toMatchObject({ type: 'denied' });
+    expect(onTheServer(plain, 'read_file', { path: 'a.ts' })).toMatchObject({ type: 'approved' });
+    // An allow rule with a `when` of its own overrules nothing, so it leaves the rest as they are.
+    const narrowedAllow = rule({ id: 'w', when: () => true });
+    expect(toPlainRules([narrowedAllow, rule({ id: 'k' })]).map((r) => r.id)).toEqual(['k']);
+  });
+
+  /** Whether `toPlainRules` sends an allow rule on one tool pattern next to a `when` deny rule on another. */
+  const sendsAllow = (allowTool: string, denyTool: string) =>
+    toPlainRules([
+      rule({ id: 'allow', tool: allowTool }),
+      rule({ id: 'deny', tool: denyTool, when: () => true, effect: 'deny' }),
+    ]).length === 1;
+
+  it.each([
+    ['run_command', 'run_command', false],
+    ['run\\_command', 'run_command', false],
+    ['*', 'run_command', false],
+    ['run_*', 'run_command', false],
+    ['run_command', 'run_*', false],
+    ['run?command', 'run_command', false],
+    ['run\\*', 'run*', false],
+    ['mcp_github_*', 'mcp_*', false],
+    ['*_file', 'read_*', false],
+    ['run_command', 'read_file', true],
+    ['run_command', 'run_commands', true],
+    ['mcp_github_*', 'mcp_slack_*', true],
+    ['*_file', '*_command', true],
+    ['read_*', 'run_*', true],
+    ['read', 'read_*', true],
+    ['*_file', 'read_*_dir', true],
+  ])('sends an allow rule on %s next to a deny rule with a `when` on %s: %s', (allowTool, denyTool, sent) => {
+    expect(sendsAllow(allowTool, denyTool)).toBe(sent);
+  });
+
+  it('sends no allow rule on a tool pattern that shares a name with the deny rule’s', () => {
+    // Every pattern of up to three of `a`, `b`, `*`, `?`, and the names of up to six `a` and `b` each matches.
+    const grow = (words: string[], letters: string[]) => words.flatMap((w) => letters.map((l) => w + l));
+    const upTo = (n: number, letters: string[]) => {
+      const all = [''];
+      for (let words = ['']; n > 0; n--) all.push(...(words = grow(words, letters)));
+      return all;
+    };
+    const names = upTo(6, ['a', 'b']);
+    const patterns = upTo(3, ['a', 'b', '*', '?']).map((p) => ({
+      p,
+      names: new Set(names.filter((name) => matchesGlob(name, p))),
+    }));
+    let pairs = 0;
+    for (const allow of patterns)
+      for (const deny of patterns)
+        if ([...allow.names].some((name) => deny.names.has(name))) {
+          pairs++;
+          expect(sendsAllow(allow.p, deny.p), `${allow.p} and ${deny.p}`).toBe(false);
+        }
+    expect(pairs).toBeGreaterThan(1000);
   });
 });
 
@@ -125,20 +218,73 @@ describe('parseApprovalRules', () => {
     expect(parseApprovalRules([rule({ reason: 'four' })], { maxLength: 3 })).toEqual([]);
   });
 
-  it('leaves out a pattern with more `*` wildcards than the limit: one, by default', () => {
+  it('leaves out a pattern with more `*` wildcards than the limit: three, by default', () => {
     const kept = (glob: string, limits?: { maxWildcards: number }) =>
       parseApprovalRules([rule({ args: { command: glob } })], limits).length === 1;
     expect(kept('npm test*')).toBe(true);
     expect(kept('src/**')).toBe(true);
     expect(kept('git ?tatus')).toBe(true);
-    expect(kept('echo \\*\\* *')).toBe(true);
-    expect(kept('*a*b')).toBe(false);
-    expect(kept('src/**/*.ts')).toBe(false);
-    expect(kept('src/**/*.ts', { maxWildcards: 2 })).toBe(true);
+    expect(kept('echo \\*\\* \\* *')).toBe(true);
+    expect(kept('*a*b')).toBe(true);
+    expect(kept('git push*--force*')).toBe(true);
+    expect(kept('src/**/*.ts')).toBe(true);
+    expect(kept('*a*b*')).toBe(true);
+    expect(kept('*a*b*c*')).toBe(false);
+    expect(kept('src/**/*.ts', { maxWildcards: 1 })).toBe(false);
     expect(kept('npm test', { maxWildcards: 0 })).toBe(true);
     expect(kept('npm test*', { maxWildcards: 0 })).toBe(false);
-    expect(parseApprovalRules([rule({ tool: 'mcp_*_*' })])).toEqual([]);
-    expect(parseApprovalRules([rule({ tool: 'mcp_github_*' })])).toHaveLength(1);
+    expect(parseApprovalRules([rule({ tool: 'mcp_*_*_*_*' })])).toEqual([]);
+    expect(parseApprovalRules([rule({ tool: 'mcp_*_*' })])).toHaveLength(1);
+  });
+
+  it('keeps no allow rule that a deny rule it leaves out would overrule, so the server asks', () => {
+    const allowGit = rule({ id: 'allow-git', args: { command: 'git *' } });
+    const allowRead = rule({ id: 'allow-read', tool: 'read_file' });
+    const push = { command: 'git push origin main --force' };
+    const ids = (value: unknown, limits?: { maxWildcards?: number; maxRules?: number }) =>
+      parseApprovalRules(overTheWire(value), limits).map((r) => r.id);
+
+    // Typed into the card: a deny rule for pushes that contain `--force`. Within the limit, the server applies it.
+    const denyForce = rule({ id: 'deny-force', args: { command: 'git push*--force*' }, effect: 'deny' });
+    expect(evaluateRules([allowGit, denyForce], 'run_command', push)?.effect).toBe('deny');
+    expect(onTheServer([allowGit, denyForce], 'run_command', push)).toMatchObject({ type: 'denied' });
+
+    // Past the limit, it is left out, and so is every allow rule on a tool it could cover.
+    const sent = [allowGit, allowRead, denyForce];
+    expect(ids(sent, { maxWildcards: 1 })).toEqual(['allow-read']);
+    const server = toToolApproval(parseApprovalRules(overTheWire(sent), { maxWildcards: 1 }));
+    expect(server(toolCall('run_command', push))).toBe('user-approval');
+    expect(server(toolCall('run_command', { command: 'git status' }))).toBe('user-approval');
+    expect(server(toolCall('read_file', { path: 'a.ts' }))).toMatchObject({ type: 'approved' });
+
+    // Whatever check the deny rule fails.
+    const denyPush = rule({ id: 'deny-push', args: { command: 'git push*' }, effect: 'deny' });
+    expect(ids([allowGit, allowRead, denyPush])).toEqual(['allow-git', 'allow-read', 'deny-push']);
+    for (const failing of [
+      { args: { command: '*g*i*t*' } },
+      { args: { command: 'x'.repeat(501) } },
+      { args: { command: 1 } },
+      { args: 'git push*' },
+      { reason: 'x'.repeat(501) },
+      { createdAt: 'yesterday' },
+      { scope: 'forever' },
+      { id: 7 },
+      { tool: 'run_*_*_*_*' },
+    ])
+      expect(ids([allowGit, allowRead, { ...denyPush, ...failing }])).toEqual(['allow-read']);
+    // Its tool is the bound: an allow rule on a tool it can't name stays.
+    for (const tool of ['write_file', 'mcp_*_*_*_*'])
+      expect(ids([allowGit, allowRead, { ...denyPush, tool, args: { command: '*g*i*t*' } }])).toEqual([
+        'allow-git',
+        'allow-read',
+      ]);
+    // A deny rule with no tool name it can read, or one past `maxRules`, could cover any call: no allow rule stays.
+    for (const tool of [undefined, 42, ['run_command'], 'x'.repeat(501)])
+      expect(ids([allowGit, allowRead, { ...denyPush, tool }])).toEqual([]);
+    expect(ids([allowGit, allowRead, denyPush], { maxRules: 2 })).toEqual([]);
+    expect(ids([allowGit, allowRead, allowGit, null], { maxRules: 2 })).toEqual(['allow-git', 'allow-read']);
+    // An allow rule left out overrules nothing.
+    expect(ids([allowGit, { ...allowRead, args: { path: '*a*b*c*d' } }])).toEqual(['allow-git']);
   });
 
   it('lets no rule a client sends approve a call the server’s rules deny', () => {
@@ -211,6 +357,45 @@ describe('policy.getRules', () => {
     const rules = [rule({ id: 'mine' })];
     const { result } = renderHook(() => useApprovalPolicy({ rules }));
     expect(result.current.getRules()).toEqual(rules);
+  });
+
+  it('sends nothing that lets the server approve a call the page denies', () => {
+    const { result } = renderHook(() =>
+      useApprovalPolicy({
+        defaultRules: [
+          rule({ id: 'npm', args: { command: 'npm *' } }),
+          rule({ id: 'read', tool: 'read_file' }),
+          rule({ id: 'publish', when: (i) => /publish/.test((i as { command: string }).command), effect: 'deny' }),
+        ],
+      }),
+    );
+    const request = (command: string) => ({ id: command, toolName: 'run_command', input: { command } });
+    act(() => {
+      const policy = result.current;
+      // "Always" on a push, as the card suggests it, then "Always deny" with patterns the person typed.
+      policy.decide(request('git push origin main'), 'allow-always', { args: { command: 'git push*' } });
+      policy.decide(request('git push origin main --force'), 'deny-always', { args: { command: 'git push*--force*' } });
+      policy.decide(request('rm -rf /'), 'deny-always', { args: { command: '*rm*-r*f*' } });
+    });
+    const sent = result.current.getRules();
+    const calls: Array<[string, unknown]> = [
+      ...['npm test', 'npm publish', 'git push origin main', 'git push origin main --force', 'rm -rf /'].map(
+        (command): [string, unknown] => ['run_command', { command }],
+      ),
+      ['read_file', { path: 'a.ts' }],
+    ];
+    const answers = calls.map(([toolName, input]) => [
+      result.current.match(toolName, input)?.effect,
+      onTheServer(sent, toolName, input),
+    ]);
+    expect(answers).toEqual([
+      ['allow', 'user-approval'],
+      ['deny', 'user-approval'],
+      ['allow', 'user-approval'],
+      ['deny', expect.objectContaining({ type: 'denied' })],
+      ['deny', 'user-approval'],
+      ['allow', expect.objectContaining({ type: 'approved' })],
+    ]);
   });
 });
 
