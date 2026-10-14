@@ -353,9 +353,10 @@ export function toToolApprovalResponse(
  * input in the messages, after checking it against the tool's schema and `toolApproval` again.
  * When the tool's schema changed what the model sent (a default filled in, a value coerced, a key
  * dropped), the approval keeps what the model sent as `inputSchemaInput`, and the server checks the
- * call against it, so it gets the edit too. The server runs only an edit the schema leaves as it is:
- * keep the fields the schema fills in (the card starts an edit from the input it shows, defaults
- * included), and use transforms that give the same result when run twice.
+ * call against it, so it gets the edit too. The server runs only an edit that comes out of the
+ * schema unchanged, and out of `experimental_refineToolInput` too when that is set: keep the fields
+ * the schema fills in (the card starts an edit from the input it shows, defaults included), and use
+ * transforms that give the same result when run twice.
  * With `experimental_toolApprovalSecret` set, the server signs the input it asked about and refuses
  * any other, so edits fail there by design.
  */
