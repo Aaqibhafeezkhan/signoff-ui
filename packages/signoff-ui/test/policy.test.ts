@@ -404,6 +404,27 @@ describe('AI SDK mappings', () => {
     expect(messages[1]!.parts[0]).toMatchObject({ input: { command: 'rm -rf build' } });
     expect(setToolInput(messages, 'missing', {})).toEqual(messages);
   });
+
+  it('puts the edit in the approval’s inputSchemaInput too, when the approval has one', () => {
+    const part = (approval: object) => ({
+      type: 'tool-run_command',
+      toolCallId: 'c1',
+      state: 'approval-requested',
+      input: { command: 'rm -rf build', cwd: '.' },
+      approval,
+    });
+    const edit = { command: 'rm -rf build/cache', cwd: '.' };
+    // AI SDK 7 keeps what the model sent when the tool's schema changed it, here by filling in `cwd`.
+    const [withRaw] = setToolInput(
+      [{ parts: [part({ id: 'a1', inputSchemaInput: { command: 'rm -rf build' } })] }],
+      'c1',
+      edit,
+    );
+    expect(withRaw!.parts[0]).toEqual({ ...part({ id: 'a1', inputSchemaInput: edit }), input: edit });
+    // Otherwise (no change, or AI SDK 6) the approval stays as it is.
+    const [plain] = setToolInput([{ parts: [part({ id: 'a1' })] }], 'c1', edit);
+    expect(plain!.parts[0]).toEqual({ ...part({ id: 'a1' }), input: edit });
+  });
 });
 
 describe('Agent Client Protocol mappings', () => {
