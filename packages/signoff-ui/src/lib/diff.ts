@@ -1,4 +1,4 @@
-import { diffWordsWithSpace, parsePatch, structuredPatch, type StructuredPatchHunk } from 'diff';
+import { diffWordsWithSpace, parsePatch, structuredPatch, type StructuredPatch, type StructuredPatchHunk } from 'diff';
 
 /** A file edit proposed by an agent. Provide either full contents or a unified patch. */
 export interface FileChange {
@@ -68,7 +68,10 @@ export interface ParsedFileDiff {
   /** Original contents, when known. Needed to compute the reviewed result. */
   oldContent?: string | undefined;
   newContent?: string | undefined;
-  /** A binary file: no hunks, decided as a whole. */
+  /**
+   * A binary file, or one whose contents or patch could not be read (not strings, or a patch with
+   * hunk counts that don't match its lines): no hunks, decided as a whole.
+   */
   binary?: true | undefined;
   /**
    * `'replace'` when the diff went over `maxEditLength`: the changed region, from the first
@@ -322,18 +325,27 @@ export function parseWithin(
   options: ParseFileChangeOptions,
   budget: number,
 ): ParsedFileDiff | undefined {
-  const id = options.id ?? change.path;
+  // Model-written input can break the types or the patch format. A missing path reads as ''.
+  // Contents that are not strings, or a patch that jsdiff refuses (hunk counts that don't match its
+  // lines, a line that isn't +, - or space) or that is not a string, make the file unreadable: it
+  // shows as a binary file does, without contents, and is decided as a whole, rather than failing
+  // the render and every other file with it.
+  const path = String(change.path ?? '');
+  const id = options.id ?? path;
   const context = options.context ?? 3;
-  const oldContent = change.oldContent ?? (change.patch ? undefined : '');
-  const newContent = change.newContent ?? (change.patch ? undefined : '');
+  let oldContent = change.oldContent ?? (change.patch ? undefined : '');
+  let newContent = change.newContent ?? (change.patch ? undefined : '');
   const patched =
-    change.patch && (oldContent === undefined || newContent === undefined) ? parsePatch(change.patch)[0] : undefined;
+    change.patch && (oldContent === undefined || newContent === undefined) ? readPatch(change.patch) : undefined;
+  const unreadable = patched === null || !isTextOrMissing(oldContent) || !isTextOrMissing(newContent);
+  if (unreadable) oldContent = newContent = undefined;
   const binary =
-    change.binary ??
-    (isBinaryText(oldContent) ||
-      isBinaryText(newContent) ||
-      !!patched?.isBinary ||
-      (!!change.patch && /^GIT binary patch$/m.test(change.patch)));
+    unreadable ||
+    (change.binary ??
+      (isBinaryText(oldContent) ||
+        isBinaryText(newContent) ||
+        !!patched?.isBinary ||
+        (!!change.patch && /^GIT binary patch$/m.test(change.patch))));
   let hunks: StructuredPatchHunk[];
   let fallback: ContentDiff['fallback'];
   if (binary) {
@@ -369,7 +381,7 @@ export function parseWithin(
     };
   });
 
-  const renamed = !!change.oldPath && change.oldPath !== change.path;
+  const renamed = !!change.oldPath && change.oldPath !== path;
   let status: FileStatus = 'modified';
   if (renamed) status = 'renamed';
   else if (change.oldContent === '' || (change.oldContent === undefined && !change.patch)) status = 'added';
@@ -387,10 +399,10 @@ export function parseWithin(
 
   return {
     id,
-    path: change.path,
+    path,
     oldPath: change.oldPath,
     status,
-    language: change.language ?? inferLanguage(change.path),
+    language: change.language ?? inferLanguage(path),
     hunks: parsed,
     additions: parsed.reduce((n, h) => n + h.additions, 0),
     deletions: parsed.reduce((n, h) => n + h.deletions, 0),
@@ -399,6 +411,20 @@ export function parseWithin(
     ...(fallback ? { fallback } : {}),
     ...(binary ? { binary: true as const } : {}),
   };
+}
+
+/** The patch's first file, or `null` when jsdiff cannot read it (or it is not a string). */
+function readPatch(patch: string): StructuredPatch | undefined | null {
+  try {
+    return parsePatch(patch)[0];
+  } catch {
+    return null;
+  }
+}
+
+/** Contents as the types allow them: a string, or missing (`null` too, from JSON). */
+function isTextOrMissing(value: unknown) {
+  return value == null || typeof value === 'string';
 }
 
 /** Git's test: a NUL character in the first 8,000 characters. */

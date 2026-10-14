@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseFileChange } from '../src/lib/diff';
+import { parseFileChange, type FileChange } from '../src/lib/diff';
 import { defaultDiffWorker, parseInBackground, resetDiffWorkers } from '../src/lib/diff-async';
 import { answerDiffRequest, type DiffWorkerRequest } from '../src/lib/diff-worker';
 
@@ -149,7 +149,8 @@ describe('parseInBackground', () => {
   });
 
   it('rejects when the main thread cannot parse either', async () => {
-    const bad = { path: 'x.ts', patch: '@@ -1 +1 @@\n?nonsense\n' };
+    // A malformed patch is read as a file decided as a whole now; no change at all still throws.
+    const bad = null as unknown as FileChange;
     await expect(parseInBackground(bad, {}, false)).rejects.toThrow();
   });
 });
@@ -157,7 +158,7 @@ describe('parseInBackground', () => {
 describe('answerDiffRequest', () => {
   it('answers with the parsed file, or with the error', () => {
     expect(answerDiffRequest({ id: 1, change, options: {} })).toEqual({ id: 1, parsed: parseFileChange(change) });
-    const bad = { path: 'x.ts', patch: '@@ -1 +1 @@\n?nonsense\n' };
+    const bad = null as unknown as FileChange;
     expect(answerDiffRequest({ id: 2, change: bad, options: {} })).toMatchObject({ id: 2, error: expect.any(String) });
   });
 });

@@ -97,6 +97,9 @@ const sameComments = (a: readonly DiffReviewComment[], b: readonly DiffReviewCom
       );
     }));
 
+/** A change's path, as a string: '' when model-written input left it out, as in `parseFileChange`. */
+const pathOf = (change: FileChange) => String(change.path ?? '');
+
 /**
  * One id per file: its path, or for a repeated path `path#2`, `path#3`… skipping any id already
  * taken, since a real path can look like a repeat (`a.ts`, `a.ts`, `a.ts#2`).
@@ -104,7 +107,8 @@ const sameComments = (a: readonly DiffReviewComment[], b: readonly DiffReviewCom
 function fileIds(files: readonly FileChange[]): string[] {
   const used = new Set<string>();
   const next = new Map<string, number>();
-  return files.map(({ path }) => {
+  return files.map((change) => {
+    const path = pathOf(change);
     let id = path;
     if (used.has(id)) {
       let n = next.get(path) ?? 2;
@@ -493,7 +497,7 @@ export function useDiffReview({
         const isViewed = viewed[id] === true;
         return {
           id,
-          path: current.files[i]!.path,
+          path: pathOf(current.files[i]!),
           change: current.files[i]!,
           parsed: file,
           items,
