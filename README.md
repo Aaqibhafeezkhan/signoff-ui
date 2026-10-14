@@ -4,7 +4,7 @@ Review what your agent changed and approve what it may do: React components for 
 
 [![CI](https://img.shields.io/github/actions/workflow/status/dgesteves/signoff-ui/ci.yml?branch=main&label=CI&labelColor=0d0f12)](https://github.com/dgesteves/signoff-ui/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/signoff-ui?labelColor=0d0f12&color=0e7490)](https://www.npmjs.com/package/signoff-ui)
-[![gzip per import: 0.4–86.3 kB](https://img.shields.io/badge/gzip_per_import-0.4%E2%80%9386.3_kB-0e7490?labelColor=0d0f12)](https://signoff-ui.vercel.app/docs/limits#bundle-size)
+[![gzip per import: 0.4–86.4 kB](https://img.shields.io/badge/gzip_per_import-0.4%E2%80%9386.4_kB-0e7490?labelColor=0d0f12)](https://signoff-ui.vercel.app/docs/limits#bundle-size)
 [![Types: included](https://img.shields.io/badge/types-included-0e7490?labelColor=0d0f12&logo=typescript&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0e7490?labelColor=0d0f12)](./LICENSE)
 

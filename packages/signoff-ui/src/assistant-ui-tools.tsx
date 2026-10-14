@@ -51,15 +51,19 @@ export function ReviewToolUI({ args, result, status, addResult }: ToolCallMessag
   const files = (args as { files?: FileChange[] } | undefined)?.files;
   // Still streaming: the files may be cut short.
   if (!Array.isArray(files) || (result === undefined && status.type === 'running')) return null;
+  // Written by the model: a file without a path is left out, as the agent could not act on its review.
+  const named = files.every(hasPath) ? files : files.filter(hasPath);
   return (
     <DiffReview
       {...review}
-      files={files}
+      files={named}
       readOnly={result !== undefined}
       onSubmit={(done) => addResult(reviewToolOutput(done, output))}
     />
   );
 }
+
+const hasPath = (file: FileChange | null | undefined) => typeof file?.path === 'string';
 
 /**
  * The approval card for a call at an approval gate (`approval` on the part), answered through
