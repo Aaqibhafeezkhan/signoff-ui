@@ -277,14 +277,16 @@ export interface AgUiApprovalResponse {
   id: string;
   approved: boolean;
   reason?: string | undefined;
-  /** Arguments the person edited, sent with an approval as the payload's `input`. */
+  /** Arguments the person edited, sent with an approval as the payload's `editedArgs` (and `input`, deprecated). */
   input?: unknown;
 }
 
 /**
  * Record an answer to an open interrupt. A tool approval becomes the conventional
- * `{ approved, reason? }` payload, with `input` when the person edited the arguments; pass a
- * resume entry for other interrupts.
+ * `{ approved, reason? }` payload, with `editedArgs` when the person edited the arguments: AG-UI's
+ * approve-with-edits field, a full replacement of the call's arguments. The same arguments go as
+ * `input` too, the name earlier versions sent, which is deprecated. Pass a resume entry for other
+ * interrupts.
  */
 export function answerAgUiInterrupt(run: AgUiRunState, answer: AgUiApprovalResponse | AgUiResumeEntry): AgUiRunState {
   const entry: AgUiResumeEntry =
@@ -296,7 +298,7 @@ export function answerAgUiInterrupt(run: AgUiRunState, answer: AgUiApprovalRespo
           payload: {
             approved: answer.approved,
             ...(answer.reason ? { reason: answer.reason } : {}),
-            ...(answer.approved && answer.input !== undefined ? { input: answer.input } : {}),
+            ...(answer.approved && answer.input !== undefined ? { editedArgs: answer.input, input: answer.input } : {}),
           },
         };
   const interrupt = run.interrupts.find((i) => i.id === entry.interruptId);
@@ -474,6 +476,9 @@ function toolPart(call: AgUiToolCall, result: AgUiMessage | undefined, run: AgUi
   const decided = approval && { id: approval.id, requestReason: approval.requestReason, reason: approval.reason };
   const streaming = run?.streaming.toolCalls.includes(call.id) === true && !result;
   const input = streaming ? parsePartialJson(call.function.arguments) : parseArguments(call.function.arguments);
+  // Denied, or the interrupt cancelled: the resumed run may still post a result for the call, but it was a no.
+  if (approval?.approved === false)
+    return { ...base, state: 'output-denied', input, approval: { ...decided!, approved: false } } as Part;
   let part: DynamicToolUIPart;
   if (result?.error) {
     part = { ...base, state: 'output-error', input, errorText: result.error };
@@ -485,10 +490,8 @@ function toolPart(call: AgUiToolCall, result: AgUiMessage | undefined, run: AgUi
     return { ...base, state: 'input-available', input };
   } else if (approval.approved === undefined) {
     return { ...base, state: 'approval-requested', input, approval: { ...decided!, reason: undefined } } as Part;
-  } else if (approval.approved) {
-    return { ...base, state: 'approval-responded', input, approval: { ...decided!, approved: true } } as Part;
   } else {
-    return { ...base, state: 'output-denied', input, approval: { ...decided!, approved: false } } as Part;
+    return { ...base, state: 'approval-responded', input, approval: { ...decided!, approved: true } } as Part;
   }
   // A call that ran after its approval keeps it, so the timeline can say who approved it.
   return approval?.approved ? ({ ...part, approval: { ...decided!, approved: true } } as Part) : part;

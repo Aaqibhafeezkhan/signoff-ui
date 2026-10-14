@@ -77,9 +77,9 @@ Create the agent once, outside the component or in a `useMemo`: the hook subscri
 | `TEXT_MESSAGE_*`, `REASONING_*`                                          | `text` and `reasoning` parts, `state: 'streaming'` until their end event                                                                                      |
 | `TOOL_CALL_START`, `TOOL_CALL_ARGS`                                      | `dynamic-tool` part, `input-streaming`, with the arguments parsed as they arrive                                                                              |
 | `TOOL_CALL_END`                                                          | `input-available`                                                                                                                                             |
-| `TOOL_CALL_RESULT`, tool message                                         | `output-available` (JSON results parsed), or `output-error` with the tool message's `error`                                                                   |
+| `TOOL_CALL_RESULT`, tool message                                         | `output-available` (JSON results parsed), or `output-error` with the tool message's `error`; a denied call stays `output-denied`                              |
 | `RUN_FINISHED` with an `interrupt` outcome bound to a tool call          | `approval-requested`, the interrupt's `message` as `approval.requestReason`                                                                                   |
-| `respond({ id, approved, reason })`                                      | `approval-responded` or `output-denied`; the agent resumes with `payload: { approved, reason }`, plus `input` when the arguments were edited with `editInput` |
+| `respond({ id, approved, reason })`                                      | `approval-responded` or `output-denied`; the agent resumes with `payload: { approved, reason }`, plus `editedArgs` and `input` after an edit with `editInput` |
 | `RUN_STARTED`, content, `RUN_FINISHED`, `RUN_ERROR`                      | `status`: `submitted`, `streaming`, then `ready` or `error`                                                                                                   |
 | `RUN_FINISHED` with a `cancelled` outcome, or `stop()`                   | `status: 'ready'`, with what was streaming left cut off: `deriveAgentState` reads `stopped`                                                                   |
 | `usage` on `RUN_FINISHED` and `RUN_ERROR`                                | `usage`, summed over runs, with cache and reasoning tokens                                                                                                    |
@@ -98,7 +98,7 @@ Events can arrive in any order: a sub-agent's own events before its `SUBAGENT_ST
 
 ## Interrupts and approvals
 
-AG-UI resumes every open interrupt in one run, so the hook waits until each has an answer before it calls `runAgent({ resume })`. A tool-call interrupt renders as an approval card, and `respond` answers it with `{ approved, reason }`. Pass `editInput` as `AgentMessage`'s `onToolInputEdit` and the cards let a person edit a call's arguments first; the payload then carries them as `input`, for your agent to run with. With an `approvalPolicy`, cards offer approving for the session or always, and answer what a rule covers without asking.
+AG-UI resumes every open interrupt in one run, so the hook waits until each has an answer before it calls `runAgent({ resume })`. A tool-call interrupt renders as an approval card, and `respond` answers it with `{ approved, reason }`. Pass `editInput` as `AgentMessage`'s `onToolInputEdit` and the cards let a person edit a call's arguments first; the payload then carries them as `editedArgs`, AG-UI's field for approve-with-edits, which replaces the call's arguments in full. It carries them as `input` too, the name earlier versions used; that is deprecated, so have your agent read `editedArgs`. The cards offer editing whenever you pass `editInput`, so pass it only for an agent that runs `editedArgs`: one whose tool-call interrupts list it in their `responseSchema`, or that declares `humanInTheLoop.approveWithEdits` in its capabilities. With an `approvalPolicy`, cards offer approving for the session or always, and answer what a rule covers without asking.
 
 Interrupts that aren't tool approvals (`input_required`, or your own) are in `interrupts`. Answer them with `resolve`, matching the interrupt's `responseSchema`:
 
@@ -122,7 +122,7 @@ app = FastAPI()
 add_langgraph_fastapi_endpoint(app, LangGraphAgent(name="agent", graph=graph, emit_interrupt_outcome=True), "/agent")
 ```
 
-Point `HttpAgent` at it (`new HttpAgent({ url: 'http://localhost:8000/agent' })`), with FastAPI's `CORSMiddleware` or a rewrite in your app if the origins differ. An interrupt renders as an approval card when its value names the tool call it guards, and the hook resumes it with `{ approved, reason }`:
+Point `HttpAgent` at it (`new HttpAgent({ url: 'http://localhost:8000/agent' })`), with FastAPI's `CORSMiddleware` or a rewrite in your app if the origins differ. An interrupt renders as an approval card when its value names the tool call it guards, and the hook resumes it with `{ approved, reason }`, plus `editedArgs` when the person edited the call's arguments:
 
 ```python
 from langgraph.types import interrupt
@@ -130,6 +130,7 @@ from langgraph.types import interrupt
 answer = interrupt({"message": f"Run `{command}`?", "tool_call_id": tool_call["id"]})
 if not answer["approved"]:
     ...  # answer.get("reason") is what the user typed, if anything
+args = answer.get("editedArgs", tool_call["args"])  # run the call with these: an edit replaces its arguments in full
 ```
 
 Interrupts without a tool call are in `interrupts`, for `resolve`.

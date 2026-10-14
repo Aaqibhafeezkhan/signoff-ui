@@ -10,7 +10,7 @@ Decisions that a `toolApproval` rule makes on its own (`approval.isAutomatic`) n
 
 ### Edit the arguments, then approve
 
-With `editable` (on `ApprovalCard`) or `onEditInput` (on `ToolApprovalCard`), "Edit arguments" opens the arguments for editing. An object of strings, numbers and booleans gets a form; any other input gets JSON, which must parse before anything can be approved. The edited input goes out with the approval. `ToolApprovalCard` offers editing only with `onEditInput`, the function that applies the edit, so an edit is never dropped on its way to the agent. With AI SDK 7, `onEditInput={(id, input) => setMessages((m) => setToolInput(m, id, input))}` puts the edited input in the messages; the server runs the call with it after checking it against the tool's schema and its `toolApproval` again. With `useAgUiAgent`, pass its `editInput`, and the approval's resume payload carries `input`.
+With `editable` (on `ApprovalCard`) or `onEditInput` (on `ToolApprovalCard`), "Edit arguments" opens the arguments for editing. An object of strings, numbers and booleans gets a form; any other input gets JSON, which must parse before anything can be approved. The edited input goes out with the approval. `ToolApprovalCard` offers editing only with `onEditInput`, the function that applies the edit, so an edit is never dropped on its way to the agent. With AI SDK 7, `onEditInput={(id, input) => setMessages((m) => setToolInput(m, id, input))}` puts the edited input in the messages; the server runs the call with it after checking it against the tool's schema and its `toolApproval` again. With `useAgUiAgent`, pass its `editInput`, and the approval's resume payload carries the edit as `editedArgs`, the field AG-UI agents read.
 
 ### Approve all
 
