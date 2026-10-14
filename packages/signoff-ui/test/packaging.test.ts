@@ -140,7 +140,7 @@ describe('the assistant-ui entry', () => {
       types: './dist/assistant-ui.d.ts',
       default: './dist/assistant-ui.js',
     });
-    expect(pkg.peerDependencies['@assistant-ui/react']).toBe('^0.15.0');
+    expect(pkg.peerDependencies['@assistant-ui/react']).toBe('>=0.15.0 <1');
     expect(pkg.peerDependenciesMeta['@assistant-ui/react']).toEqual({ optional: true });
   });
 });
