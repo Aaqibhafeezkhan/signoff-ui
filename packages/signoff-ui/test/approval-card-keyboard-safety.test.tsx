@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   ApprovalCard,
   ToolApprovalBatch,
@@ -170,6 +170,41 @@ describe('ApprovalCard: globalShortcut leaves text fields alone', () => {
     await user.click(screen.getByRole('button', { name: 'Edit arguments' }));
     await user.click(screen.getByRole('textbox', { name: 'command' }));
     await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+});
+
+describe('ApprovalCard: a text field in a shadow root is a text field too', () => {
+  // A web component's chat box: focus and the key events' target outside it are its host element.
+  function shadowComposer() {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const field = document.createElement('textarea');
+    host.attachShadow({ mode: 'open' }).append(field);
+    onTestFinished(() => host.remove());
+    return { host, field };
+  }
+
+  it('autoFocus leaves focus in it, and typing there decides nothing', async () => {
+    const { host, field } = shadowComposer();
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    field.focus();
+    await user.keyboard('plea');
+    render(<Page card={{ autoFocus: true, onDecide }} />);
+    expect(host.shadowRoot?.activeElement).toBe(field);
+    await user.keyboard('se stop');
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(field).toHaveValue('please stop');
+  });
+
+  it.each(['Control', 'Meta'])('with globalShortcut, %s+Enter in it does not approve', async (mod) => {
+    const { field } = shadowComposer();
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    render(<Page card={{ globalShortcut: true, onDecide }} />);
+    field.focus();
+    await user.keyboard(`ship it{${mod}>}{Enter}{/${mod}}`);
     expect(onDecide).not.toHaveBeenCalled();
   });
 });

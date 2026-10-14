@@ -355,6 +355,13 @@ function editorInput(value: EditorValue): { ok: true; input: unknown } | { ok: f
 /** How long a decision stays in the live region: long enough to be read, then gone from the card. */
 const ANNOUNCEMENT_MS = 3000;
 
+/** The focused element, inside open shadow roots too: in a web component, the document sees only its host. */
+function focusedElement(): Element | null {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active;
+}
+
 /**
  * Human-in-the-loop approval for a pending agent action. Shows what will run,
  * how risky it is, and lets the user approve or deny by mouse or keyboard, once,
@@ -518,7 +525,7 @@ export function ApprovalCard({
 
   useEffect(() => {
     // Not out of a text field: the next letter the person types there would land on the card as a shortcut.
-    if (autoFocus && pending && !isTypingTarget(document.activeElement)) cardRef.current?.focus();
+    if (autoFocus && pending && !isTypingTarget(focusedElement())) cardRef.current?.focus();
     // Only on mount: re-focusing on every render would steal focus.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -532,7 +539,8 @@ export function ApprovalCard({
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.defaultPrevented) {
         // In a text field, the card's own included, ⌘/Ctrl+Enter is the field's: a composer's send.
-        if (isTypingTarget(event.target)) return;
+        // Out here a web component's field shows as its host, so ask the path where the key began.
+        if (isTypingTarget(event.composedPath()[0] ?? event.target)) return;
         event.preventDefault();
         // A held key repeats its keydown: one press, one decision.
         if (!event.repeat) approveRef.current();
