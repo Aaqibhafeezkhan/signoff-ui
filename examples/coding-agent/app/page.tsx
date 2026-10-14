@@ -17,7 +17,8 @@ export default function Page() {
 }
 
 async function Agent() {
-  // Read the environment on each request, not when the page is built: set OPENAI_API_KEY, restart, and live mode is there.
+  // Read the environment on each request, not when the page is built: set OPENAI_API_KEY and LIVE_MODE=1,
+  // restart, and live mode is there.
   await connection();
   return <AgentApp liveModel={liveModelId()} />;
 }

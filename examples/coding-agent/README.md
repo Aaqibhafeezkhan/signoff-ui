@@ -20,7 +20,7 @@ pnpm build:lib
 pnpm --filter coding-agent dev   # http://localhost:3400
 ```
 
-It needs no API key: a scripted agent plays the run, the same way every time. To offer a real model too, copy `.env.example` to `.env.local` and set `OPENAI_API_KEY` (and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`). The scripted agent stays the default: the page offers the model as a second choice, with the same tools, rules and reviews, and a run uses the key only when someone picks it. On a public deployment, anyone who opens the page can pick it.
+It needs no API key: a scripted agent plays the run, the same way every time. To offer a real model too, copy `.env.example` to `.env.local` and set `OPENAI_API_KEY` and `LIVE_MODE=1` (and `OPENAI_MODEL` for a model other than `gpt-5.4-mini`); the key alone turns nothing on. The scripted agent stays the default: the page offers the model as a second choice, with the same tools, rules and reviews, and a run uses the key only when someone picks it. The route has no rate limit or budget, and each request runs up to 20 steps: with `LIVE_MODE=1` on a public deployment, anyone who can reach it runs the model on your key.
 
 ## The run
 
@@ -56,8 +56,18 @@ Nothing touches your disk or runs in a shell: the repository lives in memory, th
 
 The scripts build with webpack (`next dev --webpack`), so the app also builds where Next.js has no native compiler for the platform and uses its WebAssembly one, which Turbopack can't run on.
 
+## What an approval is
+
+An approval is the person's answer to the agent: it keeps the agent from doing what the person didn't agree to. It doesn't protect the server from whoever calls it. The route takes the run's history from the request, so a caller can send an approved call the model never proposed, or a review with any files in it, and AI SDK 7 runs the call. `validateUIMessages` checks the messages' shape, not where they came from.
+
+Here that costs nothing: the commands are simulated, and the files are the caller's own. Before you give the tools real effects:
+
+- Run them in a sandbox, with only the access a run needs.
+- Keep the rules that must hold on the server, as `lib/rules.ts` does. `toolApproval` decides again on every approved call, so a forged approval doesn't get past them.
+- Set `experimental_toolApprovalSecret` in `streamText` if you don't need edited arguments. The server then signs each call it asks about and refuses an approval for any other call, including a command edited on the card, which this app offers.
+
 ## Tests
 
-`npm test` plays the whole scripted run headless, through AI SDK's `Chat` and the page's transport against the route, and checks the rules, the simulated commands, and what the page sends and keeps. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine, and a key on the server alone never starts it.
+`npm test` plays the whole scripted run headless, through AI SDK's `Chat` and the page's transport against the route, and checks the rules, the simulated commands, and what the page sends and keeps. The live path runs against a stub in place of `@ai-sdk/openai`, so no request leaves the machine: a key on the server without `LIVE_MODE=1` never starts it, and with it, only a request that asks for the model does. Two tests send an approval for a call the model never proposed: it runs, unless the server's rule denies it.
 
 In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`). CI runs its tests and [`scripts/smoke-coding-agent.mjs`](../../scripts/smoke-coding-agent.mjs), which builds a copy of it against the packed package and drives the run in Chrome, on a desktop and a phone, with axe. Copied on its own, it installs `signoff-ui` from npm at the range in `package.json`, which each release moves to the version it publishes.
