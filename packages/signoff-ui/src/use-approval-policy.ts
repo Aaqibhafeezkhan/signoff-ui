@@ -19,7 +19,10 @@ const LABELS = { approvalPolicy: approvalPolicyLabels };
 
 export type { ApprovalDecision, ApprovalRequest, ApprovalRule, RuleMatch } from './lib/policy';
 
-/** Where `always` rules are kept between visits. Session rules are never saved. */
+/**
+ * Where `always` rules are kept between visits. Session rules are never saved, and nor is a rule
+ * with a `when`: `when` is code, and without it the rule would cover more calls than it does.
+ */
 export interface ApprovalRuleStorage {
   load(): readonly ApprovalRule[] | PromiseLike<readonly ApprovalRule[]>;
   save(rules: readonly ApprovalRule[]): void | PromiseLike<void>;
@@ -49,8 +52,8 @@ export function memoryRuleStorage(initial: readonly ApprovalRule[] = []): Approv
 
 /**
  * Rules kept in `localStorage` (or another `Storage`) as JSON under `key`, and the ids of default
- * rules the person removed under `<key>:removed-defaults`. A rule's `when` is code and is not kept.
- * Nothing is read or written on the server.
+ * rules the person removed under `<key>:removed-defaults`. A rule with a `when` is not kept: JSON
+ * can't hold the code. Nothing is read or written on the server.
  */
 export function webStorageRules(
   key = 'signoff-ui:approval-rules',
@@ -75,8 +78,12 @@ export function webStorageRules(
   const removedKey = `${key}:removed-defaults`;
   return {
     load: () => read(key).filter(isRule),
-    // JSON leaves out a rule's `when`, which is code.
-    save: (rules) => write(key, rules),
+    // Not a rule with a `when`: JSON would keep it without the `when`, covering more calls.
+    save: (rules) =>
+      write(
+        key,
+        rules.filter((rule) => !rule.when),
+      ),
     loadRemovedDefaults: () => read(removedKey).filter((id): id is string => typeof id === 'string'),
     saveRemovedDefaults: (ids) => write(removedKey, ids),
   };
@@ -239,7 +246,8 @@ export function useApprovalPolicy({
     latest.current = next;
     if (rulesProp === undefined) setOwn(next);
     onRulesChange?.(next);
-    void storage.save(next.filter((r) => r.scope === 'always'));
+    // A rule with a `when` stays in memory: saved, it would load without it.
+    void storage.save(next.filter((r) => r.scope === 'always' && !r.when));
     if (storage.saveRemovedDefaults) {
       // An `always` default missing from the rules was removed; one that is back was restored.
       const kept = new Set(next.map((r) => r.id));
@@ -332,9 +340,12 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   return !!value && typeof (value as { then?: unknown }).then === 'function';
 }
 
-/** Rules from both lists, the later one winning for an id that repeats. */
+/**
+ * Rules from both lists, the later one winning for an id that repeats, but not over a rule with a
+ * `when`: an earlier version saved such a rule without it.
+ */
 function merge(first: readonly ApprovalRule[], second: readonly ApprovalRule[]): ApprovalRule[] {
   const byId = new Map(first.map((r) => [r.id, r]));
-  for (const rule of second) byId.set(rule.id, rule);
+  for (const rule of second) if (!byId.get(rule.id)?.when) byId.set(rule.id, rule);
   return [...byId.values()];
 }

@@ -10,7 +10,7 @@ A pattern matches the whole argument. `*` matches any run of characters except s
 
 ### Where rules are kept
 
-Session rules stay in memory until the page reloads or `clearSession()` runs. `always` rules go to `storage`: by default in memory, `webStorageRules()` for `localStorage`, or your own `{ load, save }`, which may be async. A rule's `when` is code, and is never saved. Rules are loaded after the first render, so a server render and the hydrating client agree. A call that arrives before they load is shown to a person.
+Session rules stay in memory until the page reloads or `clearSession()` runs. `always` rules go to `storage`: by default in memory, `webStorageRules()` for `localStorage`, or your own `{ load, save }`, which may be async. A rule with a `when` is never saved: `when` is code, and the rule would load without it, covering more calls. It holds until the page reloads, and a default with a `when` is back on each load, in place of a copy an earlier version saved without it. Rules are loaded after the first render, so a server render and the hydrating client agree. A call that arrives before they load is shown to a person.
 
 ### Default rules
 

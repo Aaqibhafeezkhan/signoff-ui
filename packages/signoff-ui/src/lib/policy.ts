@@ -26,7 +26,7 @@ export interface ApprovalRule {
    * a nested argument (`'options.cwd'`). Absent: any arguments.
    */
   args?: Readonly<Record<string, string>> | undefined;
-  /** A test of your own on the input, on top of `args`. Code, so storage does not keep it. */
+  /** A test of your own on the input, on top of `args`. Code, so storage does not keep the rule. */
   when?: ((input: unknown) => boolean) | undefined;
   effect: 'allow' | 'deny';
   /** `session`: until the page reloads or the session is cleared. `always`: kept by the storage. */
@@ -211,20 +211,35 @@ function commandPrefix(command: string) {
     if (!word || word.startsWith('-') || /[;&|`<>$'"\\*?]/.test(word) || words.length === 2) break;
     words.push(word);
   }
-  return words.join(' ');
+  return words;
 }
 
 /**
+ * Programs that run what their arguments say, by name or path: shells, interpreters, `npx`, and
+ * commands that run or fetch another. Their program-and-next-word pattern would cover any code:
+ * `sudo rm*` allows `sudo rm -rf /`, and `npx prettier*` allows `npx prettier-evil`.
+ */
+const RUNS_ARGUMENTS = /^(?:.*\/)?(?:(?:ba|z)?sh|node|python[\d.]*|sudo|env|npx|xargs|curl|wget)$/;
+
+/**
  * The argument patterns a rule made from this call would start with: for a shell command, its
- * program and subcommand (`npm test*`); otherwise each string, number and boolean argument as it
- * is (globs escaped). The person can widen them before saving.
+ * program and subcommand (`npm test*`), or the whole command when it has no subcommand or runs what
+ * its arguments say (`rm -rf build`, `node -e "…"`), since `rm*` would allow `rm -rf ~`; otherwise
+ * each string, number and boolean argument as it is. Globs are escaped. The person can widen them
+ * before saving.
  */
 export function suggestArgs(input: unknown): Record<string, string> | undefined {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return undefined;
   const record = input as Record<string, unknown>;
   if (typeof record.command === 'string') {
-    const prefix = commandPrefix(record.command);
-    return prefix ? { command: `${prefix.replace(/[\\*?]/g, '\\$&')}*` } : undefined;
+    // The prefix's words have no glob characters to escape.
+    const words = commandPrefix(record.command);
+    return {
+      command:
+        words[1] && !words.some((word) => RUNS_ARGUMENTS.test(word))
+          ? `${words.join(' ')}*`
+          : record.command.replace(/[\\*?]/g, '\\$&'),
+    };
   }
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(record)) {
