@@ -312,9 +312,10 @@ export function DiffReview({
         data-signoff
         data-slot="signoff-diff-review"
         aria-label={typeof title === 'string' ? title : T.title}
+        // tabIndex -1: a click on a button in Safari, or on text, focuses the review rather than the page.
         {...review.getRootProps()}
         className={cn(
-          'rounded-signoff border-signoff-border bg-signoff-surface font-signoff-sans text-signoff-fg overflow-hidden border',
+          'rounded-signoff border-signoff-border bg-signoff-surface font-signoff-sans text-signoff-fg overflow-hidden border outline-none',
           className,
         )}
         {...props}
