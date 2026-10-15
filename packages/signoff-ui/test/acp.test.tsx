@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  acpToolName,
   answerAcpPermission,
   createAcpTurn,
   decisionsFromAcpOptions,
@@ -224,16 +225,18 @@ describe('permission requests', () => {
   });
 
   /**
-   * The card as the ACP docs render it, answering the agent with `toAcpPermissionResponse`. Like the
-   * use-approval-policy docs, it names a single allow_always option in the description and the
-   * resolved line, and keeps the button's short label: a long name on a button that doesn't wrap
-   * pushes Approve and Deny off a phone-width card.
+   * The card as the ACP docs render it, for the agent's tool call, answering the agent with
+   * `toAcpPermissionResponse`. Like the use-approval-policy docs, it names a single allow_always
+   * option in the description and the resolved line, and keeps the button's short label: a long name
+   * on a button that doesn't wrap pushes Approve and Deny off a phone-width card.
    */
   function DocsCard({
+    call,
     permission,
     onAnswer,
     resolved = false,
   }: {
+    call: { kind: string; title: string; rawInput: unknown };
     permission: AcpPermission;
     onAnswer: (r: unknown) => void;
     resolved?: boolean;
@@ -244,9 +247,9 @@ describe('permission requests', () => {
       : undefined;
     return (
       <ApprovalCard
-        toolName="ExitPlanMode"
-        title="Ready to code?"
-        input={{ plan: '1. Fix the rounding.' }}
+        toolName={acpToolName(call)}
+        title={call.title}
+        input={call.rawInput}
         ruleScope={false}
         decisions={decisions}
         description={always ? `Always: ${always}` : undefined}
@@ -256,6 +259,16 @@ describe('permission requests', () => {
       />
     );
   }
+
+  // The tool calls these agents send: claude-agent-acp's ExitPlanMode (its permission title) and Edit,
+  // and a codex-acp command, whose title is the command.
+  const exitPlanCall = { kind: 'switch_mode', title: 'Ready to code?', rawInput: { plan: '1. Fix the rounding.' } };
+  const editCall = {
+    kind: 'edit',
+    title: 'Edit src/money.ts',
+    rawInput: { file_path: '/repo/src/money.ts', old_string: 'Math.round(x)', new_string: 'Math.round(x * 100) / 100' },
+  };
+  const execCall = { kind: 'execute', title: 'pnpm test', rawInput: { command: ['pnpm', 'test'] } };
 
   it('offers no Always that would pick one of several grants: Claude Code’s ExitPlanMode', async () => {
     // @agentclientprotocol/claude-agent-acp 0.90.0, with a plan and auto and bypass modes on: three allow_always.
@@ -272,7 +285,7 @@ describe('permission requests', () => {
     ];
     const onAnswer = vi.fn();
     const user = userEvent.setup();
-    render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    render(<DocsCard call={exitPlanCall} permission={{ options }} onAnswer={onAnswer} />);
     expect(screen.queryByRole('button', { name: /Always/ })).not.toBeInTheDocument();
     // Nor a description naming one of the three.
     expect(screen.queryByText(/^Always:/)).not.toBeInTheDocument();
@@ -293,9 +306,9 @@ describe('permission requests', () => {
     ];
     const onAnswer = vi.fn();
     const user = userEvent.setup();
-    const { rerender } = render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    const { rerender } = render(<DocsCard call={editCall} permission={{ options }} onAnswer={onAnswer} />);
     // The button keeps its short label; the card's description says what it grants.
-    expect(screen.getByRole('group', { name: 'Ready to code?' })).toHaveAccessibleDescription(
+    expect(screen.getByRole('group', { name: 'Edit src/money.ts' })).toHaveAccessibleDescription(
       /^Always: Yes, allow all edits during this session/,
     );
     await user.click(screen.getByRole('button', { name: 'Always' }));
@@ -303,7 +316,7 @@ describe('permission requests', () => {
       outcome: { outcome: 'selected', optionId: 'allow-with-updates' },
     });
     // Once decided, the card's line names the option, and so does the announcement.
-    rerender(<DocsCard permission={{ options }} onAnswer={onAnswer} resolved />);
+    rerender(<DocsCard call={editCall} permission={{ options }} onAnswer={onAnswer} resolved />);
     expect(screen.getByText('Yes, allow all edits during this session', { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Yes, allow all edits during this session');
   });
@@ -316,7 +329,7 @@ describe('permission requests', () => {
     ];
     const onAnswer = vi.fn();
     const user = userEvent.setup();
-    render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    render(<DocsCard call={execCall} permission={{ options }} onAnswer={onAnswer} />);
     await user.click(screen.getByRole('button', { name: 'Deny' }));
     expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ outcome: { outcome: 'selected', optionId: 'denied' } });
   });

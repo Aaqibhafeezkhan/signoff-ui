@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  APPROVAL_DECISIONS,
   decisionEffect,
   decisionsFromAcpOptions,
   describeRule,
@@ -513,6 +514,15 @@ describe('Agent Client Protocol mappings', () => {
     expect(toAcpPermissionResponse('allow-once', codexDeniedAbort)).toEqual(selected('approved'));
     // A lasting "no" is still not picked for the person.
     expect(decisionsFromAcpOptions(twoOnce)).not.toContain('deny-always');
+  });
+
+  it('offers nothing, and every answer cancels, when the agent sent only several allow_always options', () => {
+    // No card can answer this request: the docs say to reply "cancelled" right away instead of rendering one.
+    const onlyAlways = geminiMcp.filter((o) => o.kind === 'allow_always');
+    expect(decisionsFromAcpOptions(onlyAlways)).toEqual([]);
+    for (const decision of APPROVAL_DECISIONS) {
+      expect(toAcpPermissionResponse(decision, onlyAlways)).toEqual(cancelled);
+    }
   });
 
   it('reads a response back as a decision', () => {
