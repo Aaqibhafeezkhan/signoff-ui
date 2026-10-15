@@ -3,14 +3,17 @@
 // review_changes call reviewed in DiffReview whose result goes back to the model, a run_command call
 // approved on the approval card, the resumed run, and in a second turn the session rule from that
 // approval answering the same command without asking. axe checks the page with the review and with
-// the card waiting. Fails on any page error or axe violation.
+// the card waiting. Then it starts the same copy in `vite dev`, as the example's README runs it,
+// and reviews once there: dev pre-bundles the kit and its CommonJS dependencies, which a build never
+// exercises. Fails on any page error or axe violation.
 //
 //   pnpm build:lib && pnpm smoke:assistant-ui
 //
 // The tarball comes from `npm pack`, unpacked into a copy of the example: all of it, as someone
 // copying it out of the repository gets it, so it must not lean on files outside its folder. Every
 // other package is linked from the workspace's install, so the build needs no network.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -25,6 +28,7 @@ const work = mkdtempSync(join(tmpdir(), 'signoff-assistant-ui-'));
 const app = join(work, 'app');
 
 let server;
+let dev;
 let browser;
 try {
   // The package as npm would install it: only what `files` and `exports` publish.
@@ -133,9 +137,42 @@ try {
   if (!/rule/i.test(decided)) throw new Error(`The second approval does not say a rule decided it:\n${decided}`);
   console.log('pass  the session rule approved the same command in the next turn, without asking');
 
+  // `pnpm dev`: the same copy on Vite's dev server, on a free port.
+  const port = await new Promise((done) => {
+    const probe = createServer().listen(0, '127.0.0.1', () => {
+      const free = probe.address().port;
+      probe.close(() => done(free));
+    });
+  });
+  let output = '';
+  dev = spawn(process.execPath, [vite, '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: app });
+  dev.stdout.on('data', (chunk) => (output += chunk));
+  dev.stderr.on('data', (chunk) => (output += chunk));
+  const devBase = `http://127.0.0.1:${port}`;
+  for (const deadline = Date.now() + 30_000; ; await new Promise((wait) => setTimeout(wait, 200))) {
+    if ((await fetch(devBase).catch(() => null))?.ok) break;
+    if (dev.exitCode !== null) throw new Error(`vite dev exited:\n${output}`);
+    if (Date.now() > deadline) throw new Error(`vite dev did not start:\n${output}`);
+  }
+  await page.goto(devBase);
+  await page
+    .getByRole('textbox', { name: 'Message the agent' })
+    .waitFor()
+    .catch((error) => {
+      throw new Error(`vite dev shows no thread:\n  ${errors.join('\n  ') || error.message}`);
+    });
+  await send('Add rate limiting to the chat route');
+  await review(turn(0));
+  await turn(0).locator('[data-slot="signoff-approval-card"][data-status="pending"]').waitFor();
+  console.log('pass  the same copy in vite dev, as its README runs it: the review, then the approval card');
+
   if (errors.length > 0) throw new Error(`Page errors:\n  ${errors.join('\n  ')}`);
 } finally {
   await browser?.close();
   server?.close();
+  if (dev && dev.exitCode === null && dev.signalCode === null) {
+    dev.kill();
+    await once(dev, 'exit');
+  }
   rmSync(work, { recursive: true, force: true });
 }
