@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import type { InferUITools } from 'ai';
+import type { DiffReviewToolOutput } from 'signoff-ui/core';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { approvalFor } from '../lib/approval';
 import { DEFAULT_LIVE_MODEL, liveModelId } from '../lib/config';
 import { PROJECT, type Files } from '../lib/project';
 import { proposeFix, proposeRevision } from '../lib/scripted-edits';
 import { runCommand } from '../lib/shell';
+import { createTools, type AgentTools } from '../lib/tools';
 import { applyReview, changesFrom, normalizePath } from '../lib/workspace';
 
 const call = (toolName: string, input: unknown) => ({ toolCall: { toolName, input } });
@@ -129,6 +132,15 @@ describe('the workspace', () => {
     expect(files['src/new.ts']).toBeUndefined();
     expect(changesFrom(files).map((c) => [c.path, c.status])).toEqual([['README.md', 'modified']]);
     expect(normalizePath(' /src/a.ts')).toBe('src/a.ts');
+  });
+});
+
+describe('the tools', () => {
+  it("give review_changes the review's result as its output, for messages typed from the tools", () => {
+    expect(createTools(PROJECT).review_changes.outputSchema).toBeDefined();
+    // Checked by tsc (npm run typecheck). Without the outputSchema, InferUITools makes the output
+    // undefined, and addToolOutput rejects reviewToolOutput's result.
+    expectTypeOf<InferUITools<AgentTools>['review_changes']['output']>().toEqualTypeOf<DiffReviewToolOutput>();
   });
 });
 

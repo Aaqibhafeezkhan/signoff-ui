@@ -186,7 +186,7 @@ import {
 type Message = UIMessage<{ usage?: LanguageModelUsage }>;
 
 export function AgentRun() {
-  const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
+  const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
     // Continue the run once the review is in and every approval has an answer.
     sendAutomaticallyWhen: (chat) =>
       lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
@@ -202,6 +202,8 @@ export function AgentRun() {
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
     <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
       <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
+      {/* Why the run failed, such as a missing API key: the route's onError sends the message. */}
+      {error && <p role="alert">{error.message}</p>}
       {last && (
         <AgentMessage
           message={last}
@@ -282,7 +284,7 @@ On the server, give the model its tools: `review_changes` has no `execute`, so t
 
 ```ts title="app/api/chat/route.ts"
 import { openai } from '@ai-sdk/openai';
-import { addUsage } from 'signoff-ui/core';
+import { addUsage, type DiffReviewToolOutput } from 'signoff-ui/core';
 import { convertToModelMessages, stepCountIs, streamText, tool, type LanguageModelUsage, type UIMessage } from 'ai';
 import { z } from 'zod';
 
@@ -309,6 +311,8 @@ const tools = {
     inputSchema: z.object({
       files: z.array(z.object({ path: z.string(), oldContent: z.string().optional(), newContent: z.string() })),
     }),
+    // What the page sends back: reviewToolOutput(review). Messages typed with InferUITools take it from here.
+    outputSchema: z.custom<DiffReviewToolOutput>(),
   }),
   run_command: tool({
     description: 'Run a shell command in the repository.',
@@ -318,6 +322,9 @@ const tools = {
 };
 
 export async function POST(req: Request) {
+  // The messages come from the client as they are: a caller can send an approval for a call the model never
+  // proposed. Before a tool has real effects, read "What an approval is":
+  // https://signoff-ui.vercel.app/docs/getting-started#what-an-approval-is
   const { messages }: { messages: Message[] } = await req.json();
   const result = streamText({
     model: openai('gpt-5.4-mini'),
@@ -358,7 +365,7 @@ What each part is for:
 
 ### When a run fails
 
-A request that fails leaves the status reading "Error" and nothing else on the page: the client renders only the last assistant message, so the text you sent isn't on screen either. On a first run, the most likely cause is a missing API key. The route then fails before it calls the model, and the server's log has `AI_LoadAPIKeyError`: "OpenAI API key is missing. Pass it using the 'apiKey' parameter or the OPENAI_API_KEY environment variable." The route's `onError` sends that message to the client, where every failure would otherwise read "An error occurred.", and `useChat` returns it as `error`. Add `error` to what the client takes from `useChat`, and render `{error && <p role="alert">{error.message}</p>}` after `<AgentStatus>`.
+A request that fails leaves the status reading "Error", and the client says why under it: it takes `error` from `useChat` and renders `{error && <p role="alert">{error.message}</p>}` after `<AgentStatus>`. On a first run, the most likely cause is a missing API key. The route then fails before it calls the model, and the server's log has `AI_LoadAPIKeyError`: "OpenAI API key is missing. Pass it using the 'apiKey' parameter or the OPENAI_API_KEY environment variable." The route's `onError` sends that message to the client, where every failure would otherwise read "An error occurred.", and `useChat` returns it as `error`. The client renders only the last assistant message, so the text you sent isn't on screen.
 
 For a chat that keeps every turn on screen, render each message, as [Inside your chat UI](/docs/chat-ui#your-own-chat) does.
 
@@ -375,7 +382,7 @@ The [coding agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/co
 
 ### Typed messages
 
-The AI SDK can type `useChat`'s messages from your tools, with `InferUITools`. Each tool's output type then comes from its `outputSchema`, and `review_changes` above has none, so the client's `addToolOutput` fails to typecheck: "Type 'DiffReviewToolOutput' is not assignable to type 'undefined'." Give it the output the page sends, and keep the tools in a module of their own, so the client can import their types without importing the route:
+The AI SDK can type `useChat`'s messages from your tools, with `InferUITools`. Each tool's output type then comes from its `outputSchema`, which is why `review_changes` above has one: without it, the client's `addToolOutput` fails to typecheck, with "Type 'DiffReviewToolOutput' is not assignable to type 'undefined'." Keep the tools in a module of their own, so the client can import their types without importing the route:
 
 ```ts title="lib/tools.ts"
 import { tool, type InferUITools, type LanguageModelUsage, type UIDataTypes, type UIMessage } from 'ai';

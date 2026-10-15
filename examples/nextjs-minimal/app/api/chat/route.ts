@@ -1,4 +1,4 @@
-import { addUsage } from 'signoff-ui/core';
+import { addUsage, type DiffReviewToolOutput } from 'signoff-ui/core';
 import { convertToModelMessages, stepCountIs, streamText, tool, type LanguageModelUsage, type UIMessage } from 'ai';
 import { z } from 'zod';
 import { createMockModel } from '@/lib/mock-model';
@@ -26,6 +26,8 @@ const tools = {
     inputSchema: z.object({
       files: z.array(z.object({ path: z.string(), oldContent: z.string().optional(), newContent: z.string() })),
     }),
+    // What the page sends back: reviewToolOutput(review). Messages typed with InferUITools take it from here.
+    outputSchema: z.custom<DiffReviewToolOutput>(),
   }),
   run_command: tool({
     description: 'Run a shell command in the repository.',
@@ -35,6 +37,9 @@ const tools = {
 };
 
 export async function POST(req: Request) {
+  // The messages come from the client as they are: a caller can send an approval for a call the model never
+  // proposed. Before a tool has real effects, read "What an approval is":
+  // https://signoff-ui.vercel.app/docs/getting-started#what-an-approval-is
   const { messages }: { messages: Message[] } = await req.json();
   const result = streamText({
     model: createMockModel(), // Scripted, no API key needed. For a real run: openai('gpt-5.4-mini') from @ai-sdk/openai.

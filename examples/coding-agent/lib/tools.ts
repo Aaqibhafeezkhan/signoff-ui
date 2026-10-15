@@ -1,4 +1,5 @@
 import { tool } from 'ai';
+import type { DiffReviewToolOutput } from 'signoff-ui/core';
 import { z } from 'zod';
 import { pause } from './pace';
 import { listPaths, type Files } from './project';
@@ -57,6 +58,8 @@ export function createTools(files: Files) {
           )
           .min(1),
       }),
+      // What the page sends back: reviewToolOutput(review). Messages typed with InferUITools take it from here.
+      outputSchema: z.custom<DiffReviewToolOutput>(),
     }),
   };
 }
