@@ -380,6 +380,29 @@ An approval is the person's answer to the agent: it keeps the agent from running
 
 The [coding agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent#what-an-approval-is) validates its messages and keeps a rule on the server.
 
+### Approval rules in the route
+
+With [`useApprovalPolicy`](/docs/components/use-approval-policy#sending-a-persons-rules-with-each-request), the page sends a person's "For this session" and "Always" rules with each request, and the route decides with them. Keep them on `run_command`, the one tool this route asks about: `read_file` runs as before, and `review_changes` stays with the page. Rules over every tool would put a card on `review_changes` too. It has no `execute`, so once approved the call never gets a result: the review never shows, and recent AI SDK 7 releases end the run with `AI_MissingToolResultsError`. In the route above:
+
+```ts
+import { addUsage, parseApprovalRules, toToolApproval, type DiffReviewToolOutput } from 'signoff-ui/core';
+
+export async function POST(req: Request) {
+  const { messages, rules }: { messages: Message[]; rules?: unknown } = await req.json();
+  // This person's rules, for this person's run. A call they don't cover asks, as before.
+  const yours = toToolApproval(parseApprovalRules(rules), {
+    otherwise: { type: 'user-approval', reason: 'Runs a shell command in the repository.' },
+  });
+  const result = streamText({
+    // model, messages, tools and stopWhen as above
+    toolApproval: (options) => (options.toolCall.toolName === 'run_command' ? yours(options) : 'not-applicable'),
+  });
+  // …the rest as above
+}
+```
+
+Rules from the page are that person's grants: keep the ones that protect other people on the server ([The server's rules win](/docs/components/use-approval-policy#the-servers-rules-win)).
+
 ### Typed messages
 
 The AI SDK can type `useChat`'s messages from your tools, with `InferUITools`. Each tool's output type then comes from its `outputSchema`, which is why `review_changes` above has one: without it, the client's `addToolOutput` fails to typecheck, with "Type 'DiffReviewToolOutput' is not assignable to type 'undefined'." Keep the tools in a module of their own, so the client can import their types without importing the route:

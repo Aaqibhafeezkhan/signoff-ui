@@ -187,7 +187,7 @@ describe('the scripted run', () => {
     expect(push.approval).toMatchObject({ approved: false, isAutomatic: true });
     // The card says whose rule it was: the server's, not the person's.
     expect(push.approval?.reason).toBe(
-      "Denied by the server's rule: run_command with command git push* (A person pushes and opens the pull request.)",
+      "Denied by the server's rule: run_command with command **git*push** (A person pushes and opens the pull request.)",
     );
 
     const answer = lastText(chat);

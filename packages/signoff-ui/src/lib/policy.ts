@@ -28,6 +28,7 @@ export interface ApprovalRule {
   args?: Readonly<Record<string, string>> | undefined;
   /** A test of your own on the input, on top of `args`. Code, so storage does not keep the rule. */
   when?: ((input: unknown) => boolean) | undefined;
+  /** Whether the calls it covers run without asking, or are refused. A deny rule wins over an allow rule. */
   effect: 'allow' | 'deny';
   /** `session`: until the page reloads or the session is cleared. `always`: kept by the storage. */
   scope: 'session' | 'always';
@@ -44,8 +45,11 @@ export interface ApprovalRequest {
    * tool call's id.
    */
   id: string;
+  /** The tool's name, which a rule's `tool` matches. */
   toolName: string;
+  /** The call's arguments, which a rule's `args` and `when` match. */
   input: unknown;
+  /** The tool call's own id, when the request has one apart from `id`, as AI SDK's approvals do. */
   toolCallId?: string | undefined;
 }
 

@@ -24,7 +24,7 @@ describe('approval rules on the server', () => {
     expect(approve(command('npm test'))).toMatchObject({ type: 'approved' });
     expect(approve(command('git push -u origin main'))).toMatchObject({
       type: 'denied',
-      reason: expect.stringContaining('git push*'),
+      reason: expect.stringContaining('**git*push**'),
     });
   });
 
@@ -51,7 +51,7 @@ describe('approval rules on the server', () => {
     expect(approve(command('git push'))).toEqual({
       type: 'denied',
       reason:
-        "Denied by the server's rule: run_command with command git push* (A person pushes and opens the pull request.)",
+        "Denied by the server's rule: run_command with command **git*push** (A person pushes and opens the pull request.)",
     });
   });
 
