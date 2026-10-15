@@ -172,7 +172,7 @@ export const COMPONENTS: ComponentDoc[] = [
       {
         name: 'ToolApprovalCard',
         props: 'ToolApprovalCardProps',
-        defaults: { file: 'approval-card.tsx', functions: ['ToolApprovalCard', 'ApprovalCard'] },
+        defaults: { file: 'approval-card.tsx', functions: ['ToolApprovalCard'] },
       },
       {
         name: 'ToolApprovalBatch',

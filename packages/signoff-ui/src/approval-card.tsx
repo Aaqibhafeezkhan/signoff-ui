@@ -38,6 +38,10 @@ export type { ApprovalDecision } from './lib/policy';
 
 /** A decision as the card makes it: what was chosen, and what goes with it. */
 export interface ApprovalChoice {
+  /**
+   * What was chosen, and how long it holds: `allow-once`, `allow-session`, `allow-always`,
+   * `deny-once` or `deny-always`.
+   */
   decision: ApprovalDecision;
   /** The denial's reason, when the person gave one. */
   reason?: string | undefined;
@@ -69,8 +73,10 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
    */
   preview?: ReactNode;
   /**
-   * Default "pending". Approve and deny fire once: further presses (a double click, Y then N) are
-   * ignored until `status` changes, the promise the handler returned settles, or the handler throws.
+   * Where the approval stands: the card offers the choices while `pending`, and shows the outcome you
+   * pass back. Approve and deny fire once: further presses (a double click, Y then N) are ignored
+   * until `status` changes, the promise the handler returned settles, or the handler throws.
+   * @default 'pending'
    */
   status?: ApprovalStatus;
   /** Reason recorded with the decision, shown once resolved. */
@@ -78,6 +84,7 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   /**
    * A policy, not a person, made the decision (the SDK's `approval.isAutomatic`): once resolved,
    * the card reads "Auto-approved" or "Blocked by policy" instead of "Approved" or "Denied".
+   * @default false
    */
   automatic?: boolean;
   /**
@@ -89,8 +96,9 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   decidedByRule?: string | undefined;
   /**
    * The choices to offer, from `allow-once`, `allow-session`, `allow-always`, `deny-once` and
-   * `deny-always`. Default: Approve and Deny, once. Session and always decisions come to `onDecide`
-   * with the arguments their rule covers.
+   * `deny-always`. Session and always decisions come to `onDecide` with the arguments their rule
+   * covers.
+   * @default ['allow-once', 'deny-once']
    */
   decisions?: readonly ApprovalDecision[] | undefined;
   /**
@@ -106,41 +114,61 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
    * Let the person edit the arguments before approving: a form for an object of strings, numbers
    * and booleans, JSON otherwise. The edited input comes to `onDecide`: "Done editing" closes the
    * editor and keeps the edit, "Undo edits" drops it. An edit is for the `input` it was made
-   * against: new `input`, or a new `status`, drops it. Default `false`.
+   * against: new `input`, or a new `status`, drops it.
+   * @default false
    */
   editable?: boolean;
   /** The argument patterns a session or always rule starts with. Default: from the input. */
   ruleArgs?: Record<string, string> | undefined;
   /**
-   * Show which calls a session or always decision covers, editable. Default `true`. Pass `false`
-   * when the agent keeps what "always" means, as with ACP's `allow_always`: the card then shows no
-   * argument patterns, and the decision comes without `args`.
+   * Show which calls a session or always decision covers, editable. Pass `false` when the agent
+   * keeps what "always" means, as with ACP's `allow_always`: the card then shows no argument
+   * patterns, and the decision comes without `args`.
+   * @default true
    */
   ruleScope?: boolean;
   /**
    * Y / N shortcuts while focus is inside the card (and S, A, Shift+N when offered), but not in a
-   * custom `preview`. Default `true`.
+   * custom `preview`.
+   * @default true
    */
   shortcuts?: boolean;
   /**
    * Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending, except a text field,
-   * where the keys are the field's (a chat composer's send, say). Default `false`.
+   * where the keys are the field's (a chat composer's send, say).
+   * @default false
    */
   globalShortcut?: boolean;
   /**
    * Move focus to the card when it mounts in the pending state, unless focus is in a text field:
-   * the person's next keys would land on the card as shortcuts. Default `false`.
+   * the person's next keys would land on the card as shortcuts.
+   * @default false
    */
   autoFocus?: boolean;
-  /** Offer an optional free-text reason when denying. Default `true`. */
+  /**
+   * Offer an optional free-text reason when denying.
+   * @default true
+   */
   allowReason?: boolean;
-  /** Placeholder of the reason field. Default "What should the agent do instead?" (`labels.approvalCard.reasonPlaceholder`). */
+  /**
+   * Placeholder of the reason field. Without one, the card uses `labels.approvalCard.reasonPlaceholder`.
+   * @default 'What should the agent do instead?'
+   */
   reasonPlaceholder?: string;
-  /** The approve button's text. Default "Approve" (`labels.approvalCard.approve`). */
+  /**
+   * The approve button's text. Without one, the card uses `labels.approvalCard.approve`.
+   * @default 'Approve'
+   */
   approveLabel?: string;
-  /** The deny button's text. Default "Deny" (`labels.approvalCard.deny`). */
+  /**
+   * The deny button's text. Without one, the card uses `labels.approvalCard.deny`.
+   * @default 'Deny'
+   */
   denyLabel?: string;
-  /** Heading level for the title, to fit your document outline. Default 3. */
+  /**
+   * Heading level for the title, to fit your document outline.
+   * @default 3
+   */
   headingLevel?: HeadingLevel;
   /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;
@@ -942,9 +970,13 @@ function RuleScope({
   );
 }
 
+/** The answer to one approval request, as the AI SDK's `addToolApprovalResponse` takes it. */
 export interface ToolApprovalResponse {
+  /** The approval request's id, `part.approval.id`: not the tool call's id. */
   id: string;
+  /** `true` to run the call, `false` to deny it. */
   approved: boolean;
+  /** The reason given with the decision, such as the one the person typed when denying. */
   reason?: string;
 }
 
@@ -960,10 +992,22 @@ export interface ToolApprovalCardProps extends Omit<
   | 'automatic'
   | 'decision'
   | 'decidedByRule'
+  | 'decisions'
+  | 'editable'
 > {
+  /**
+   * The AI SDK tool part to answer, from `message.parts` (`isToolPart` finds them). The card reads
+   * the tool's name, input, approval request and outcome from it, and renders nothing for a part
+   * with no approval request.
+   */
   part: ToolPart;
   /** Matches `useChat().addToolApprovalResponse`, so you can pass it directly. */
   onRespond: (response: ToolApprovalResponse) => void | PromiseLike<void>;
+  /**
+   * How to show this tool, as in `AgentMessage`'s `tools`: without `title`, the card takes its
+   * `label` (after the part's own `title`), and without `risk`, its `risk`, a level or a function
+   * of the input.
+   */
   meta?: ToolMeta | undefined;
   /**
    * Approval rules from `useApprovalPolicy`. The card then offers once, this session and always
@@ -972,11 +1016,23 @@ export interface ToolApprovalCardProps extends Omit<
    */
   policy?: ApprovalPolicy | undefined;
   /**
+   * The choices to offer, from `allow-once`, `allow-session`, `allow-always`, `deny-once` and
+   * `deny-always`. Without it, all five with a `policy`, else `allow-once` and `deny-once`.
+   */
+  decisions?: readonly ApprovalDecision[] | undefined;
+  /**
    * Apply edited arguments before the approval goes out; the card offers editing only with it.
    * With AI SDK 7: `(id, input) => setMessages((m) => setToolInput(m, id, input))`. With
    * `useAgUiAgent`: its `editInput`.
    */
   onEditInput?: ((toolCallId: string, input: unknown) => void) | undefined;
+  /**
+   * Let the person edit the arguments before approving, as on `ApprovalCard`. Only with
+   * `onEditInput`, which applies the edit: without it the card never offers editing, and with it
+   * `false` turns editing off.
+   * @default true
+   */
+  editable?: boolean;
 }
 
 const ALL_DECISIONS: readonly ApprovalDecision[] = [
@@ -1078,10 +1134,25 @@ function toResponse(outcome: ApprovalOutcome): ToolApprovalResponse {
 export interface ToolApprovalBatchProps extends Omit<ComponentPropsWithoutRef<'div'>, 'children'> {
   /** Tool parts; those waiting on a person count. */
   parts: readonly ToolPart[];
+  /**
+   * Called once for each waiting call when Approve all or Deny all answers them. Matches
+   * `useChat().addToolApprovalResponse`, so you can pass it directly.
+   */
   onRespond: (response: ToolApprovalResponse) => void | PromiseLike<void>;
+  /**
+   * Approval rules from `useApprovalPolicy`, the ones the cards get: a call a rule decides isn't
+   * waiting on a person, and each answer is recorded as a once decision.
+   */
   policy?: ApprovalPolicy | undefined;
+  /**
+   * The tools' `ToolMeta`, by tool name, as in `AgentMessage`'s `tools`. Their `risk` counts: with a
+   * critical call waiting, Approve all asks for a second press.
+   */
   tools?: Record<string, ToolMeta> | undefined;
-  /** Shown from this many waiting approvals. Default 2. */
+  /**
+   * Shown from this many waiting approvals.
+   * @default 2
+   */
   min?: number;
   /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;

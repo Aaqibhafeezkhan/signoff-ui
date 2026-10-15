@@ -22,6 +22,7 @@ export function fileItemId(fileId: string): string {
 export interface ReviewItem {
   /** The decision key: the hunk's id, or `${fileId}:file`. */
   id: string;
+  /** The parsed file it belongs to. */
   file: ParsedFileDiff;
   /** `undefined` for a whole file. */
   hunk: DiffHunk | undefined;
@@ -42,6 +43,7 @@ export interface DiffReviewComment {
   id: string;
   /** The file's id in the review: its path, or `path#2`… for a path that repeats. */
   fileId: string;
+  /** The file's path, as in its `FileChange`. */
   path: string;
   /** What it is on. */
   target: 'lines' | 'hunk' | 'file';
@@ -52,8 +54,11 @@ export interface DiffReviewComment {
    * the original (`old`). Absent for a comment on a whole file.
    */
   side?: CommentSide | undefined;
+  /** The first line it is on, numbered in the `side` file. Absent for a comment on a whole file. */
   startLine?: number | undefined;
+  /** The last line it is on, numbered like `startLine`. */
   endLine?: number | undefined;
+  /** What the reviewer wrote. */
   text: string;
 }
 
@@ -164,11 +169,15 @@ export function gapLines(file: ParsedFileDiff, gap: ContextGap, oldStart: number
 /** How a file came out of the review. `partial`: some of its changes were accepted, not all. */
 export type FileDecision = 'accepted' | 'rejected' | 'partial' | 'pending' | 'unchanged';
 
+/** One file of a `DiffReviewResult`: how it came out of the review. */
 export interface DiffReviewFileResult {
+  /** The file's path, as in its `FileChange`. */
   path: string;
   /** The path before, for a renamed file. */
   oldPath?: string | undefined;
+  /** What the edit does to the file: `added`, `deleted`, `modified` or `renamed`. */
   status: FileStatus;
+  /** `true` for a binary file, which is decided as a whole; absent otherwise. */
   binary?: true | undefined;
   /**
    * `accepted` when every change was accepted, `rejected` when every one was, `partial` for some of
@@ -179,32 +188,53 @@ export interface DiffReviewFileResult {
   viewed: boolean;
   /** File contents with only accepted hunks applied. `undefined` for patch-only input. */
   content: string | undefined;
+  /** The ids of its accepted items: hunk ids, or `${fileId}:file` for a file with no hunks, decided as a whole. */
   accepted: string[];
+  /** The ids of its rejected items, like `accepted`. */
   rejected: string[];
+  /** The ids of its undecided items, like `accepted`. They are not applied to `content`. */
   pending: string[];
 }
 
 /** A hunk the reviewer turned down, with its lines, so the agent knows exactly what not to do. */
 export interface DiffReviewRejectedHunk {
+  /** The hunk's id, `${fileId}:${index}`, as in the decisions. */
   id: string;
+  /** The file's path. */
   path: string;
+  /** The hunk's header line in a unified diff, with where it starts and how many lines it spans in each file. */
   header: string;
   /** The hunk as unified diff lines: ` ` unchanged, `-` removed, `+` added. */
   diff: string;
 }
 
+/** A comment as the result carries it: with the lines it is on, when the review has them. */
 export interface DiffReviewResultComment extends DiffReviewComment {
   /** The lines commented on, as unified diff lines, when they are in the review. */
   excerpt?: string | undefined;
 }
 
+/**
+ * What `onSubmit` gets: each file as reviewed, the decisions counted, the rejected hunks and the
+ * comments. `reviewToolOutput` shapes it for the agent.
+ */
 export interface DiffReviewResult {
+  /** Each file in the review, in the order of `files`: its decision, its contents as applied and its item ids. */
   files: DiffReviewFileResult[];
-  /** Decisions across the review: hunks, and files decided as a whole. */
+  /** How many items were accepted, across the review: hunks, and files with no hunks (decided as a whole). */
   accepted: number;
+  /** How many items were rejected, counted like `accepted`. */
   rejected: number;
+  /** How many items were left undecided, counted like `accepted`. */
   pending: number;
+  /**
+   * Each hunk the reviewer rejected, with its lines, so the agent knows what not to do, including
+   * every hunk of a file or a review rejected at once (Alt+R rejects each hunk of the file). A file
+   * with no hunks (binary, a rename, an empty file) is decided as a whole and appears only in its
+   * file's `rejected`.
+   */
   rejectedHunks: DiffReviewRejectedHunk[];
+  /** Every comment, with the lines it is on (`excerpt`) when they are in the review. */
   comments: DiffReviewResultComment[];
 }
 

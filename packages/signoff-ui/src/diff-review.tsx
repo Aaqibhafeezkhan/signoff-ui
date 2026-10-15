@@ -55,7 +55,10 @@ export interface DiffReviewProps
   extends
     Omit<ComponentPropsWithoutRef<'section'>, 'title' | 'onSubmit' | 'children'>,
     Omit<UseDiffReviewOptions, 'readOnly' | 'context' | 'maxEditLength' | 'autoAdvance' | 'collapseViewed'> {
-  /** Heading. Default "Review changes" (`labels.diffReview.title`). */
+  /**
+   * Heading. Without one, the review uses `labels.diffReview.title`.
+   * @default 'Review changes'
+   */
   title?: ReactNode;
   /**
    * Your own controls in the header, next to the layout toggle, e.g. a "Copy as a patch" button.
@@ -63,26 +66,51 @@ export interface DiffReviewProps
    * keys pressed in it are yours, not the review's shortcuts.
    */
   actions?: ReactNode;
+  /**
+   * The layout, controlled: `unified`, one column, or `split`, the original and the proposed file
+   * side by side. Pass `onViewChange` with it to follow the layout toggle.
+   */
   view?: DiffViewMode | undefined;
+  /**
+   * The layout to start with, when the review keeps its own.
+   * @default 'unified'
+   */
   defaultView?: DiffViewMode;
+  /** Called with the layout the reviewer picks with the layout toggle. */
   onViewChange?: ((view: DiffViewMode) => void) | undefined;
   /** The apply button's text. Default "Apply 2 of 5", or "Apply changes" before any is accepted (`labels.diffReview.apply`). */
   submitLabel?: string;
-  /** Hide review controls, e.g. once the review has been submitted. */
+  /**
+   * Hide review controls, e.g. once the review has been submitted.
+   * @default false
+   */
   readOnly?: boolean;
-  /** Lines of context around each change. Default 3. */
+  /**
+   * Lines of context around each change.
+   * @default 3
+   */
   context?: number;
   /**
    * Past this many lines added plus lines removed in one file, its changed region (from the first
    * changed line to the last) is shown as one hunk that replaces it, and the review says so. Diffing
-   * costs about the square of this number. Default 2,000.
+   * costs about the square of this number.
+   * @default 2000
    */
   maxEditLength?: number;
-  /** After accepting or rejecting with the keyboard, move to the next undecided hunk. Default `true`. */
+  /**
+   * After accepting or rejecting with the keyboard, move to the next undecided hunk.
+   * @default true
+   */
   autoAdvance?: boolean;
-  /** Fold a file away once it is marked viewed. Default `true`. */
+  /**
+   * Fold a file away once it is marked viewed.
+   * @default true
+   */
   collapseViewed?: boolean;
-  /** Heading level for the title, to fit your document outline. Default 3. */
+  /**
+   * Heading level for the title, to fit your document outline.
+   * @default 3
+   */
   headingLevel?: HeadingLevel;
 }
 

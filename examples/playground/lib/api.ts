@@ -5,8 +5,10 @@ import ts from 'typescript';
 /*
  * The API reference, read from the library when the site builds: props, types and descriptions
  * from the published declarations (dist/*.d.ts, what an app's editor sees), defaults from the
- * components' own parameter lists in src/, and styling hooks from their markup. Nothing here is
- * written by hand, so it can't drift from the package.
+ * components' own parameter lists in src/ or, where a list has none (a hook's options) or only
+ * names a constant, the props' `@default` tags, and styling hooks from their markup. Only the tags
+ * are written by hand, in the library's comments: test/api-descriptions.test.ts checks each against
+ * the code that sets it.
  */
 
 // `next build` runs in examples/playground; the library is built first (pnpm build:lib). Everything
@@ -85,6 +87,12 @@ function exported(name: string) {
 
 const docs = (symbol: ts.Symbol) => ts.displayPartsToString(symbol.getDocumentationComment(load().checker)).trim();
 
+/** A prop's `@default` tag, as written: `3` for `@default 3`. */
+function defaultTag(symbol: ts.Symbol) {
+  const tag = symbol.getJsDocTags(load().checker).find((t) => t.name === 'default');
+  return ts.displayPartsToString(tag?.text).trim() || undefined;
+}
+
 /** Drop parentheses that wrap the whole type: `((x) => y)` reads as `(x) => y`. */
 function unwrap(type: string) {
   if (!type.startsWith('(') || !type.endsWith(')')) return type;
@@ -119,7 +127,7 @@ function literalValues(declaration: ts.Declaration | undefined, symbol: ts.Symbo
 }
 
 /** Default values from a component's parameter list: `({ risk = 'medium', ... })`. */
-function sourceDefaults(file: string, functions: string[]) {
+export function sourceDefaults(file: string, functions: string[]) {
   const defaults = new Map<string, string>();
   const source = ts.createSourceFile(
     file,
@@ -153,7 +161,8 @@ const isOwn = (symbol: ts.Symbol) =>
 
 /**
  * An exported interface's own props (not the DOM attributes it inherits), with defaults read from
- * `functions` in `src/<file>`: the component and any it passes its props on to.
+ * `functions` in `src/<file>`: the component and any it passes its props on to. A prop they give no
+ * default to, such as a hook's option, shows its `@default` tag.
  */
 export function getInterface(name: string, defaultsFrom?: { file: string; functions: string[] }): InterfaceDoc {
   const { checker } = load();
@@ -171,7 +180,11 @@ export function getInterface(name: string, defaultsFrom?: { file: string; functi
     .filter((prop) => isOwn(prop) && ownDeclaration(prop))
     .map((prop): PropDoc => {
       const decl = prop.declarations?.[0];
-      const defaultValue = defaults.get(prop.name);
+      // The parameter list's default, unless it is only a constant's name (`DEFAULT_DECISIONS`) and
+      // the prop's @default spells it out.
+      const listed = defaults.get(prop.name);
+      const tagged = defaultTag(prop);
+      const defaultValue = listed && !(tagged && /^[A-Z][A-Z0-9_]*$/.test(listed)) ? listed : tagged;
       let description = docs(prop);
       // The default column says it already.
       if (defaultValue)
