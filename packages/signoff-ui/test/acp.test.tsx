@@ -300,6 +300,19 @@ describe('permission requests', () => {
     await user.click(screen.getByRole('button', { name: /Yes, allow all edits during this session/ }));
     expect(onAnswer).toHaveBeenLastCalledWith({ outcome: { outcome: 'selected', optionId: 'allow-with-updates' } });
   });
+
+  it('keeps Deny when the agent sends several reject_once options: codex-acp’s Denied and Abort', async () => {
+    const options: AcpPermissionOption[] = [
+      { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+      { optionId: 'denied', name: 'No, continue without running it', kind: 'reject_once' },
+      { optionId: 'abort', name: 'No, and tell Codex what to do differently', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    await user.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ outcome: { outcome: 'selected', optionId: 'denied' } });
+  });
 });
 
 describe('the end of a turn', () => {

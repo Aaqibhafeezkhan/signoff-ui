@@ -477,6 +477,12 @@ describe('Agent Client Protocol mappings', () => {
     { optionId: 'never', name: 'Never', kind: 'reject_always' },
     { optionId: 'never-all', name: 'Never, for any tool', kind: 'reject_always' },
   ];
+  // codex-acp (src/thread.rs, build_exec_permission_options) when Codex offers both Denied and Abort: two reject_once.
+  const codexDeniedAbort: AcpPermissionOption[] = [
+    { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+    { optionId: 'denied', name: 'No, continue without running it', kind: 'reject_once' },
+    { optionId: 'abort', name: 'No, and tell Codex what to do differently', kind: 'reject_once' },
+  ];
   const cancelled = { outcome: { outcome: 'cancelled' } };
   const selected = (optionId: string) => ({ outcome: { outcome: 'selected', optionId } });
 
@@ -499,6 +505,14 @@ describe('Agent Client Protocol mappings', () => {
     expect(toAcpPermissionResponse('allow-session', twoOnce)).toEqual(cancelled);
     expect(toAcpPermissionResponse('deny-always', twoOnce)).toEqual(cancelled);
     expect(toAcpPermissionResponse('deny-once', twoOnce)).toEqual(selected('no'));
+  });
+
+  it('keeps Deny when the agent sent several reject_once options, since a denial grants nothing', () => {
+    expect(decisionsFromAcpOptions(codexDeniedAbort)).toEqual(['allow-once', 'allow-session', 'deny-once']);
+    expect(toAcpPermissionResponse('deny-once', codexDeniedAbort)).toEqual(selected('denied'));
+    expect(toAcpPermissionResponse('allow-once', codexDeniedAbort)).toEqual(selected('approved'));
+    // A lasting "no" is still not picked for the person.
+    expect(decisionsFromAcpOptions(twoOnce)).not.toContain('deny-always');
   });
 
   it('reads a response back as a decision', () => {
