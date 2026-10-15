@@ -8,7 +8,7 @@ cd my-agent
 npm run dev   # http://localhost:3400
 ```
 
-The walkthrough on this page, [Render a run](#render-a-run), starts the same way, against a scripted model too:
+The walkthrough on this page, [Render a run](/docs/getting-started#render-a-run), starts the same way, against a scripted model too:
 
 ```bash
 npx create-next-app@latest my-quickstart --example https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal
@@ -16,7 +16,7 @@ cd my-quickstart
 npm run dev   # http://localhost:3200
 ```
 
-To add the components to an app of your own, read on: install them, add the styles, then render [your first sign-off](#your-first-sign-off), with no AI SDK and no key.
+To add the components to an app of your own, read on: install them, add the styles, then render [your first sign-off](/docs/getting-started#your-first-sign-off), with no AI SDK and no key.
 
 ## Requirements
 
@@ -152,7 +152,7 @@ With an AI SDK agent, `AgentMessage` sends the decision with `addToolApprovalRes
 
 ## Render a run
 
-A Next.js App Router app with AI SDK 7: a client component, a page and a route. The agent reads a file, proposes an edit across two files for you to review, and asks before it runs a command. [The quickstart, running](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal) is this section as an app against a scripted model, so it needs no API key, and CI runs it in Chrome. [One command](#try-it-without-an-api-key) starts it.
+A Next.js App Router app with AI SDK 7: a client component, a page and a route. The agent reads a file, proposes an edit across two files for you to review, and asks before it runs a command. [The quickstart, running](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal) is this section as an app against a scripted model, so it needs no API key, and CI runs it in Chrome. [One command](/docs/getting-started#try-it-without-an-api-key) starts it.
 
 ```package-install
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod

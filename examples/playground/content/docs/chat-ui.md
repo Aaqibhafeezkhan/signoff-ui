@@ -1,6 +1,6 @@
 The components take AI SDK message parts and plain props. There is no runtime or store to adopt, so they render inside whatever draws your chat: your own components, AI Elements or an assistant-ui thread. Their names (`data-signoff`, `--signoff-*`, `signoff-*` slots) don't collide with assistant-ui's or shadcn/ui's, and `styles.css` styles only the components' own elements, never your page or the content you render inside them.
 
-The examples below use a `review_changes` tool with no `execute`, which the page answers with a `DiffReview`, and a `run_command` tool that needs approval, as in [Getting started](/docs/getting-started#render-a-run). If you type your messages from the tools, give `review_changes` an `outputSchema` too, as [Typed messages](/docs/getting-started#typed-messages) shows, or `addToolOutput` rejects the review's output.
+The examples below use a `review_changes` tool with no `execute`, which the page answers with a `DiffReview`, and a `run_command` tool that needs approval, as in [Getting started](/docs/getting-started#render-a-run). If you type your messages from the tools, give `review_changes` an `outputSchema` too, as [Typed messages](/docs/getting-started#typed-messages) shows, or `addToolOutput` won't typecheck.
 
 ## Your own chat
 

@@ -216,14 +216,21 @@ describe('Inside your chat UI', () => {
 describe('links between the two pages', () => {
   const pages: Record<string, string> = { 'getting-started': guide, 'chat-ui': chatUi };
 
-  it.each(Object.entries(pages))('%s: each link to a heading of either page finds it', (page, markdown) => {
-    const links = [
-      ...[...markdown.matchAll(/\]\(#([\w-]+)\)/g)].map(([, id]) => ({ page, id: id! })),
-      ...[...markdown.matchAll(/\]\(\/docs\/(getting-started|chat-ui)#([\w-]+)\)/g)].map(([, target, id]) => ({
-        page: target!,
-        id: id!,
-      })),
-    ];
+  // /llms-full.txt and the page-as-Markdown make only links that start with `/` absolute (lib/docs.ts),
+  // and the site's smoke check fails on any relative link left in them.
+  it.each(Object.entries(pages))(
+    '%s: links to its own headings as /docs/<page>#id, never a bare #id',
+    (page, markdown) => {
+      const bare = [...markdown.matchAll(/\]\(#[^)]*\)/g)].map(([link]) => link);
+      expect(bare, `write these as ](/docs/${page}#id)`).toEqual([]);
+    },
+  );
+
+  it.each(Object.entries(pages))('%s: each link to a heading of either page finds it', (_page, markdown) => {
+    const links = [...markdown.matchAll(/\]\(\/docs\/(getting-started|chat-ui)#([\w-]+)\)/g)].map(([, target, id]) => ({
+      page: target!,
+      id: id!,
+    }));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links)
       expect(
