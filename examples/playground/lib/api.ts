@@ -5,8 +5,10 @@ import ts from 'typescript';
 /*
  * The API reference, read from the library when the site builds: props, types and descriptions
  * from the published declarations (dist/*.d.ts, what an app's editor sees), defaults from the
- * components' own parameter lists in src/ and the props' `@default` tags, and styling hooks from
- * their markup. Nothing here is written by hand, so it can't drift from the package.
+ * components' own parameter lists in src/ or, where a list has none (a hook's options) or only
+ * names a constant, the props' `@default` tags, and styling hooks from their markup. Only the tags
+ * are written by hand, in the library's comments: test/api-descriptions.test.ts checks each against
+ * the code that sets it.
  */
 
 // `next build` runs in examples/playground; the library is built first (pnpm build:lib). Everything
@@ -125,7 +127,7 @@ function literalValues(declaration: ts.Declaration | undefined, symbol: ts.Symbo
 }
 
 /** Default values from a component's parameter list: `({ risk = 'medium', ... })`. */
-function sourceDefaults(file: string, functions: string[]) {
+export function sourceDefaults(file: string, functions: string[]) {
   const defaults = new Map<string, string>();
   const source = ts.createSourceFile(
     file,

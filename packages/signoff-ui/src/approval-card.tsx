@@ -992,6 +992,8 @@ export interface ToolApprovalCardProps extends Omit<
   | 'automatic'
   | 'decision'
   | 'decidedByRule'
+  | 'decisions'
+  | 'editable'
 > {
   /**
    * The AI SDK tool part to answer, from `message.parts` (`isToolPart` finds them). The card reads
@@ -1014,11 +1016,23 @@ export interface ToolApprovalCardProps extends Omit<
    */
   policy?: ApprovalPolicy | undefined;
   /**
+   * The choices to offer, from `allow-once`, `allow-session`, `allow-always`, `deny-once` and
+   * `deny-always`. Without it, all five with a `policy`, else `allow-once` and `deny-once`.
+   */
+  decisions?: readonly ApprovalDecision[] | undefined;
+  /**
    * Apply edited arguments before the approval goes out; the card offers editing only with it.
    * With AI SDK 7: `(id, input) => setMessages((m) => setToolInput(m, id, input))`. With
    * `useAgUiAgent`: its `editInput`.
    */
   onEditInput?: ((toolCallId: string, input: unknown) => void) | undefined;
+  /**
+   * Let the person edit the arguments before approving, as on `ApprovalCard`. Only with
+   * `onEditInput`, which applies the edit: without it the card never offers editing, and with it
+   * `false` turns editing off.
+   * @default true
+   */
+  editable?: boolean;
 }
 
 const ALL_DECISIONS: readonly ApprovalDecision[] = [

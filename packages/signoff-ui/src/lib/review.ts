@@ -188,7 +188,7 @@ export interface DiffReviewFileResult {
   viewed: boolean;
   /** File contents with only accepted hunks applied. `undefined` for patch-only input. */
   content: string | undefined;
-  /** The ids of its accepted items: hunk ids, or `${fileId}:file` for a file decided as a whole. */
+  /** The ids of its accepted items: hunk ids, or `${fileId}:file` for a file with no hunks, decided as a whole. */
   accepted: string[];
   /** The ids of its rejected items, like `accepted`. */
   rejected: string[];
@@ -221,15 +221,17 @@ export interface DiffReviewResultComment extends DiffReviewComment {
 export interface DiffReviewResult {
   /** Each file in the review, in the order of `files`: its decision, its contents as applied and its item ids. */
   files: DiffReviewFileResult[];
-  /** How many items were accepted, across the review: hunks, and files decided as a whole. */
+  /** How many items were accepted, across the review: hunks, and files with no hunks (decided as a whole). */
   accepted: number;
   /** How many items were rejected, counted like `accepted`. */
   rejected: number;
   /** How many items were left undecided, counted like `accepted`. */
   pending: number;
   /**
-   * Each hunk the reviewer rejected, with its lines, so the agent knows what not to do. A file
-   * rejected as a whole is in its file's `rejected`, not here.
+   * Each hunk the reviewer rejected, with its lines, so the agent knows what not to do, including
+   * every hunk of a file or a review rejected at once (Alt+R rejects each hunk of the file). A file
+   * with no hunks (binary, a rename, an empty file) is decided as a whole and appears only in its
+   * file's `rejected`.
    */
   rejectedHunks: DiffReviewRejectedHunk[];
   /** Every comment, with the lines it is on (`excerpt`) when they are in the review. */

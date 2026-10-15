@@ -285,14 +285,17 @@ try {
   );
 
   // Component pages document props from the package's own types: ApprovalCard's toolName is a
-  // required string, risk has no default, allowReason defaults to true, and approveLabel says which
-  // label it defaults to (the page and its Markdown share the source).
+  // required string, risk has no default, allowReason defaults to true (from the parameter list), and
+  // approveLabel defaults to 'Approve' (from its @default tag) and names the label that default
+  // comes from (the page and its Markdown share the source).
   const card = await (await fetch(`${BASE}/docs/components/approval-card.md`)).text();
   check(
     card.includes('| `toolName` (required) | `string` |') &&
       /\| `risk` \| `RiskLevel` \| {2}\|/.test(card) &&
       /\| `allowReason` \| `boolean` \| `true` \|/.test(card) &&
-      /\| `approveLabel` \| `string` \| {2}\| The approve button's text\. Default "Approve"/.test(card),
+      /\| `approveLabel` \| `string` \| `'Approve'` \| The approve button's text\. Without one, the card uses `labels\.approvalCard\.approve`/.test(
+        card,
+      ),
     'docs: props tables come from the types, with defaults from the source',
     card
       .split('\n')
