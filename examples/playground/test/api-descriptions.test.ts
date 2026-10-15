@@ -19,7 +19,7 @@ import { COMPONENTS, type ComponentDoc } from '../lib/components';
  * The pages held to it: a page joins once every row on it has a description and every default its
  * code sets is an `@default` tag.
  */
-const DESCRIBED = ['diff-review', 'use-diff-review', 'approval-card'];
+const DESCRIBED = ['diff-review', 'use-diff-review', 'approval-card', 'use-approval-policy'];
 
 /**
  * Props a component hands on to a hook without a default of its own: their `@default` tag is

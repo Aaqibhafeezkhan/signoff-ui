@@ -24,13 +24,22 @@ export type { ApprovalDecision, ApprovalRequest, ApprovalRule, RuleMatch } from 
  * with a `when`: `when` is code, and without it the rule would cover more calls than it does.
  */
 export interface ApprovalRuleStorage {
+  /** The saved rules, read once, after the first render. It may return a promise. */
   load(): readonly ApprovalRule[] | PromiseLike<readonly ApprovalRule[]>;
+  /**
+   * Keep these rules, in place of the ones saved before: the `always` rules without a `when`, after
+   * each change. It may return a promise, which nothing waits for.
+   */
   save(rules: readonly ApprovalRule[]): void | PromiseLike<void>;
   /**
    * The ids of `always` default rules the person removed, so they stay removed on the next load.
    * Optional: without this and `saveRemovedDefaults`, a removed default comes back on each load.
    */
   loadRemovedDefaults?(): readonly string[] | PromiseLike<readonly string[]>;
+  /**
+   * Keep the ids of the `always` defaults the person removed, after a change to them. Optional, with
+   * `loadRemovedDefaults`.
+   */
   saveRemovedDefaults?(ids: readonly string[]): void | PromiseLike<void>;
 }
 
@@ -122,25 +131,46 @@ export type ApprovalAuditEvent =
 
 /** A decision, ready to send: `approved` and `reason` for the agent, the rest for your app. */
 export interface ApprovalOutcome {
+  /** The request's `id`: the approval this answers. */
   id: string;
+  /** Whether the call may run. */
   approved: boolean;
+  /**
+   * Why, for the agent: the reason the person gave, or for a deny rule its own `reason`, else
+   * `labels.approvalPolicy.ruleDenial`.
+   */
   reason?: string | undefined;
   /** The arguments to run with, when the person edited them. */
   input?: unknown;
+  /**
+   * What was decided, and for how long. A rule's answer is `allow-session` or `allow-always`, after
+   * the rule's scope, or `deny-always`.
+   */
   decision: ApprovalDecision;
+  /** Who decided: the person (`user`) or one of the rules (`rule`). */
   by: 'user' | 'rule';
+  /** The rule that decided, or the one the person's session or always decision made. */
   rule?: ApprovalRule | undefined;
 }
 
+/** What `useApprovalPolicy` takes: the rules, where they are kept, and what to call as they change. */
 export interface UseApprovalPolicyOptions {
-  /** Controlled rules. */
+  /**
+   * Controlled rules: the policy decides with these, and hands every change to `onRulesChange` for
+   * you to pass back. Without them, it keeps its own.
+   */
   rules?: readonly ApprovalRule[] | undefined;
   /**
    * Rules to start with, before any the storage loads. An `always` default the person removes stays
    * removed on later loads, with a storage that keeps removed defaults (`webStorageRules` and
    * `memoryRuleStorage` do). A default you add later appears, removed ones aside.
+   * @default []
    */
   defaultRules?: readonly ApprovalRule[] | undefined;
+  /**
+   * The rules after each change: a session or always decision, `addRule`, `removeRule` or
+   * `clearSession`, not the storage loading. With `rules`, set them from it.
+   */
   onRulesChange?: ((rules: ApprovalRule[]) => void) | undefined;
   /** Where `always` rules are loaded from and saved to. Default: memory, for this page. */
   storage?: ApprovalRuleStorage | undefined;
@@ -153,7 +183,15 @@ export interface UseApprovalPolicyOptions {
   labels?: SignoffLabelsInput | undefined;
 }
 
+/**
+ * What `useApprovalPolicy` returns: the rules, and what records a decision or answers a call from
+ * them. Pass it to `ToolApprovalCard`, `AgentMessage` or `ToolApprovalBatch` as their policy.
+ */
 export interface ApprovalPolicy {
+  /**
+   * The rules as of this render: `rules` when you control them, else the defaults, the rules the
+   * storage loaded and the ones added since.
+   */
   rules: readonly ApprovalRule[];
   /**
    * The rules as they are now, as plain data to send with a request (see `toPlainRules`: a rule
@@ -179,7 +217,15 @@ export interface ApprovalPolicy {
   answer(request: ApprovalRequest): ApprovalOutcome | undefined;
   /** How an answered request was decided, by its id: by a person or by which rule. */
   outcomeOf(id: string): ApprovalOutcome | undefined;
+  /**
+   * Add a rule, in place of one with the same id, and save it if it is an `always` rule without a
+   * `when`. A removed default's id brings that default back, as a "Reset" button would.
+   */
   addRule(rule: ApprovalRule): void;
+  /**
+   * Remove the rule with this id. An `always` default stays removed on later loads, with a storage
+   * that keeps removed defaults.
+   */
   removeRule(id: string): void;
   /** Forget the session rules. */
   clearSession(): void;

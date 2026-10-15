@@ -170,7 +170,7 @@ async function run(page, check) {
   for (const expected of [
     'Allowed by your rule · run_command with command npm test*',
     'Allowed by your rule · run_command with command git commit*',
-    "Denied by the server's rule · run_command with command git push*",
+    "Denied by the server's rule · run_command with command **git*push**",
     'You approved for this session',
   ])
     if (!decisions.includes(expected)) throw new Error(`The decisions do not list "${expected}":\n${decisions}`);

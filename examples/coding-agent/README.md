@@ -30,7 +30,7 @@ The task: `slugify('Crème brûlée')` returns `cr-me-br-l-e`, and should return
 2. It asks to run `npm test`. The approval card offers once, for this session or always, for the command's pattern (`npm test*`), and an edit of the command first. "For this session" leaves a rule.
 3. It proposes a fix across three files. In `DiffReview` you accept or reject each hunk or a whole file, comment on lines and mark files viewed. `reviewToolOutput` sends the agent each file as applied, the hunks you rejected and your comments.
 4. It quotes your comments and proposes a revision, built on the files as you applied them. The scripted agent revises whatever the comment says; a real model reads it.
-5. It runs the tests again on your session rule, commits on a default rule, and tries to push. The server's rule denies `git push*`, and the card says it was the server's rule, not yours.
+5. It runs the tests again on your session rule, commits on a default rule, and tries to push. The server's rule denies `git push`, also inside a longer command (`**git*push**`), and the card says it was the server's rule, not yours.
 
 Beside the run: the agent's status and the run meter (tokens, estimated cost, time to first token), your rules (remove one, clear the session's, or reset them; a default rule you remove stays removed), every decision with who or which rule made it, and the files the run changed. At the end, the run's changes as one review, with a button in its header that copies them as a patch.
 

