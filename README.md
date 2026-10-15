@@ -49,15 +49,21 @@ npm run dev   # http://localhost:3400
 
 [examples/nextjs-minimal](examples/nextjs-minimal), the three files below as an app on a scripted model, starts the same way: `npx create-next-app@latest my-quickstart --example https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal`.
 
-**Add it to your app.** Install the kit with the AI SDK and a model provider:
+**Add it to your app.** Install the kit:
+
+```bash
+npm i signoff-ui
+```
+
+Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in your CSS, or `import 'signoff-ui/styles.css';` with Tailwind v3 or none. [Your first sign-off](https://signoff-ui.vercel.app/docs/getting-started#your-first-sign-off) then renders an approval card and a review, with no AI SDK and no key.
+
+**Connect an agent.** Install the AI SDK and a model provider with it:
 
 ```bash
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
 ```
 
-Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in your CSS, or `import 'signoff-ui/styles.css';` with Tailwind v3 or none. Without Tailwind, the classes on your own elements below need [this CSS](https://signoff-ui.vercel.app/docs/getting-started#without-tailwind).
-
-[Your first sign-off](https://signoff-ui.vercel.app/docs/getting-started#your-first-sign-off) renders an approval card and a review with no AI SDK and no key. For an agent, add three files to a Next.js App Router app (under `src/app/` if your app has a `src` folder). They build as they are, and run with `OPENAI_API_KEY` set.
+Then add the three files below to a Next.js App Router app (under `src/app/` if your app has a `src` folder). They build as they are, and run with `OPENAI_API_KEY` set. Without Tailwind, the classes on your own elements in them need [this CSS](https://signoff-ui.vercel.app/docs/getting-started#without-tailwind).
 
 **The route.** The agent proposes edits through `review_changes`, a tool with no `execute`, so the page answers it. `toolApproval` makes AI SDK 7 stop and ask before `run_command`:
 
@@ -102,6 +108,7 @@ export async function POST(req: Request) {
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
     // Why a run or a tool call failed, sent to the page. The default hides every error as "An error occurred.".
+    // That is the provider's error text, in the browser: return a message of your own in production.
     onError: (error) => (error instanceof Error ? error.message : 'An error occurred.'),
   });
 }
@@ -213,7 +220,7 @@ export default function Page() {
 }
 ```
 
-[Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models, typed messages, [what an approval is](https://signoff-ui.vercel.app/docs/getting-started#what-an-approval-is) and the shadcn registry (`npx shadcn@latest add https://signoff-ui.vercel.app/r/diff-review.json`). The example adds a cost meter, the run's timing and a `read_file` tool, and CI drives it in Chrome through the review, the approval and the final answer.
+[Getting started](https://signoff-ui.vercel.app/docs/getting-started) walks through it, including AI SDK 6, other models, typed messages, [what an approval is](https://signoff-ui.vercel.app/docs/getting-started#what-an-approval-is) and the shadcn registry (`npx shadcn@latest add https://signoff-ui.vercel.app/r/diff-review.json`). [examples/nextjs-minimal](examples/nextjs-minimal) adds a cost meter, the run's timing and a `read_file` tool, and CI drives it in Chrome through the review, the approval and the final answer.
 
 ## Works inside assistant-ui, AI Elements or your own chat
 
@@ -223,7 +230,7 @@ The components take AI SDK message parts and plain props, not a runtime, and `st
 - **AI Elements:** keep its conversation, messages and prompt input, and render `ToolApprovalCard` or `DiffReview` for those tool parts in place of `Tool` and `Confirmation`.
 - **assistant-ui:** `signoffTools()` from `signoff-ui/assistant-ui` goes in `MessagePrimitive.Parts`' `components.tools`: a `DiffReview` for the calls that propose files, its review sent back as the call's result, and the approval card, with your approval rules, for calls at an approval gate. [examples/assistant-ui](examples/assistant-ui) runs it with no API key. It needs `@assistant-ui/react` 0.15 or later, an optional peer dependency that npm checks whenever assistant-ui is installed: on an older version, upgrade it, or install with `npm i signoff-ui --legacy-peer-deps` if you use only the other components.
 - **AG-UI agents** (LangGraph, CrewAI, Mastra and others): `useAgUiAgent` from `signoff-ui/ag-ui` turns the run into the same message parts, with interrupts as approval cards.
-- **Agent Client Protocol:** `signoff-ui/acp` folds a prompt turn's session updates and permission requests into the same message parts, and each edit's diff into `DiffReview` files. The approval card offers Always only when the agent sent a single `allow_always` option: a kind the agent sent several options of gets no button (Deny aside), and answering with one cancels the request rather than pick a grant for the person.
+- **Agent Client Protocol:** `signoff-ui/acp` folds a prompt turn's session updates and permission requests into the same message parts, and each edit's diff into `DiffReview` files. The approval card offers Always only when the agent sent a single `allow_always` option: when the agent sends several options of one kind, that kind gets no button (Deny excepted), and answering with it cancels the request rather than picking a grant for the person.
 
 [Inside your chat UI](https://signoff-ui.vercel.app/docs/chat-ui) has the code for each.
 
@@ -252,7 +259,7 @@ signoff-ui does one part of an agent product in depth: the review and approval s
 
 - **assistant-ui** has a chat runtime and thread, adapters for the AI SDK, LangGraph, AG-UI and more, and an Elements collection far wider than this kit.
 - **AI Elements** covers the most of the message surface in shadcn style (conversation, prompt input, artifacts, a `Context` usage indicator and more), maintained by Vercel. Its components are written against AI SDK 6.
-- **@pierre/diffs** renders diffs with Shiki's highlighting, comment annotations, virtualization and a helper to accept or reject a hunk, and leaves the review to you. Its `MultiFileDiff` (1.5.2) is 139 kB gzipped before it loads a Shiki theme or grammar; all of `DiffReview` is 41.5 kB.
+- **@pierre/diffs** renders diffs with Shiki's highlighting, comment annotations, virtualization and a helper to accept or reject a hunk, and leaves the review to you. Its `MultiFileDiff` (1.5.2) is 139 kB gzipped before it loads a Shiki theme or grammar; `DiffReview` is 41.5 kB up front, plus a 6.6 kB worker it starts for large files.
 
 Where signoff-ui goes further: review from file contents across several files, with the patched files, the rejected hunks and line comments as the result; approvals once, for the session or always, by tool and argument pattern, with the arguments editable first and the same rules for AI SDK 7's `toolApproval`; approvals that tell a person's decision from a policy's; tool durations that leave out time spent waiting for a person; and a stylesheet for Tailwind v3 or no Tailwind. Use either chat kit for the chat, and these components for the sign-off. [The full comparison](https://signoff-ui.vercel.app/docs/comparison).
 

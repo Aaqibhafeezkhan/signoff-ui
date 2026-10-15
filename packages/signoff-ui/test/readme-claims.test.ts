@@ -36,14 +36,40 @@ const file = (path: string) =>
     quickstart,
   )?.[1] ?? '';
 
-/** The id the docs site gives a heading (lib/docs.ts). */
-const headingId = (text: string) =>
-  text
+/**
+ * The id the docs site gives a heading: lib/docs.ts's slugify of its plainText, copied rather than
+ * imported, so this test doesn't load the playground's component and API modules lib/docs.ts uses.
+ */
+const headingId = (heading: string) =>
+  heading
+    // plainText: code, links and emphasis as their text.
     .replace(/`([^`]*)`/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|\*|_)(.*?)\1/g, '$2')
+    .trim()
+    // slugify
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .trim()
     .replace(/\s+/g, '-');
+
+/** The `##` and `###` headings' ids of a Markdown file, outside code blocks (lib/docs.ts's getHeadings). */
+function headingIds(path: string) {
+  let fenced = false;
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => {
+      if (line.startsWith('```')) fenced = !fenced;
+      return !fenced && /^#{2,3} /.test(line);
+    })
+    .map((line) => headingId(line.replace(/^#+ /, '')));
+}
+
+/*
+ * The sections every component page has around its own Markdown (component-page.tsx's
+ * componentHeadings). Its API entries and Theming are left out: a link to one needs adding here.
+ */
+const componentPageIds = ['example', 'installation', 'usage', 'how-it-works', 'api-reference', 'accessibility'];
 
 describe('the pitch', () => {
   const lead = readme.split('\n')[2] ?? '';
@@ -98,8 +124,9 @@ describe('package.json', () => {
   });
 
   it('says which Node versions it runs on', () => {
-    // ESM only: 20.19 is the first Node 20 that loads an ES module from require() without a flag.
-    expect(pkg.engines).toEqual({ node: '>=20.19' });
+    // ESM only: the Node versions that load an ES module from require() without a flag. Node 22
+    // unflagged it in 22.12 and backported it to 20.19; 22.0 to 22.11 throw ERR_REQUIRE_ESM.
+    expect(pkg.engines).toEqual({ node: '^20.19.0 || >=22.12.0' });
   });
 });
 
@@ -127,6 +154,15 @@ describe('the quickstart', () => {
     expect(quickstartApp).toBeGreaterThan(0);
     for (const needsKey of ['OPENAI_API_KEY', '@ai-sdk/openai'])
       expect(quickstart.indexOf(needsKey), needsKey).toBeGreaterThan(quickstartApp);
+  });
+
+  it('installs only the kit for a first sign-off, and the AI SDK after it, for an agent', () => {
+    const kitOnly = quickstart.indexOf('```bash\nnpm i signoff-ui\n```');
+    const firstSignOff = quickstart.indexOf('/docs/getting-started#your-first-sign-off');
+    const aiSdk = quickstart.indexOf('```bash\nnpm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod\n```');
+    expect(kitOnly).toBeGreaterThan(0);
+    expect(firstSignOff).toBeGreaterThan(kitOnly);
+    expect(aiSdk).toBeGreaterThan(firstSignOff);
   });
 
   it('shows why a run failed: the client renders useChat’s error, and the route sends its message', () => {
@@ -176,28 +212,33 @@ describe('the README’s claims', () => {
   it('compares the review with @pierre/diffs, the renderer many coding-agent UIs use', () => {
     const bullet = /^- \*\*@pierre\/diffs\*\* .+$/m.exec(section('How it compares'))?.[0] ?? '';
     expect(bullet).not.toBe('');
-    // DiffReview's size, as the docs' size table has it (`pnpm size` keeps that table measured).
+    // DiffReview's size up front, as the docs' size table has it (`pnpm size` keeps that table
+    // measured). The table leaves out the diff worker DiffReview starts for a large file, so the
+    // bullet adds it, as Pierre's figure leaves out what it loads later: dist/lib/diff-worker.js
+    // bundled as its own entry with scripts/size.mjs's settings is 6.6 kB gzipped (6,795 bytes).
     const limits = read('examples/playground/content/docs/limits.md');
     const size = /^\| `DiffReview` +\| +([\d.]+ kB) \|$/m.exec(limits)?.[1];
     expect(size).toBeDefined();
-    expect(bullet).toContain(`all of \`DiffReview\` is ${size ?? ''}.`);
+    expect(bullet).toContain(
+      `\`DiffReview\` is ${size ?? ''} up front, plus a 6.6 kB worker it starts for large files.`,
+    );
+    expect(bullet).not.toContain('all of `DiffReview`');
   });
 
   it('links only to docs pages and headings that exist', () => {
-    const links = [...readme.matchAll(/https:\/\/signoff-ui\.vercel\.app\/docs\/([\w-]+)(?:#([\w-]+))?/g)];
+    const links = [...readme.matchAll(/https:\/\/signoff-ui\.vercel\.app\/docs\/([\w/-]+)(?:#([\w-]+))?/g)];
     expect(links.length).toBeGreaterThan(10);
     for (const [, page = '', anchor] of links) {
-      const path = join(root, 'examples/playground/content/docs', `${page}.md`);
+      // /docs/<page> is content/docs/<page>.md, and /docs/components/<slug> content/components/<slug>.md.
+      const component = /^components\/([\w-]+)$/.exec(page)?.[1];
+      const path = join(
+        root,
+        'examples/playground/content',
+        component ? `components/${component}.md` : `docs/${page}.md`,
+      );
       expect(existsSync(path), page).toBe(true);
       if (!anchor) continue;
-      let fenced = false;
-      const ids = readFileSync(path, 'utf8')
-        .split('\n')
-        .filter((line) => {
-          if (line.startsWith('```')) fenced = !fenced;
-          return !fenced && /^#{2,3} /.test(line);
-        })
-        .map((line) => headingId(line.replace(/^#+ /, '')));
+      const ids = [...headingIds(path), ...(component ? componentPageIds : [])];
       expect(ids, `${page}#${anchor}`).toContain(anchor);
     }
   });

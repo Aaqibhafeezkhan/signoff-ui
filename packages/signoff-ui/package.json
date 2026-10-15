@@ -42,7 +42,7 @@
     "accessibility"
   ],
   "engines": {
-    "node": ">=20.19"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "type": "module",
   "sideEffects": [
