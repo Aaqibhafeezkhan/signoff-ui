@@ -20,7 +20,6 @@ import {
 import { AgentMessage } from '../src/agent-message';
 import { ApprovalCard, ToolApprovalCard } from '../src/approval-card';
 import { deriveAgentState, type ToolPart } from '../src/lib/ai';
-import type { SignoffLabelsInput } from '../src/lib/labels';
 
 /*
  * signoff-ui/acp: an Agent Client Protocol prompt turn (`session/update` notifications and
@@ -224,25 +223,36 @@ describe('permission requests', () => {
     });
   });
 
-  /** The card as the ACP docs render it, answering the agent with `toAcpPermissionResponse`. */
+  /**
+   * The card as the ACP docs render it, answering the agent with `toAcpPermissionResponse`. Like the
+   * use-approval-policy docs, it names a single allow_always option in the description and the
+   * resolved line, and keeps the button's short label: a long name on a button that doesn't wrap
+   * pushes Approve and Deny off a phone-width card.
+   */
   function DocsCard({
     permission,
     onAnswer,
-    labels,
+    resolved = false,
   }: {
     permission: AcpPermission;
     onAnswer: (r: unknown) => void;
-    labels?: SignoffLabelsInput;
+    resolved?: boolean;
   }) {
+    const decisions = decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session');
+    const always = decisions.includes('allow-always')
+      ? permission.options.find((o) => o.kind === 'allow_always')?.name
+      : undefined;
     return (
       <ApprovalCard
         toolName="ExitPlanMode"
         title="Ready to code?"
         input={{ plan: '1. Fix the rounding.' }}
         ruleScope={false}
-        decisions={decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session')}
+        decisions={decisions}
+        description={always ? `Always: ${always}` : undefined}
+        labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
         onDecide={(choice) => onAnswer(toAcpPermissionResponse(choice.decision, permission.options))}
-        labels={labels}
+        {...(resolved ? { status: 'approved' as const, decision: 'allow-always' as const } : {})}
       />
     );
   }
@@ -264,6 +274,8 @@ describe('permission requests', () => {
     const user = userEvent.setup();
     render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
     expect(screen.queryByRole('button', { name: /Always/ })).not.toBeInTheDocument();
+    // Nor a description naming one of the three.
+    expect(screen.queryByText(/^Always:/)).not.toBeInTheDocument();
     screen.getByRole('group', { name: 'Ready to code?' }).focus();
     await user.keyboard('a');
     expect(onAnswer).not.toHaveBeenCalled();
@@ -281,24 +293,19 @@ describe('permission requests', () => {
     ];
     const onAnswer = vi.fn();
     const user = userEvent.setup();
-    const { unmount } = render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
-    await user.click(screen.getByRole('button', { name: /Always/ }));
+    const { rerender } = render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    // The button keeps its short label; the card's description says what it grants.
+    expect(screen.getByRole('group', { name: 'Ready to code?' })).toHaveAccessibleDescription(
+      /^Always: Yes, allow all edits during this session/,
+    );
+    await user.click(screen.getByRole('button', { name: 'Always' }));
     expect(onAnswer).toHaveBeenCalledExactlyOnceWith({
       outcome: { outcome: 'selected', optionId: 'allow-with-updates' },
     });
-    unmount();
-    // Labelled with the option's name, as the use-approval-policy docs suggest, the button says what it grants.
-    const always = options.find((o) => o.kind === 'allow_always')!.name;
-    render(
-      <DocsCard
-        permission={{ options }}
-        onAnswer={onAnswer}
-        labels={{ approvalCard: { always, resolved: { 'allow-always': always } } }}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: /^Always/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Yes, allow all edits during this session/ }));
-    expect(onAnswer).toHaveBeenLastCalledWith({ outcome: { outcome: 'selected', optionId: 'allow-with-updates' } });
+    // Once decided, the card's line names the option, and so does the announcement.
+    rerender(<DocsCard permission={{ options }} onAnswer={onAnswer} resolved />);
+    expect(screen.getByText('Yes, allow all edits during this session', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Yes, allow all edits during this session');
   });
 
   it('keeps Deny when the agent sends several reject_once options: codex-acp’s Denied and Abort', async () => {
