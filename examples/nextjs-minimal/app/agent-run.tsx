@@ -23,7 +23,7 @@ import {
 type Message = UIMessage<{ usage?: LanguageModelUsage }>;
 
 export function AgentRun() {
-  const { messages, status, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
+  const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
     // Continue the run once the review is in and every approval has an answer.
     sendAutomaticallyWhen: (chat) =>
       lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
@@ -39,6 +39,8 @@ export function AgentRun() {
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
     <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
       <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
+      {/* Why the run failed, such as a missing API key: the route's onError sends the message. */}
+      {error && <p role="alert">{error.message}</p>}
       {last && (
         <AgentMessage
           message={last}
