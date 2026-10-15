@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  acpToolName,
   answerAcpPermission,
   createAcpTurn,
   decisionsFromAcpOptions,
@@ -11,12 +13,13 @@ import {
   toAcpDiffs,
   toAcpMessage,
   toAcpPermissionResponse,
+  type AcpPermission,
   type AcpPermissionOption,
   type AcpSessionUpdate,
   type AcpTurn,
 } from '../src/acp';
 import { AgentMessage } from '../src/agent-message';
-import { ToolApprovalCard } from '../src/approval-card';
+import { ApprovalCard, ToolApprovalCard } from '../src/approval-card';
 import { deriveAgentState, type ToolPart } from '../src/lib/ai';
 
 /*
@@ -219,6 +222,116 @@ describe('permission requests', () => {
     expect(toAcpPermissionResponse('allow-always', turn.permissions['edit-1']!.options)).toEqual({
       outcome: { outcome: 'selected', optionId: 'always' },
     });
+  });
+
+  /**
+   * The card as the ACP docs render it, for the agent's tool call, answering the agent with
+   * `toAcpPermissionResponse`. Like the use-approval-policy docs, it names a single allow_always
+   * option in the description and the resolved line, and keeps the button's short label: a long name
+   * on a button that doesn't wrap pushes Approve and Deny off a phone-width card.
+   */
+  function DocsCard({
+    call,
+    permission,
+    onAnswer,
+    resolved = false,
+  }: {
+    call: { kind: string; title: string; rawInput: unknown };
+    permission: AcpPermission;
+    onAnswer: (r: unknown) => void;
+    resolved?: boolean;
+  }) {
+    const decisions = decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session');
+    const always = decisions.includes('allow-always')
+      ? permission.options.find((o) => o.kind === 'allow_always')?.name
+      : undefined;
+    return (
+      <ApprovalCard
+        toolName={acpToolName(call)}
+        title={call.title}
+        input={call.rawInput}
+        ruleScope={false}
+        decisions={decisions}
+        description={always ? `Always: ${always}` : undefined}
+        labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
+        onDecide={(choice) => onAnswer(toAcpPermissionResponse(choice.decision, permission.options))}
+        {...(resolved ? { status: 'approved' as const, decision: 'allow-always' as const } : {})}
+      />
+    );
+  }
+
+  // The tool calls these agents send: claude-agent-acp's ExitPlanMode (its permission title) and Edit,
+  // and a codex-acp command, whose title is the command.
+  const exitPlanCall = { kind: 'switch_mode', title: 'Ready to code?', rawInput: { plan: '1. Fix the rounding.' } };
+  const editCall = {
+    kind: 'edit',
+    title: 'Edit src/money.ts',
+    rawInput: { file_path: '/repo/src/money.ts', old_string: 'Math.round(x)', new_string: 'Math.round(x * 100) / 100' },
+  };
+  const execCall = { kind: 'execute', title: 'pnpm test', rawInput: { command: ['pnpm', 'test'] } };
+
+  it('offers no Always that would pick one of several grants: Claude Code’s ExitPlanMode', async () => {
+    // @agentclientprotocol/claude-agent-acp 0.90.0, with a plan and auto and bypass modes on: three allow_always.
+    const options: AcpPermissionOption[] = [
+      { optionId: 'exit-plan-default', name: 'Yes, manually approve edits', kind: 'allow_once' },
+      {
+        optionId: 'exit-plan-clear-auto',
+        name: 'Yes, clear context (26% used) and use auto mode',
+        kind: 'allow_always',
+      },
+      { optionId: 'exit-plan-auto', name: 'Yes, and use auto mode', kind: 'allow_always' },
+      { optionId: 'exit-plan-bypass', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+      { optionId: 'reject', name: 'No, keep planning', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    render(<DocsCard call={exitPlanCall} permission={{ options }} onAnswer={onAnswer} />);
+    expect(screen.queryByRole('button', { name: /Always/ })).not.toBeInTheDocument();
+    // Nor a description naming one of the three.
+    expect(screen.queryByText(/^Always:/)).not.toBeInTheDocument();
+    screen.getByRole('group', { name: 'Ready to code?' }).focus();
+    await user.keyboard('a');
+    expect(onAnswer).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /Approve/ }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({
+      outcome: { outcome: 'selected', optionId: 'exit-plan-default' },
+    });
+  });
+
+  it('keeps Always when the agent sends one allow_always option: Claude Code’s Edit', async () => {
+    const options: AcpPermissionOption[] = [
+      { optionId: 'allow-once', name: 'Yes', kind: 'allow_once' },
+      { optionId: 'allow-with-updates', name: 'Yes, allow all edits during this session', kind: 'allow_always' },
+      { optionId: 'reject', name: 'No', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(<DocsCard call={editCall} permission={{ options }} onAnswer={onAnswer} />);
+    // The button keeps its short label; the card's description says what it grants.
+    expect(screen.getByRole('group', { name: 'Edit src/money.ts' })).toHaveAccessibleDescription(
+      /^Always: Yes, allow all edits during this session/,
+    );
+    await user.click(screen.getByRole('button', { name: 'Always' }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({
+      outcome: { outcome: 'selected', optionId: 'allow-with-updates' },
+    });
+    // Once decided, the card's line names the option, and so does the announcement.
+    rerender(<DocsCard call={editCall} permission={{ options }} onAnswer={onAnswer} resolved />);
+    expect(screen.getByText('Yes, allow all edits during this session', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Yes, allow all edits during this session');
+  });
+
+  it('keeps Deny when the agent sends several reject_once options: codex-acp’s Denied and Abort', async () => {
+    const options: AcpPermissionOption[] = [
+      { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+      { optionId: 'denied', name: 'No, continue without running it', kind: 'reject_once' },
+      { optionId: 'abort', name: 'No, and tell Codex what to do differently', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    render(<DocsCard call={execCall} permission={{ options }} onAnswer={onAnswer} />);
+    await user.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ outcome: { outcome: 'selected', optionId: 'denied' } });
   });
 });
 

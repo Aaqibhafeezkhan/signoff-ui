@@ -45,9 +45,28 @@ streamText({
 
 With `useAgUiAgent`, an approval's resume payload is `{ approved, reason?, input? }`. For the Agent Client Protocol's `session/request_permission`:
 
-- `decisionsFromAcpOptions(request.options)` gives the choices to offer.
-- `toAcpPermissionResponse(decision, request.options)` answers with the option of the same kind (`allow_once`, `allow_always`, `reject_once`, `reject_always`).
+- `decisionsFromAcpOptions(request.options)` gives the choices to offer: one per kind the agent sent exactly one option of (`allow_once`, `allow_always`, `reject_once`, `reject_always`), and Deny whenever it sent a `reject_once`.
+- `toAcpPermissionResponse(decision, request.options)` answers with the agent's one option of the same kind, and cancels the request when there is none or several.
 - `fromAcpPermissionRequest(request)` turns the request into the card's.
+
+A kind the agent sent several options of is not offered, and `toAcpPermissionResponse` cancels rather than pick one: they grant different things. Claude Code's ExitPlanMode sends up to three `allow_always` options, one of them "Yes, clear context (26% used) and use auto mode", so its card offers Approve and Deny, with no Always. Deny is the exception: a "no" grants nothing, so with several `reject_once` options it answers the agent's first one. When `decisionsFromAcpOptions` returns no decision, as for an agent that sent only several `allow_always` options, no card can answer it: reply `{ outcome: { outcome: 'cancelled' } }` right away instead of rendering one.
+
+When the agent sends one `allow_always` option, Always answers it, whatever it grants: "Yes, and use auto mode" on Claude Code's ExitPlanMode with no plan and bypass mode off, or "Yes, allow all edits during this session" on an edit. To say what it grants, put the option's `name` where text wraps: in the card's description, and in the line the card shows once decided. Leave the button's label short. Card buttons don't wrap, and a name such as codex-acp's "Yes, and don't ask again for commands that start with …" on Always pushes Approve and Deny off a phone-width card.
+
+```tsx
+const decisions = decisionsFromAcpOptions(request.options);
+// Always is offered only when the agent sent one allow_always option.
+const always = decisions.includes('allow-always')
+  ? request.options.find((o) => o.kind === 'allow_always')?.name
+  : undefined;
+
+<ApprovalCard
+  decisions={decisions}
+  description={always ? `Always: ${always}` : undefined}
+  labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
+  // …
+/>;
+```
 
 ACP has no session option, so `allow-session` answers `allow_once` and leaves the session rule on the client. These helpers are types and functions only, with no ACP package to install.
 

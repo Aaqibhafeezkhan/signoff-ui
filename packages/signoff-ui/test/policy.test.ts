@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  APPROVAL_DECISIONS,
   decisionEffect,
   decisionsFromAcpOptions,
   describeRule,
@@ -448,6 +449,80 @@ describe('Agent Client Protocol mappings', () => {
     });
     expect(toAcpPermissionResponse('deny-once', options)).toEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
     expect(toAcpPermissionResponse('deny-always', options)).toEqual({ outcome: { outcome: 'cancelled' } });
+  });
+
+  /*
+   * What real agents send: several options of one kind, each a different grant (SU2-08).
+   * @agentclientprotocol/claude-agent-acp 0.90.0, ExitPlanMode with a plan and auto and bypass modes on
+   * (permissions/options/tools.js, sorted by options.js), and Gemini CLI on an MCP tool with
+   * permanent approval on (packages/cli/src/acp/acpUtils.ts).
+   */
+  const exitPlanMode: AcpPermissionOption[] = [
+    { optionId: 'exit-plan-default', name: 'Yes, manually approve edits', kind: 'allow_once' },
+    { optionId: 'exit-plan-clear-auto', name: 'Yes, clear context (26% used) and use auto mode', kind: 'allow_always' },
+    { optionId: 'exit-plan-auto', name: 'Yes, and use auto mode', kind: 'allow_always' },
+    { optionId: 'exit-plan-bypass', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+    { optionId: 'reject', name: 'No, keep planning', kind: 'reject_once' },
+  ];
+  const geminiMcp: AcpPermissionOption[] = [
+    { optionId: 'proceed_always_server', name: 'Allow all server tools for this session', kind: 'allow_always' },
+    { optionId: 'proceed_always_tool', name: 'Allow tool for this session', kind: 'allow_always' },
+    { optionId: 'proceed_always_and_save', name: 'Allow tool for all future sessions', kind: 'allow_always' },
+    { optionId: 'proceed_once', name: 'Allow', kind: 'allow_once' },
+    { optionId: 'cancel', name: 'Reject', kind: 'reject_once' },
+  ];
+  const twoOnce: AcpPermissionOption[] = [
+    { optionId: 'yes-file', name: 'Allow this file', kind: 'allow_once' },
+    { optionId: 'yes-dir', name: 'Allow this directory', kind: 'allow_once' },
+    { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+    { optionId: 'never', name: 'Never', kind: 'reject_always' },
+    { optionId: 'never-all', name: 'Never, for any tool', kind: 'reject_always' },
+  ];
+  // codex-acp (src/thread.rs, build_exec_permission_options) when Codex offers both Denied and Abort: two reject_once.
+  const codexDeniedAbort: AcpPermissionOption[] = [
+    { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+    { optionId: 'denied', name: 'No, continue without running it', kind: 'reject_once' },
+    { optionId: 'abort', name: 'No, and tell Codex what to do differently', kind: 'reject_once' },
+  ];
+  const cancelled = { outcome: { outcome: 'cancelled' } };
+  const selected = (optionId: string) => ({ outcome: { outcome: 'selected', optionId } });
+
+  it('offers a kind only when one option has it, so no button picks among the agent’s grants', () => {
+    expect(decisionsFromAcpOptions(exitPlanMode)).toEqual(['allow-once', 'allow-session', 'deny-once']);
+    expect(decisionsFromAcpOptions(geminiMcp)).toEqual(['allow-once', 'allow-session', 'deny-once']);
+    // Two "once" options: no Approve, and no session, which answers with the "once" option.
+    expect(decisionsFromAcpOptions(twoOnce)).toEqual(['deny-once']);
+  });
+
+  it('answers with the one option of a kind, and cancels when the agent sent several', () => {
+    // "Always" used to answer the first allow_always option: clear context and auto mode, a whole server.
+    expect(toAcpPermissionResponse('allow-always', exitPlanMode)).toEqual(cancelled);
+    expect(toAcpPermissionResponse('allow-always', geminiMcp)).toEqual(cancelled);
+    expect(toAcpPermissionResponse('allow-once', exitPlanMode)).toEqual(selected('exit-plan-default'));
+    expect(toAcpPermissionResponse('allow-session', exitPlanMode)).toEqual(selected('exit-plan-default'));
+    expect(toAcpPermissionResponse('deny-once', exitPlanMode)).toEqual(selected('reject'));
+    expect(toAcpPermissionResponse('allow-once', geminiMcp)).toEqual(selected('proceed_once'));
+    expect(toAcpPermissionResponse('allow-once', twoOnce)).toEqual(cancelled);
+    expect(toAcpPermissionResponse('allow-session', twoOnce)).toEqual(cancelled);
+    expect(toAcpPermissionResponse('deny-always', twoOnce)).toEqual(cancelled);
+    expect(toAcpPermissionResponse('deny-once', twoOnce)).toEqual(selected('no'));
+  });
+
+  it('keeps Deny when the agent sent several reject_once options, since a denial grants nothing', () => {
+    expect(decisionsFromAcpOptions(codexDeniedAbort)).toEqual(['allow-once', 'allow-session', 'deny-once']);
+    expect(toAcpPermissionResponse('deny-once', codexDeniedAbort)).toEqual(selected('denied'));
+    expect(toAcpPermissionResponse('allow-once', codexDeniedAbort)).toEqual(selected('approved'));
+    // A lasting "no" is still not picked for the person.
+    expect(decisionsFromAcpOptions(twoOnce)).not.toContain('deny-always');
+  });
+
+  it('offers nothing, and every answer cancels, when the agent sent only several allow_always options', () => {
+    // No card can answer this request: the docs say to reply "cancelled" right away instead of rendering one.
+    const onlyAlways = geminiMcp.filter((o) => o.kind === 'allow_always');
+    expect(decisionsFromAcpOptions(onlyAlways)).toEqual([]);
+    for (const decision of APPROVAL_DECISIONS) {
+      expect(toAcpPermissionResponse(decision, onlyAlways)).toEqual(cancelled);
+    }
   });
 
   it('reads a response back as a decision', () => {
