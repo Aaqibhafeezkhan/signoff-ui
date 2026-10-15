@@ -6,10 +6,11 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * What the README tells someone deciding whether to use the kit, against what ships: one pitch on
- * the README, npm and the site's hero, a start that needs no API key before one that does, a
- * quickstart that says why a run failed and what an approval protects, and comparisons and protocol
- * notes that match the code. npm publishes this README (scripts/npm-readme.mjs), so it ships with
- * each release. readme.test.ts typechecks the quickstart's files.
+ * the README, npm and the site's hero and meta description, a start that needs no API key before
+ * one that does, a quickstart that says why a run failed and what an approval protects, and
+ * comparisons and protocol notes that match the code, and the docs pages that say them too. npm
+ * publishes this README (scripts/npm-readme.mjs), so it ships with each release. readme.test.ts
+ * typechecks the quickstart's files.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -98,6 +99,18 @@ describe('the pitch', () => {
 
   it("fits npm's 255 characters, so the registry shows it whole", () => {
     expect(pkg.description.length).toBeLessThanOrEqual(255);
+  });
+
+  it("is the home page's meta description, short of one clause so a search result shows it whole", () => {
+    // The page's title is the tagline, so the description is what follows it, without "that return
+    // a result your agent acts on", which would take it past the 160 characters a result shows.
+    const page = read('examples/playground/app/(home)/page.tsx');
+    const description = /pageMetadata\(\{[\s\S]*?description:\s*'([^']*)'/.exec(page)?.[1] ?? '';
+    const pitch = lead.slice(lead.indexOf(': ') + 2);
+    expect(description).toBe(pitch.replace(' that return a result your agent acts on', ''));
+    expect(description.length).toBeLessThanOrEqual(160);
+    for (const name of ['AI SDK 6 & 7', 'AG-UI', 'ACP', 'assistant-ui', 'AI Elements'])
+      expect(description).toContain(name);
   });
 });
 
@@ -223,6 +236,23 @@ describe('the README’s claims', () => {
       `\`DiffReview\` is ${size ?? ''} up front, plus a 6.6 kB worker it starts for large files.`,
     );
     expect(bullet).not.toContain('all of `DiffReview`');
+  });
+
+  it('compares with @pierre/diffs on the docs’ comparison page too, in the same words', () => {
+    const readmeBullet = /^- \*\*@pierre\/diffs\*\* .+$/m.exec(section('How it compares'))?.[0];
+    const comparison = read('examples/playground/content/docs/comparison.md');
+    const better = comparison.slice(comparison.indexOf('\n## What they do better\n'), comparison.indexOf('\n## Where'));
+    expect(readmeBullet).toBeDefined();
+    expect(better.split('\n')).toContain(readmeBullet);
+    // The intro names it with the other libraries, as the README's does.
+    expect(comparison.split('\n\n')[0]).toContain('[@pierre/diffs](https://diffs.com) renders diffs');
+  });
+
+  it('says on the ACP docs page, as here, that the card offers Always only for a single allow_always option', () => {
+    const intro = read('examples/playground/content/docs/acp.md').split('\n\n')[0] ?? '';
+    expect(intro).not.toContain('with the options the agent offered');
+    expect(intro).toContain('Always only when the agent sent a single `allow_always` option');
+    expect(intro).toContain('cancel');
   });
 
   it('links only to docs pages and headings that exist', () => {

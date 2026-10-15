@@ -1,9 +1,10 @@
-signoff-ui does one part of an agent product: the step where a person reviews what the agent changed and decides what it may do. [assistant-ui](https://github.com/assistant-ui/assistant-ui) and [AI Elements](https://github.com/vercel/ai-elements) cover the whole chat, and you may well want one of them for it. They compose: render the thread with either, and these components for the review and the approvals ([Inside your chat UI](/docs/chat-ui) shows how).
+signoff-ui does one part of an agent product: the step where a person reviews what the agent changed and decides what it may do. [assistant-ui](https://github.com/assistant-ui/assistant-ui) and [AI Elements](https://github.com/vercel/ai-elements) cover the whole chat, and you may well want one of them for it; [@pierre/diffs](https://diffs.com) renders diffs. They compose: render the thread with either chat kit, and these components for the review and the approvals ([Inside your chat UI](/docs/chat-ui) shows how).
 
 ## What they do better
 
 - **assistant-ui** is a chat runtime plus composable primitives, with adapters for the AI SDK, LangGraph, AG-UI and others, on React 18 or 19. Its Elements collection (since August 2026) is far wider than this kit, with agent pieces close to it: an approval card, a reviewable diff, a trace waterfall, a tool timeline, a cost meter, agent status and more. It ships several releases a month.
 - **AI Elements** is Vercel's shadcn registry for AI SDK apps, with the widest coverage of the message surface: conversation, message, prompt input, reasoning, sources, a per-call `Tool` card, a `Confirmation` for tool approvals, a `Context` usage indicator and more. If you want the whole chat in shadcn style, start there. It targets React 19 and Tailwind v4, and its components are written against AI SDK 6 (`ai@^6.0.105`).
+- **@pierre/diffs** renders diffs with Shiki's highlighting, comment annotations, virtualization and a helper to accept or reject a hunk, and leaves the review to you. Its `MultiFileDiff` (1.5.2) is 139 kB gzipped before it loads a Shiki theme or grammar; `DiffReview` is 41.5 kB up front, plus a 6.6 kB worker it starts for large files.
 
 ## Where signoff-ui differs
 
