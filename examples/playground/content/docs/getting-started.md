@@ -1,3 +1,23 @@
+## Try it without an API key
+
+The reference app is a coding agent on a scripted model: it asks before it runs a command, and nothing it writes lands until you apply it in a review. It needs no API key and no code to copy:
+
+```bash
+npx create-next-app@latest my-agent --example https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent
+cd my-agent
+npm run dev   # http://localhost:3400
+```
+
+The walkthrough on this page, [Render a run](#render-a-run), starts the same way, against a scripted model too:
+
+```bash
+npx create-next-app@latest my-quickstart --example https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal
+cd my-quickstart
+npm run dev   # http://localhost:3200
+```
+
+To add the components to an app of your own, read on: install them, add the styles, then render [your first sign-off](#your-first-sign-off), with no AI SDK and no key.
+
 ## Requirements
 
 - **React** 18.2 or later, or 19 (`react@^18.2.0 || ^19.0.0`). CI runs the test suite on both.
@@ -39,9 +59,15 @@ To add them by name instead (`npx shadcn@latest add @signoff-ui/agent-message`),
 }
 ```
 
-Component and hook files start with `'use client'`, so they work when rendered from Server Components; the helpers in `lib/` (`diff.ts`, `usage.ts`, `ai.ts`, `format.ts`) do not, so the server can call them. The files pass a new Next.js app's ESLint config with no warnings, which CI checks.
+Component and hook files start with `'use client'`, so they work when rendered from Server Components; the helpers in `lib/` (`diff.ts`, `usage.ts`, `ai.ts`, `format.ts`) do not, so the server can call them.
 
 **From a coding agent.** The [shadcn MCP server](https://ui.shadcn.com/docs/mcp) lets Claude Code, Cursor, VS Code or Codex browse and install registry items. Set it up with `npx shadcn@latest mcp init --client claude` (or `cursor`, `vscode`), make sure `components.json` lists the registry as above, and ask for it by name, for example "add the signoff-ui diff review to the chat page". Agents can also read these docs from [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt).
+
+### Linting the copied files
+
+The files `shadcn add` copies are code in your app, so your linters read them. They pass a new Next.js app's ESLint config (`core-web-vitals` and `typescript`) with no warnings, which CI checks on every change.
+
+A design-system check is stricter: it holds code to your own components and tokens, and the kit's files use theirs, with native buttons, the `signoff-*` tokens and a few arbitrary values such as `text-[13px]`. Set `components/signoff-ui` apart, so the check reports your code and not files you'd update with `shadcn add` rather than rewrite. With [onsystem](https://onsystem.vercel.app), list the folder in `components` or turn its rules off in `overrides`, as [Code from shadcn registries](https://onsystem.vercel.app/docs/configuration#code-from-shadcn-registries) shows; `exclude` alone isn't enough there. The same goes for other registries' folders, such as AI Elements' `components/ai-elements`.
 
 ### Which one
 
@@ -85,9 +111,48 @@ import 'signoff-ui/styles.css';
 
 Light is the default. Add `class="dark"` (or `data-theme="dark"`) to `<html>` or any ancestor for the dark palette. To follow the OS setting instead, also import `signoff-ui/theme.auto.css`; `class="light"` on `<html>` still forces light.
 
+## Your first sign-off
+
+An approval card and a review, with no AI SDK, model or key: `useState` holds the decision, and the review logs what you applied. Render it from any page.
+
+```tsx title="app/first-sign-off.tsx"
+'use client';
+
+import { useState } from 'react';
+import { ApprovalCard, DiffReview, type ApprovalChoice } from 'signoff-ui';
+
+export function FirstSignOff() {
+  const [choice, setChoice] = useState<ApprovalChoice>();
+  return (
+    <>
+      <ApprovalCard
+        toolName="run_command"
+        input={{ command: 'npm test' }}
+        risk="medium"
+        // The card shows the outcome you pass back. An agent gets the choice itself:
+        // { decision, reason, input, args }.
+        status={!choice ? 'pending' : choice.decision.startsWith('allow') ? 'approved' : 'denied'}
+        decision={choice?.decision}
+        reason={choice?.reason}
+        onDecide={setChoice}
+      />
+      <DiffReview
+        files={[
+          { path: 'config.ts', oldContent: 'export const retries = 1;\n', newContent: 'export const retries = 3;\n' },
+        ]}
+        // Each file as applied, the rejected hunks and your comments: what an agent would get back.
+        onSubmit={(review) => console.log(review)}
+      />
+    </>
+  );
+}
+```
+
+With an AI SDK agent, `AgentMessage` sends the decision with `addToolApprovalResponse`, and the review goes back as the tool's output with `addToolOutput`: the walkthrough below wires both.
+
 ## Render a run
 
-A Next.js App Router app with AI SDK 7: a client component, a page and a route. The agent reads a file, proposes an edit across two files for you to review, and asks before it runs a command. [The quickstart, running](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal) is this section as an app against a scripted model, so it needs no API key, and CI runs it in Chrome.
+A Next.js App Router app with AI SDK 7: a client component, a page and a route. The agent reads a file, proposes an edit across two files for you to review, and asks before it runs a command. [The quickstart, running](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal) is this section as an app against a scripted model, so it needs no API key, and CI runs it in Chrome. [One command](#try-it-without-an-api-key) starts it.
 
 ```package-install
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
@@ -290,6 +355,54 @@ What each part is for:
 - **`toolApproval`.** The `reason` shows on the approval card, as `approval.requestReason`.
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.
 - **`onError`.** A tool that throws becomes an `output-error` part, and its `errorText` goes through `onError`. By default that hides every message behind "An error occurred.", so the timeline would show that instead of `ENOENT`. In production, pass through the errors you're happy for users to read and keep the rest generic.
+
+### When a run fails
+
+A request that fails leaves the status reading "Error" and nothing else on the page: the client renders only the last assistant message, so the text you sent isn't on screen either. On a first run, the most likely cause is a missing API key. The route then fails before it calls the model, and the server's log has `AI_LoadAPIKeyError`: "OpenAI API key is missing. Pass it using the 'apiKey' parameter or the OPENAI_API_KEY environment variable." The route's `onError` sends that message to the client, where every failure would otherwise read "An error occurred.", and `useChat` returns it as `error`. Add `error` to what the client takes from `useChat`, and render `{error && <p role="alert">{error.message}</p>}` after `<AgentStatus>`.
+
+For a chat that keeps every turn on screen, render each message, as [Inside your chat UI](/docs/chat-ui#your-own-chat) does.
+
+### What an approval is
+
+An approval is the person's answer to the agent: it keeps the agent from running what the person didn't agree to. It doesn't protect your server from whoever calls it. The route takes `messages` from the request as they come, so a caller can send an approved `run_command` the model never proposed, and the AI SDK runs it. Here the command is simulated. Before a tool has real effects:
+
+- Run it in a sandbox, with only the access a run needs.
+- Check the messages' shape with `validateUIMessages` from `ai`. It checks their shape, not where they came from.
+- Keep the rules that must hold on the server, in `toolApproval`. It decides again on every approved call, so a forged approval doesn't get past them.
+- Set `experimental_toolApprovalSecret` in `streamText` if you don't need edited arguments. The server then signs each call it asks about and refuses an approval for any other call, an edited one included ([Known limitations](/docs/limits#known-limitations)).
+
+The [coding agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent#what-an-approval-is) validates its messages and keeps a rule on the server.
+
+### Typed messages
+
+The AI SDK can type `useChat`'s messages from your tools, with `InferUITools`. Each tool's output type then comes from its `outputSchema`, and `review_changes` above has none, so the client's `addToolOutput` fails to typecheck: "Type 'DiffReviewToolOutput' is not assignable to type 'undefined'." Give it the output the page sends, and keep the tools in a module of their own, so the client can import their types without importing the route:
+
+```ts title="lib/tools.ts"
+import { tool, type InferUITools, type LanguageModelUsage, type UIDataTypes, type UIMessage } from 'ai';
+import type { DiffReviewToolOutput } from 'signoff-ui/core';
+import { z } from 'zod';
+
+export const tools = {
+  // read_file and run_command, as in the route above
+  review_changes: tool({
+    description: 'Propose edits to files. The user reviews them hunk by hunk before anything is written.',
+    inputSchema: z.object({
+      files: z.array(z.object({ path: z.string(), oldContent: z.string().optional(), newContent: z.string() })),
+    }),
+    // What the page sends back: reviewToolOutput(review).
+    outputSchema: z.custom<DiffReviewToolOutput>(),
+  }),
+};
+
+// The route's messages, and the client's useChat<Message>().
+export type Message = UIMessage<{ usage?: LanguageModelUsage }, UIDataTypes, InferUITools<typeof tools>>;
+```
+
+The route imports `tools` and `Message` from it in place of its own, and the client imports the type in place of its `Message`:
+
+```tsx
+import type { Message } from '@/lib/tools';
+```
 
 ### Without Tailwind
 
