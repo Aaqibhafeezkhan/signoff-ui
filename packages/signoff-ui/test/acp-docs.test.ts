@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { decisionsFromAcpOptions, toAcpPermissionResponse, type AcpPermissionOption } from '../src/lib/policy';
 
 /*
- * The ACP page's card is the one acp.test.tsx renders as the docs do (DocsCard): a single
- * allow_always option named in the description and the resolved line, never on the button, and no
- * reason field, since ACP's response has none. Its words on toAcpPermissionResponse are checked
- * against what the function does.
+ * The ACP page's card names a single allow_always option in its description, never on the button,
+ * and has no reason field, since ACP's response has none: acp.test.tsx renders a card the same way
+ * (DocsCard), and acp-docs-transport.test.tsx runs the page's own code. Its words on
+ * toAcpPermissionResponse are checked against what the function does.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -18,12 +18,11 @@ const card = /```tsx title="components\/acp-turn\.tsx"\n([\s\S]*?)```/.exec(page
 const response = page.split('\n\n').find((p) => p.startsWith('`toAcpPermissionResponse(decision, options)`')) ?? '';
 
 describe('the ACP page', () => {
-  it("names a single allow_always option in the card's description and resolved line, not on the button", () => {
+  it("names a single allow_always option in the card's description, not on the button", () => {
     expect(card).toContain(
       "const always = decisions.includes('allow-always')\n          ? permission.options.find((o) => o.kind === 'allow_always')?.name",
     );
     expect(card).toContain('description={always ? `Always: ${always}` : undefined}');
-    expect(card).toContain("labels={{ approvalCard: { resolved: { 'allow-always': always } } }}");
     expect(card).not.toMatch(/allowAlways\b/);
   });
 
