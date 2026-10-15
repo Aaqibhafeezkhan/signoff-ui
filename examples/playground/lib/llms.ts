@@ -39,6 +39,14 @@ function plain(markdown: string) {
       .replace(/<picture>[\s\S]*?<\/picture>\n*/g, '')
       .replace(/<p align="center">[\s\S]*?<\/p>\n*/g, '')
       .replace(/<img [^>]*>\n*/g, '')
+      // A label over a row of badges ("**Works with**"): the label, then each badge's name as a link.
+      .replace(
+        /^\*\*([^*\n]+)\*\*\n((?:\[!\[.*\n)+)/gm,
+        (_, label: string, badges: string) =>
+          `**${label}:** ${[...badges.matchAll(/\[!\[([^\]]+)\]\([^)]*\)\]\(([^)]+)\)/g)]
+            .map(([, name, href]) => `[${name}](${href})`)
+            .join(', ')}\n`,
+      )
       .replace(/^\[!\[.*\n/gm, '')
       .replace(/\]\(#([^)]+)\)/g, `](${REPO}#$1)`)
       .replace(/\]\((?!https?:|mailto:)\.?\/?([^)]+)\)/g, `](${REPO}/blob/main/$1)`)
