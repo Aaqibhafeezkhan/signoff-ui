@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 import {
   answerAcpPermission,
   createAcpTurn,
@@ -11,13 +12,15 @@ import {
   toAcpDiffs,
   toAcpMessage,
   toAcpPermissionResponse,
+  type AcpPermission,
   type AcpPermissionOption,
   type AcpSessionUpdate,
   type AcpTurn,
 } from '../src/acp';
 import { AgentMessage } from '../src/agent-message';
-import { ToolApprovalCard } from '../src/approval-card';
+import { ApprovalCard, ToolApprovalCard } from '../src/approval-card';
 import { deriveAgentState, type ToolPart } from '../src/lib/ai';
+import type { SignoffLabelsInput } from '../src/lib/labels';
 
 /*
  * signoff-ui/acp: an Agent Client Protocol prompt turn (`session/update` notifications and
@@ -219,6 +222,83 @@ describe('permission requests', () => {
     expect(toAcpPermissionResponse('allow-always', turn.permissions['edit-1']!.options)).toEqual({
       outcome: { outcome: 'selected', optionId: 'always' },
     });
+  });
+
+  /** The card as the ACP docs render it, answering the agent with `toAcpPermissionResponse`. */
+  function DocsCard({
+    permission,
+    onAnswer,
+    labels,
+  }: {
+    permission: AcpPermission;
+    onAnswer: (r: unknown) => void;
+    labels?: SignoffLabelsInput;
+  }) {
+    return (
+      <ApprovalCard
+        toolName="ExitPlanMode"
+        title="Ready to code?"
+        input={{ plan: '1. Fix the rounding.' }}
+        ruleScope={false}
+        decisions={decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session')}
+        onDecide={(choice) => onAnswer(toAcpPermissionResponse(choice.decision, permission.options))}
+        labels={labels}
+      />
+    );
+  }
+
+  it('offers no Always that would pick one of several grants: Claude Code’s ExitPlanMode', async () => {
+    // @agentclientprotocol/claude-agent-acp 0.90.0, with a plan and auto and bypass modes on: three allow_always.
+    const options: AcpPermissionOption[] = [
+      { optionId: 'exit-plan-default', name: 'Yes, manually approve edits', kind: 'allow_once' },
+      {
+        optionId: 'exit-plan-clear-auto',
+        name: 'Yes, clear context (26% used) and use auto mode',
+        kind: 'allow_always',
+      },
+      { optionId: 'exit-plan-auto', name: 'Yes, and use auto mode', kind: 'allow_always' },
+      { optionId: 'exit-plan-bypass', name: 'Yes, and bypass permissions', kind: 'allow_always' },
+      { optionId: 'reject', name: 'No, keep planning', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    expect(screen.queryByRole('button', { name: /Always/ })).not.toBeInTheDocument();
+    screen.getByRole('group', { name: 'Ready to code?' }).focus();
+    await user.keyboard('a');
+    expect(onAnswer).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /Approve/ }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({
+      outcome: { outcome: 'selected', optionId: 'exit-plan-default' },
+    });
+  });
+
+  it('keeps Always when the agent sends one allow_always option: Claude Code’s Edit', async () => {
+    const options: AcpPermissionOption[] = [
+      { optionId: 'allow-once', name: 'Yes', kind: 'allow_once' },
+      { optionId: 'allow-with-updates', name: 'Yes, allow all edits during this session', kind: 'allow_always' },
+      { optionId: 'reject', name: 'No', kind: 'reject_once' },
+    ];
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<DocsCard permission={{ options }} onAnswer={onAnswer} />);
+    await user.click(screen.getByRole('button', { name: /Always/ }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({
+      outcome: { outcome: 'selected', optionId: 'allow-with-updates' },
+    });
+    unmount();
+    // Labelled with the option's name, as the use-approval-policy docs suggest, the button says what it grants.
+    const always = options.find((o) => o.kind === 'allow_always')!.name;
+    render(
+      <DocsCard
+        permission={{ options }}
+        onAnswer={onAnswer}
+        labels={{ approvalCard: { always, resolved: { 'allow-always': always } } }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /^Always/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Yes, allow all edits during this session/ }));
+    expect(onAnswer).toHaveBeenLastCalledWith({ outcome: { outcome: 'selected', optionId: 'allow-with-updates' } });
   });
 });
 

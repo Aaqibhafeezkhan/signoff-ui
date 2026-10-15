@@ -584,26 +584,37 @@ export function fromAcpPermissionRequest(request: AcpRequestPermissionRequest): 
 }
 
 /**
- * The decisions to offer for an ACP request: one per option the agent sent, plus
- * `allow-session`, which the client keeps as a rule of its own (ACP has no session option).
+ * The option a decision answers: the agent's only option of that kind, `allow_once` for
+ * `allow-session`. None when the agent sent several, as they grant different things.
  */
-export function decisionsFromAcpOptions(options: readonly AcpPermissionOption[]): ApprovalDecision[] {
-  const offered = new Set(options.map((option) => ACP_KIND[option.kind]).filter(Boolean));
-  if (offered.has('allow-once')) offered.add('allow-session');
-  return APPROVAL_DECISIONS.filter((d) => offered.has(d));
+function acpOption(decision: ApprovalDecision, options: readonly AcpPermissionOption[]) {
+  const want = decision === 'allow-session' ? 'allow-once' : decision;
+  const matching = options.filter((o) => ACP_KIND[o.kind] === want);
+  return matching.length === 1 ? matching[0] : undefined;
 }
 
 /**
- * A decision as ACP's response: the option of the same kind. `allow-session` selects
+ * The decisions to offer for an ACP request: one per kind of option the agent sent, plus
+ * `allow-session`, which the client keeps as a rule of its own (ACP has no session option). A kind
+ * the agent sent several options of is left out, since a button can't say which one it picks:
+ * Claude Code's ExitPlanMode sends up to three `allow_always` options, one of them clearing the
+ * context and switching to auto mode, so it gets Approve and Deny but no Always.
+ */
+export function decisionsFromAcpOptions(options: readonly AcpPermissionOption[]): ApprovalDecision[] {
+  return APPROVAL_DECISIONS.filter((d) => acpOption(d, options));
+}
+
+/**
+ * A decision as ACP's response: the agent's one option of the same kind. `allow-session` selects
  * `allow_once`: the session rule stays on the client, so it never grants more than the agent's
- * "once". Without a matching option the request is cancelled, as ACP asks of a client that can't answer.
+ * "once". With no option of that kind, or several, the request is cancelled, as ACP asks of a
+ * client that can't answer: it never picks one of several grants for the person.
  */
 export function toAcpPermissionResponse(
   decision: ApprovalDecision,
   options: readonly AcpPermissionOption[],
 ): AcpRequestPermissionResponse {
-  const want = decision === 'allow-session' ? 'allow-once' : decision;
-  const option = options.find((o) => ACP_KIND[o.kind] === want);
+  const option = acpOption(decision, options);
   return option
     ? { outcome: { outcome: 'selected', optionId: option.optionId } }
     : { outcome: { outcome: 'cancelled' } };

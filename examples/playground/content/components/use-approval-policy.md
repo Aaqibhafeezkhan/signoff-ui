@@ -45,9 +45,11 @@ streamText({
 
 With `useAgUiAgent`, an approval's resume payload is `{ approved, reason?, input? }`. For the Agent Client Protocol's `session/request_permission`:
 
-- `decisionsFromAcpOptions(request.options)` gives the choices to offer.
-- `toAcpPermissionResponse(decision, request.options)` answers with the option of the same kind (`allow_once`, `allow_always`, `reject_once`, `reject_always`).
+- `decisionsFromAcpOptions(request.options)` gives the choices to offer: one per kind of option the agent sent (`allow_once`, `allow_always`, `reject_once`, `reject_always`).
+- `toAcpPermissionResponse(decision, request.options)` answers with the agent's one option of the same kind, and cancels the request when there is none.
 - `fromAcpPermissionRequest(request)` turns the request into the card's.
+
+A kind the agent sent several options of is not offered, and `toAcpPermissionResponse` cancels rather than pick one: they grant different things. Claude Code's ExitPlanMode sends up to three `allow_always` options, one of them "Yes, clear context (26% used) and use auto mode", so its card offers Approve and Deny, with no Always. When there is one, Always answers it whatever it grants, such as Claude Code's "Yes, allow all edits during this session" on an edit: pass its `name` as `labels.approvalCard.always` and `resolved['allow-always']` for the card to say so.
 
 ACP has no session option, so `allow-session` answers `allow_once` and leaves the session rule on the client. These helpers are types and functions only, with no ACP package to install.
 
