@@ -92,6 +92,12 @@ export interface ToolCallTimelineProps extends Omit<ComponentPropsWithoutRef<'di
    * then read "Stopped" and their clocks stop, instead of counting up forever.
    */
   active?: boolean;
+  /**
+   * The run ended in an error (`useChat`'s `status === 'error'`). Default `false`. With `active={false}`,
+   * approved calls whose result never came back then read "Stopped" too: the request that would
+   * have run them failed.
+   */
+  failed?: boolean;
   /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;
 }
@@ -319,6 +325,7 @@ export function ToolCallTimeline({
   renderExtra,
   label,
   active = true,
+  failed = false,
   labels,
   className,
   ...props
@@ -567,7 +574,7 @@ export function ToolCallTimeline({
         timing={timing}
         // Only a call still going reads the clock: the others keep their props, and their render.
         clock={timing?.startedAt !== undefined && timing.endedAt === undefined ? clock : undefined}
-        interrupted={!active && isInterruptibleToolPart(part)}
+        interrupted={!active && isInterruptibleToolPart(part, failed)}
         barsFrom={bars?.min}
         hydrated={hydrated}
         isLast={isLast}

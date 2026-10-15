@@ -164,13 +164,15 @@ export function getAllToolParts(parts: readonly AnyUIPart[]): ToolPart[] {
 /**
  * Calls that only the model or a tool can still finish: input still streaming, running, or partial
  * output. Once the run has ended, these were cut off. An approved call waiting for the app to send
- * the continuation (`approval-responded`) is not one: `useChat` sends it after a render.
+ * the continuation (`approval-responded`) is not one: `useChat` sends it after a render. Once that
+ * request has `failed`, it is: its result will not come.
  */
-export function isInterruptibleToolPart(part: ToolPart): boolean {
+export function isInterruptibleToolPart(part: ToolPart, failed = false): boolean {
   return (
     part.state === 'input-streaming' ||
     part.state === 'input-available' ||
-    (part.state === 'output-available' && part.preliminary === true)
+    (part.state === 'output-available' && part.preliminary === true) ||
+    (failed && part.state === 'approval-responded' && part.approval.approved === true)
   );
 }
 
@@ -319,8 +321,16 @@ export function deriveAgentState({
   if (clientWait && status !== 'submitted') return { state: 'awaiting-approval', detail: getToolPartName(clientWait) };
   if (status === 'submitted') return { state: 'thinking' };
   if (status === 'streaming') {
-    const last = parts.at(-1);
+    let last = parts.at(-1);
     if (!last || last.type === 'step-start' || last.type === 'reasoning') return { state: 'thinking' };
+    // A settled call (done, failed or denied) is not work: the model is answering it. Parallel calls
+    // settle in any order, so a call or sub-agent still running before it is.
+    if (isToolPart(last) && isSettledPhase(getToolPhase(last))) {
+      last = parts.findLast((p) =>
+        isToolPart(p) ? !isSettledPhase(getToolPhase(p)) : isSubagentPart(p) && p.data.status === 'running',
+      );
+      if (!last) return { state: 'thinking' };
+    }
     if (isToolPart(last)) return { state: 'working', detail: getToolPartName(last) };
     if (isSubagentPart(last)) {
       const call = getAllToolParts([last]).at(-1);

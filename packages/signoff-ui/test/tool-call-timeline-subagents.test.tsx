@@ -289,9 +289,10 @@ describe('deriveAgentState with sub-agents', () => {
   });
 
   it('names the sub-agent’s last call while it streams, or the sub-agent before it has one', () => {
+    // write_file has finished: the work is the researcher's, still reading a page.
     expect(deriveAgentState({ status: 'streaming', message: message(run()) })).toEqual({
       state: 'working',
-      detail: 'write_file',
+      detail: 'read_page',
     });
     expect(deriveAgentState({ status: 'streaming', message: message(run().slice(0, 2)) })).toEqual({
       state: 'working',
