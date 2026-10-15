@@ -1,8 +1,16 @@
 import kit from 'signoff-ui/package.json';
 import Link from 'next/link';
-import { GET_STARTED_URL, GITHUB_URL, INSTALL_COMMAND } from '@/lib/site';
-import { CommandLine } from './copy-button';
-import { ArrowRightIcon, GitHubIcon } from './icons';
+import { getProofFigures } from '@/lib/proof';
+import {
+  AGENT_SETUP_PROMPT,
+  GET_STARTED_URL,
+  GITHUB_URL,
+  INSTALL_COMMAND,
+  MCP_DOCS_URL,
+  REFERENCE_APP_COMMAND,
+} from '@/lib/site';
+import { CommandLine, CopyTextButton } from './copy-button';
+import { ArrowRightIcon, CheckIcon, GitHubIcon, PlayIcon } from './icons';
 
 export const primaryButton =
   'bg-cyan text-ink hover:bg-cyan-soft focus-visible:outline-fg inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-[14px] font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2';
@@ -33,7 +41,20 @@ export function CallsToAction() {
   );
 }
 
-/** What the kit is for, in one line, then how to get it. */
+/** The headline and the sub-line: 45 words together, the most a first screen should ask a reader to take in. */
+export const HEADLINE = 'Review what your agent changed. Approve what it may do.';
+export const SUB_LINE =
+  'React components for teams putting a coding agent in their own app. Review changes across files, hunk by hunk, and hand the agent what to apply. Approve tool calls with rules your route checks again.';
+
+const textLink =
+  'text-fg-soft hover:text-fg focus-visible:outline-cyan-soft inline-flex items-center gap-1.5 rounded-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2';
+const inlineLink =
+  'text-cyan-soft focus-visible:outline-cyan-soft decoration-cyan/40 hover:decoration-cyan rounded-sm underline underline-offset-[3px] focus-visible:outline-2 focus-visible:outline-offset-2';
+
+/**
+ * What the kit is for, then how to start: install and Get started; watch the scripted run below, or
+ * copy the command that makes the reference app (no API key); and, for coding agents, the docs.
+ */
 export function Hero() {
   return (
     <div>
@@ -45,18 +66,90 @@ export function Hero() {
         <span>React 18 &amp; 19</span>
       </p>
       <h1 className="text-fg-strong mt-3 text-[28px] leading-[1.12] font-semibold tracking-[-0.025em] text-balance sm:mt-4 sm:text-[38px] xl:text-[42px]">
-        Review what your agent changed. Approve what it may do.
+        {HEADLINE}
       </h1>
       <p className="text-fg-muted mt-4 max-w-[42rem] text-[15px] leading-relaxed text-pretty sm:text-[17px]">
-        React components for multi-file diff review and tool approvals that return a result your agent acts on. For{' '}
-        <span className="text-fg whitespace-nowrap">AI SDK 6 &amp; 7</span>, <span className="text-fg">AG-UI</span> and{' '}
-        <span className="text-fg">ACP</span> agents, inside{' '}
-        <span className="text-fg whitespace-nowrap">assistant-ui</span> (through its own adapter), AI Elements or your
-        own chat.
+        {SUB_LINE}
       </p>
-      <div className="mt-6 sm:mt-7">
-        <CallsToAction />
+      <div className="mt-6 flex flex-wrap items-center gap-3 sm:mt-7">
+        <CommandLine
+          command={INSTALL_COMMAND}
+          label="Copy the install command"
+          className="w-full shrink-0 sm:w-[21.5rem]"
+        />
+        <Link href={GET_STARTED_URL} className={`${primaryButton} flex-auto sm:flex-none`}>
+          Get started
+          <ArrowRightIcon className="size-4" />
+        </Link>
       </div>
+      <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2.5 text-[14px]">
+        {/* The run below starts when it's asked for (components/playground.tsx reads #run). */}
+        <a href="#run" className={textLink}>
+          <PlayIcon className="text-cyan-soft size-4" />
+          Watch a full run
+        </a>
+        <CopyTextButton
+          text={REFERENCE_APP_COMMAND}
+          label="Run the reference app, no API key: copy the command that creates it"
+          className="text-fg-soft hover:text-fg font-medium"
+        >
+          Run the reference app, no API key
+        </CopyTextButton>
+      </div>
+      <p className="text-fg-subtle mt-3 text-[13px] leading-relaxed">
+        For coding agents:{' '}
+        <Link href={MCP_DOCS_URL} className={inlineLink}>
+          add these docs over MCP
+        </Link>{' '}
+        {/* On a phone the two wrap onto lines of their own, so no separator. */}
+        <span aria-hidden="true" className="max-sm:hidden">
+          ·
+        </span>{' '}
+        <CopyTextButton
+          text={AGENT_SETUP_PROMPT}
+          label="Copy a setup prompt for your coding agent"
+          className="text-fg-muted hover:text-fg align-bottom [&>svg]:size-3.5"
+        >
+          copy a setup prompt
+        </CopyTextButton>
+      </p>
+    </div>
+  );
+}
+
+const WORKS_WITH = ['AI SDK 6 & 7', 'assistant-ui', 'AG-UI', 'ACP', 'your own chat'];
+
+/**
+ * What it works with, then what the repository measures and checks: the sizes and the large diff
+ * from content/docs/limits.md (lib/proof.ts), the rest from CI and the release workflow.
+ */
+export function HeroProof() {
+  const { sizes, rewriteReady } = getProofFigures();
+  const proof = [
+    `${sizes.min} to ${sizes.max} gzip per import, checked in CI`,
+    `A 5,000-line rewrite ready in ${rewriteReady}, diffed in a worker (M1 Max)`,
+    'React 18 and 19, AI SDK 6 and 7, tested in CI',
+    'Released from CI with npm provenance',
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-fg-muted flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+        <span className="text-fg-subtle font-mono text-[11px] font-medium tracking-[0.08em] uppercase">Works with</span>
+        {WORKS_WITH.map((name, i) => (
+          <span key={name} className="inline-flex items-center gap-2">
+            {i > 0 && <span aria-hidden="true">·</span>}
+            <span className="text-fg-soft">{name}</span>
+          </span>
+        ))}
+      </p>
+      <ul className="text-fg-muted grid gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-2" aria-label="Measured and checked">
+        {proof.map((item) => (
+          <li key={item} className="flex items-start gap-2">
+            <CheckIcon className="text-cyan-soft mt-0.5 size-3.5 shrink-0" />
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

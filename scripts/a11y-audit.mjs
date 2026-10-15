@@ -1,6 +1,6 @@
-// Runs axe-core in real Chrome against the playground, across the run's states (approval
-// pending, diff review, done), the components page, the docs and a phone viewport, in the dark theme and
-// then the light one.
+// Runs axe-core in real Chrome against the playground: the home page's first screen as it loads and
+// with its panel filled, the run's states (approval pending, diff review, done), the components page,
+// the docs and a phone viewport, in the dark theme and then the light one.
 // Unlike the jsdom tests, this checks color contrast with real layout.
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
@@ -52,19 +52,35 @@ async function audit(page, label) {
   for (const v of violations) console.log(`      ${v.id} (${v.impact}): ${v.nodes.slice(0, 3).join(', ')}`);
 }
 
-const pending = '[data-slot="signoff-approval-card"][data-status="pending"]';
+// The scripted run, which #run starts; the first screen has a pending card of its own.
+const pending = '#run [data-slot="signoff-approval-card"][data-status="pending"]';
 // Let enter animations settle so contrast is measured at full opacity.
 const settle = (page) => page.waitForTimeout(800);
 
+/** The first screen as it loads, then after a decision in the review and one on the card. */
+async function firstScreen(page, label) {
+  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await settle(page);
+  await audit(page, `${label} · first screen`);
+  const frame = page.locator('[data-frame="signoff"]');
+  await frame.locator('[data-slot="signoff-diff-hunk"]').last().focus();
+  await page.keyboard.press('r');
+  await frame.locator('[data-slot="signoff-approval-card"]').focus();
+  await page.keyboard.press('n');
+  await settle(page);
+  await audit(page, `${label} · first screen, a hunk rejected and the command denied`);
+}
+
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
-await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+await firstScreen(page, 'home');
+await page.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
 await page.waitForSelector(pending, { timeout: 60_000 });
 await settle(page);
 await audit(page, 'playground · approval pending');
-// The run started on load, so its card doesn't take focus: go to it, then approve.
+// Go to the card, then approve.
 await page.focus(pending);
 await page.keyboard.press('y');
-await page.waitForSelector('[data-slot="signoff-diff-submit"]', { timeout: 60_000 });
+await page.waitForSelector('#run [data-slot="signoff-diff-submit"]', { timeout: 60_000 });
 await settle(page);
 await page.keyboard.press('a');
 await page.keyboard.press('r');
@@ -128,7 +144,8 @@ await page.getByRole('button', { name: 'Edit arguments' }).first().click();
 await settle(page);
 await audit(page, 'docs /docs/components/approval-card · editing arguments');
 await page.setViewportSize({ width: 390, height: 844 });
-await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+await firstScreen(page, '390px viewport');
+await page.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
 await page.waitForSelector(pending, { timeout: 60_000 });
 await settle(page);
 await audit(page, 'playground · 390px viewport');
@@ -155,7 +172,8 @@ for (const path of ['/docs/components/diff-review', '/components']) {
 
 // The light theme, with a light OS: the site follows it until the reader picks.
 const light = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
-await light.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+await firstScreen(light, 'light · home');
+await light.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
 await light.waitForSelector(pending, { timeout: 60_000 });
 await settle(light);
 await audit(light, 'light · playground · approval pending');

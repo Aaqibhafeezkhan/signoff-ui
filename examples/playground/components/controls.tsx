@@ -46,6 +46,8 @@ function Switch({
 }
 
 export interface RunControlsProps {
+  /** Whether a run has started: before one has, Replay reads Play. */
+  started?: boolean;
   speed: number;
   onSpeedChange: (s: number) => void;
   paused: boolean;
@@ -60,6 +62,7 @@ export interface RunControlsProps {
 }
 
 export function RunControls({
+  started = true,
   speed,
   onSpeedChange,
   paused,
@@ -80,8 +83,8 @@ export function RunControls({
     <div className={`flex flex-col gap-4 ${className ?? ''}`}>
       <div className="flex gap-2">
         <button type="button" onClick={onReplay} className={button}>
-          <ReplayIcon className="size-3.5" />
-          Replay
+          {started ? <ReplayIcon className="size-3.5" /> : <PlayIcon className="size-3.5" />}
+          {started ? 'Replay' : 'Play'}
         </button>
         <button
           type="button"
@@ -136,6 +139,7 @@ const iconButton =
 
 /** Phones: pause, replay and a button for the rest of the controls, next to the status pill. */
 export function CompactRunControls({
+  started = true,
   paused,
   running,
   onPausedChange,
@@ -144,6 +148,8 @@ export function CompactRunControls({
   controlsId,
   className = '',
 }: {
+  /** Whether a run has started: before one has, Replay reads Play. */
+  started?: boolean;
   paused: boolean;
   running: boolean;
   onPausedChange: (p: boolean) => void;
@@ -164,8 +170,8 @@ export function CompactRunControls({
       >
         {paused ? <PlayIcon className="size-3.5" /> : <PauseIcon className="size-3.5" />}
       </button>
-      <button type="button" onClick={onReplay} aria-label="Replay" className={iconButton}>
-        <ReplayIcon className="size-4" />
+      <button type="button" onClick={onReplay} aria-label={started ? 'Replay' : 'Play'} className={iconButton}>
+        {started ? <ReplayIcon className="size-4" /> : <PlayIcon className="size-4" />}
       </button>
       <button
         type="button"

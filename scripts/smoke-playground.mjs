@@ -1,5 +1,5 @@
 // Checks the built playground: link preview metadata and llms.txt, then in Chrome what a visitor
-// sees first on a phone, what the header offers when it was built without a model key
+// sees first on a laptop and a phone, what the header offers when it was built without a model key
 // (OPENAI_API_KEY, as in CI), the phone menu, the docs shell, and the components page.
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
@@ -615,42 +615,104 @@ try {
     sideways.join('; '),
   );
 
-  // On a phone the run starts on load and grows past the screen; the page must not follow it
-  // (and scroll the headline away) until the reader scrolls down or starts a run.
-  const phoneContext = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    colorScheme: 'dark',
-    isMobile: true,
-    hasTouch: true,
-  });
-  const phone = await phoneContext.newPage();
-  await phone.goto(BASE, { waitUntil: 'networkidle' });
-
-  // The first screen says what the kit is and how to get it, and shows the run's status.
-  const fold = await phone.evaluate(() =>
-    ['h1', 'aside [data-slot="signoff-agent-status"]'].map(
-      (s) => document.querySelector(s)?.getBoundingClientRect().bottom,
-    ),
-  );
-  const install = phone.getByRole('button', { name: 'Copy the install command' }).first();
-  const star = phone.getByRole('link', { name: 'Star on GitHub' }).first();
-  check(
-    fold.every((bottom) => bottom !== undefined && bottom < 844) &&
-      (await install.boundingBox())?.y < 844 &&
-      (await star.boundingBox())?.y < 844,
-    'phone: headline, install command, star link and run status on the first screen',
-    JSON.stringify(fold),
-  );
+  // The first screen, before the reader does anything: the headline, the install command, Get
+  // started, and the review and the approval themselves, rendered on the server so they are there as
+  // the page loads (both start in view on a laptop, the review on a phone). Nothing plays, takes
+  // focus or scrolls the page, nothing shifts as it loads, and the console stays clean (Vercel
+  // Analytics' script is only served on Vercel).
+  const pendingCard = '[data-slot="signoff-approval-card"][data-status="pending"]';
+  const runPending = `#run ${pendingCard}`;
+  const where = () => {
+    const el = document.activeElement;
+    const focus = !el || el === document.body ? 'body' : `${el.tagName}:${el.textContent?.trim().slice(0, 40)}`;
+    return { y: Math.round(scrollY), focus };
+  };
+  let phone;
+  for (const { width, height, touch } of [
+    { width: 1440, height: 900, touch: false },
+    { width: 390, height: 844, touch: true },
+  ]) {
+    const context = await browser.newContext({
+      viewport: { width, height },
+      colorScheme: touch ? 'light' : 'dark',
+      isMobile: touch,
+      hasTouch: touch,
+    });
+    await context.addInitScript(() => {
+      window.__shift = 0;
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__shift += entry.value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      const from = `${message.location().url} ${message.text()}`;
+      if (message.type() === 'error' && !from.includes('/_vercel/insights/')) errors.push(message.text());
+    });
+    await page.goto(BASE, { waitUntil: 'load' });
+    const top = (selector) =>
+      page.evaluate((s) => document.querySelector(s)?.getBoundingClientRect().top ?? Infinity, selector);
+    const shown = {
+      headline: await top('h1'),
+      install: (await page.getByRole('button', { name: 'Copy the install command' }).first().boundingBox())?.y,
+      start: (await page.getByRole('link', { name: 'Get started' }).first().boundingBox())?.y,
+      review: await top('[data-frame="signoff"] [data-slot="signoff-diff-review"]'),
+      approval: await top(`[data-frame="signoff"] ${pendingCard}`),
+    };
+    const expected = touch ? ['headline', 'install', 'start', 'review'] : Object.keys(shown);
+    check(
+      expected.every((key) => shown[key] >= 0 && shown[key] < height),
+      `${width}px: the headline, install command, Get started and ${touch ? 'the review' : 'the review and the approval'} on the first screen`,
+      JSON.stringify(shown),
+    );
+    if (!touch) await page.getByRole('link', { name: 'Get started' }).first().focus();
+    const before = await page.evaluate(where);
+    await page.waitForTimeout(3000);
+    const after = await page.evaluate(where);
+    const calls = await page.locator('[data-slot="signoff-tool-call-trigger"]').count();
+    const shift = await page.evaluate(() => window.__shift);
+    check(
+      calls === 0 && after.y === before.y && after.focus === before.focus && shift < 0.01 && errors.length === 0,
+      `${width}px: nothing plays, takes focus or scrolls on load; no layout shift, no console errors`,
+      `${calls} tool calls, ${JSON.stringify(before)} then ${JSON.stringify(after)}, shift ${shift.toFixed(4)}, ${errors.join(' | ')}`,
+    );
+    if (touch) phone = page;
+    else {
+      // The frame from the keyboard: R on the route's hunk, Y on the card. After each, the panel
+      // prints what goes back to the agent: the review's tool output, then the approval response.
+      const frame = page.locator('[data-frame="signoff"]');
+      const panel = page.locator('section[aria-labelledby="frame-result-heading"]');
+      await frame.locator('[data-slot="signoff-diff-hunk"]').last().focus();
+      await page.keyboard.press('r');
+      const review = await panel.innerText();
+      await frame.locator(pendingCard).focus();
+      await page.keyboard.press('y');
+      const approval = await panel.innerText();
+      const status = await frame.locator('[data-slot="signoff-approval-card"]').getAttribute('data-status');
+      check(
+        review.includes('review_changes') &&
+          review.includes('"rejected": 1') &&
+          approval.includes('addToolApprovalResponse') &&
+          approval.includes('"approved": true') &&
+          status === 'approved',
+        'first screen: R and Y work in the frame, and the panel prints what the agent receives after each',
+        `${review.slice(0, 120)} | ${approval.slice(0, 120)} | ${status}`,
+      );
+      // "Watch a full run" goes to the run and starts it.
+      await page.getByRole('link', { name: 'Watch a full run' }).click();
+      await page.locator('#run [data-slot="signoff-tool-call-trigger"]').first().waitFor({ timeout: 60_000 });
+      const runTop = await top('#run');
+      check(
+        new URL(page.url()).hash === '#run' && runTop >= 0 && runTop < 120,
+        'first screen: "Watch a full run" scrolls to the run and starts it',
+        `${page.url()}, run at ${runTop}px`,
+      );
+      await context.close();
+    }
+  }
   check(!(await phone.locator('#kbd-heading').isVisible()), 'phone: no keyboard shortcuts card on a touch screen');
-  await phone.waitForFunction(
-    () =>
-      document.querySelectorAll('[data-slot="signoff-tool-call-trigger"]').length >= 3 &&
-      document.documentElement.scrollHeight > innerHeight * 1.5,
-    null,
-    { timeout: 60_000 },
-  );
-  const scrollY = await phone.evaluate(() => scrollY);
-  check(scrollY === 0, 'phone: the page stays on the headline while the run streams', `scrolled to ${scrollY}px`);
   check((await phone.getByRole('radio', { name: 'Live' }).count()) === 0, 'header: no Live mode without a model key');
 
   // On a phone the header keeps the name and the version, and the rest is in the menu.
@@ -675,51 +737,17 @@ try {
   await phone.locator('#site-menu').getByRole('link', { name: 'Components' }).click();
   await phone.waitForURL(/\/components$/, { timeout: 10_000 }).catch(() => {});
   check(new URL(phone.url()).pathname === '/components', 'phone: the menu reaches the components page', phone.url());
-  await phoneContext.close();
-
-  // The run that starts on load leaves the reader where they are: its approval card doesn't take
-  // focus when it comes up, which would scroll the page to it, away from the headline (a phone, no
-  // input) or from the link the reader is on ("Get started" from the keyboard). Replay, below, does.
-  const pendingCard = '[data-slot="signoff-approval-card"][data-status="pending"]';
-  const where = () => {
-    const el = document.activeElement;
-    const focus = !el || el === document.body ? 'body' : `${el.tagName}:${el.textContent?.trim().slice(0, 40)}`;
-    return { y: Math.round(scrollY), focus };
-  };
-  for (const { width, height, touch } of [
-    { width: 390, height: 844, touch: true },
-    { width: 1440, height: 900, touch: false },
-  ]) {
-    const context = await browser.newContext({
-      viewport: { width, height },
-      colorScheme: 'dark',
-      isMobile: touch,
-      hasTouch: touch,
-    });
-    const page = await context.newPage();
-    await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
-    if (!touch) await page.getByRole('link', { name: 'Get started' }).first().focus();
-    const before = await page.evaluate(where);
-    await page.waitForSelector(pendingCard, { timeout: 60_000 });
-    await page.waitForTimeout(500);
-    const after = await page.evaluate(where);
-    check(
-      after.y === before.y && after.focus === before.focus,
-      `${width}px: the approval card of the run on load leaves scroll and focus where the reader left them`,
-      `${JSON.stringify(before)}, then ${JSON.stringify(after)}`,
-    );
-    await context.close();
-  }
+  await phone.context().close();
 
   // Through a whole run from the keyboard: after the review is applied, the reader stays with the
   // run (the diff folds away above them) and sees it finish at the bottom of the screen, not
   // scrolled past it into the sections below. The reader goes to the card: it doesn't come to them.
   const run = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
-  await run.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
-  await run.waitForSelector(pendingCard, { timeout: 60_000 });
-  await run.focus(pendingCard);
+  await run.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
+  await run.waitForSelector(runPending, { timeout: 60_000 });
+  await run.focus(runPending);
   await run.keyboard.press('y');
-  await run.waitForSelector('[data-slot="signoff-diff-submit"]', { timeout: 60_000 });
+  await run.waitForSelector('#run [data-slot="signoff-diff-submit"]', { timeout: 60_000 });
   for (const key of ['a', 'a', 'a', 'r']) await run.keyboard.press(key);
   await run.keyboard.press('Control+Enter');
   await run.getByText('Run complete').waitFor({ timeout: 60_000 });
@@ -739,7 +767,7 @@ try {
   // Replay mid-run starts over once the stopped run has settled, so the new run's time to first
   // token is measured from its own request (the script pauses 680ms first, 170ms at 4x), not 0ms.
   const replay = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
-  await replay.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+  await replay.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
   const calls = replay.locator('[data-slot="signoff-tool-call-trigger"]');
   await calls.first().waitFor({ timeout: 60_000 });
   await replay.getByRole('button', { name: 'Replay', exact: true }).first().click();
@@ -751,7 +779,7 @@ try {
   const ttftMs = ttft && Number(ttft[0]) * (ttft[1] === 's' ? 1000 : 1);
   check(ttftMs >= 100, 'replay: the new run times its first token from its own request', `TTFT ${ttft?.join('')}`);
   // Replay is the reader starting a run: the page follows it, and its approval card takes focus, so Y and N work.
-  await replay.waitForSelector(pendingCard, { timeout: 60_000 });
+  await replay.waitForSelector(runPending, { timeout: 60_000 });
   const replayFocus = await replay.evaluate(() => document.activeElement?.getAttribute('data-slot'));
   check(
     replayFocus === 'signoff-approval-card',

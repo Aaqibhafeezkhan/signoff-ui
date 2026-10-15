@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CheckIcon, CopyIcon } from './icons';
 
 /**
@@ -57,5 +57,55 @@ export function CommandLine({
       <code className="text-fg min-w-0 flex-1 truncate font-mono text-[13px]">{command}</code>
       <CopyButton text={command} label={label} />
     </div>
+  );
+}
+
+/**
+ * A text button that copies something the page doesn't show in full, such as a long command or a
+ * prompt: its label says what it is, the icon turns into a check, and a live region says it worked.
+ */
+export function CopyTextButton({
+  text,
+  children,
+  label,
+  className = '',
+}: {
+  text: string;
+  children: ReactNode;
+  /** The accessible name: the visible text first, then what pressing it does. */
+  label: string;
+  className?: string;
+}) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    if (state === 'idle') return;
+    const id = setTimeout(() => setState('idle'), 1600);
+    return () => clearTimeout(id);
+  }, [state]);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={label}
+        title={text}
+        onClick={() => {
+          navigator.clipboard.writeText(text).then(
+            () => setState('copied'),
+            () => setState('failed'),
+          );
+        }}
+        className={`focus-visible:outline-cyan-soft inline-flex cursor-pointer items-center gap-1.5 rounded-sm text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${className}`}
+      >
+        {state === 'copied' ? (
+          <CheckIcon className="text-cyan-soft size-4 shrink-0" />
+        ) : (
+          <CopyIcon className="size-4 shrink-0" />
+        )}
+        {children}
+      </button>
+      <span className="sr-only" aria-live="polite">
+        {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copying failed' : ''}
+      </span>
+    </>
   );
 }

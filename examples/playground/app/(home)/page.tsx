@@ -2,9 +2,10 @@ import kit from 'signoff-ui/package.json';
 import { HighlightedFilesProvider } from '@/components/file-output';
 import { Footer } from '@/components/footer';
 import { Header } from '@/components/header';
-import { Hero } from '@/components/hero';
+import { Hero, HeroProof } from '@/components/hero';
 import { Landing } from '@/components/landing';
 import { PlaygroundIsland } from '@/components/playground-island';
+import { SignoffFrame } from '@/components/signoff-frame';
 import { highlightFiles, PLAYGROUND_FILES } from '@/lib/demo-code';
 import { liveModeEnabled } from '@/lib/live';
 import { pageMetadata } from '@/lib/metadata';
@@ -50,21 +51,55 @@ export default async function Page() {
       <div className="grid-backdrop pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70vh]" aria-hidden="true" />
       <main id="main">
         {/*
-         * Phones: the headline, a sticky bar with the status and playback, then the conversation; the
-         * rest of the controls open in a sheet. Wide screens: the headline and the run on the left, the
-         * status, controls and telemetry in a sticky sidebar. Flex on phones so the bar can stick for
-         * the whole run (a grid item only sticks within its own row). The sidebar spans both rows; the
-         * second row takes its extra height, so the run doesn't move once it outgrows the sidebar.
+         * The first screen: what the kit is for and how to start on the left, under it the panel that
+         * prints what goes back to the agent, then what it works with and the proof; the review and
+         * the approval on the right, live but still (components/signoff-frame.tsx). Phones: the
+         * headline and the calls to action, the components, the panel, then the rest.
          */}
-        <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-6 px-4 pt-7 sm:px-6 sm:pt-12 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8 lg:pt-12">
+        <div className="mx-auto grid w-full max-w-[1320px] gap-8 px-4 pt-7 sm:px-6 sm:pt-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:grid-rows-[auto_auto_1fr] lg:gap-x-12 lg:gap-y-6 lg:pt-8">
           <div className="lg:col-start-1 lg:row-start-1">
             <Hero />
           </div>
-          {/* Live mode is offered only when the server opts in (lib/live.ts); the scripted run is always the default. */}
-          <HighlightedFilesProvider files={files}>
-            <PlaygroundIsland liveAvailable={liveModeEnabled()} />
-          </HighlightedFilesProvider>
+          <SignoffFrame />
+          <div className="lg:col-start-1 lg:row-start-3">
+            <HeroProof />
+          </div>
         </div>
+        {/*
+         * The scripted run, which starts when it's asked for: "Watch a full run" (#run) or its own
+         * Play. Phones: the heading, a sticky bar with the status and playback, then the conversation;
+         * the rest of the controls open in a sheet. Wide screens: the heading and the run on the left,
+         * the status, controls and telemetry in a sticky sidebar. Flex on phones so the bar can stick
+         * for the whole run (a grid item only sticks within its own row). The sidebar spans both rows;
+         * the second row takes its extra height, so the run doesn't move once it outgrows the sidebar.
+         */}
+        <section
+          id="run"
+          aria-labelledby="run-heading"
+          className="mx-auto mt-14 w-full max-w-[1320px] scroll-mt-14 px-4 sm:mt-20 sm:px-6"
+        >
+          <div className="border-line/70 flex flex-col gap-6 border-t pt-14 sm:pt-20 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-6">
+            <div className="lg:col-start-1 lg:row-start-1">
+              <p className="text-fg-subtle font-mono text-[11px] font-medium tracking-[0.08em] uppercase">
+                Live demo · no API key
+              </p>
+              <h2
+                id="run-heading"
+                className="text-fg-strong mt-3 text-[24px] leading-tight font-semibold tracking-[-0.02em] sm:text-[28px]"
+              >
+                Watch a full run
+              </h2>
+              <p className="text-fg-muted mt-3 max-w-2xl text-[15px] leading-relaxed text-pretty">
+                A scripted coding agent adds rate limiting to a Next.js route: it asks before it installs a package,
+                then hands you its edit to review. Every panel is a kit component.
+              </p>
+            </div>
+            {/* Live mode is offered only when the server opts in (lib/live.ts); the scripted run is always the default. */}
+            <HighlightedFilesProvider files={files}>
+              <PlaygroundIsland liveAvailable={liveModeEnabled()} />
+            </HighlightedFilesProvider>
+          </div>
+        </section>
         <Landing />
       </main>
       <Footer />

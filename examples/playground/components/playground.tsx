@@ -32,6 +32,7 @@ import { toolMeta } from '@/lib/tools';
 import { Composer } from './composer';
 import { CompactRunControls, KeyboardCard, RunControls, Sheet } from './controls';
 import { UserIcon } from './icons';
+import { RunStart } from './run-start';
 
 type Mode = 'mock' | 'live';
 
@@ -61,8 +62,8 @@ function decisionsFrom(output: ReviewOutput | undefined): Record<string, HunkDec
 
 /**
  * The live run: the sidebar (status, controls, telemetry) and the conversation. It renders into the
- * page's grid (app/page.tsx) as two of its items, and loads after the page (playground-island.tsx),
- * so the headline and the rest of the page don't wait for the AI SDK and the kit.
+ * run section's grid (app/(home)/page.tsx) as two of its items, and loads after the page
+ * (playground-island.tsx), so the first screen doesn't wait for the AI SDK.
  */
 export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
   const [mode, setMode] = useState<Mode>('mock');
@@ -113,10 +114,9 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     void sendMessage({ text: PROMPT });
   }, [setMessages, sendMessage]);
 
-  // Follow the run once the reader has scrolled to its end or started a run themselves.
-  // Not from the start: on a phone, following the run that starts on load scrolls past the headline.
-  // The approval card takes focus only then too: focus scrolls the page to it, from wherever the
-  // reader is. The effects read the ref; rendering reads the state.
+  // Follow the run once the reader has scrolled to its end or started a run themselves. The
+  // approval card takes focus only then too: focus scrolls the page to it, from wherever the reader
+  // is. The effects read the ref; rendering reads the state.
   const endRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(false);
   const [following, setFollowing] = useState(false);
@@ -124,10 +124,13 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     stickRef.current = on;
     setFollowing(on);
   }, []);
+  // Whether the reader has asked for a run: once they have, #run no longer starts one.
+  const asked = useRef(false);
   // Replay during a run stops it, then starts over once it has settled. Sent straight away, the new
   // request would have the stopped one's end ('ready') land in the middle of it, and its timing too.
   const [restarting, setRestarting] = useState(false);
   const replay = useCallback(() => {
+    asked.current = true;
     follow(true);
     if (!running) {
       startRun();
@@ -146,12 +149,23 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     return () => clearTimeout(id);
   }, [restarting, running, startRun]);
 
-  // The mock run starts on load; live mode waits for a prompt.
+  // The scripted run starts when the reader asks for it: Play, or "Watch a full run", which links
+  // to #run (also before this has loaded, or from a link to /#run). Nothing plays on load, so
+  // nothing scrolls the page or takes focus before the reader does something. Play is Replay with
+  // no run to stop, so the run is followed; live mode waits for a prompt.
   useEffect(() => {
     if (mode !== 'mock') return;
-    const id = setTimeout(startRun, 450);
-    return () => clearTimeout(id);
-  }, [mode, startRun]);
+    const onHash = () => {
+      if (window.location.hash === '#run' && !asked.current) replay();
+    };
+    const id = setTimeout(onHash, 0);
+    window.addEventListener('hashchange', onHash);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener('hashchange', onHash);
+    };
+  }, [mode, replay]);
+  const started = runId > 0 || messages.length > 0;
 
   const lastAssistant = messages.findLast((m) => m.role === 'assistant');
   const userMessage = messages.find((m) => m.role === 'user');
@@ -257,7 +271,13 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     return () => window.removeEventListener('scroll', onScroll);
   }, [follow]);
   useEffect(() => {
-    if (stickRef.current && running) endRef.current?.scrollIntoView({ block: 'end' });
+    // Only while the end is off screen: below it as the run grows, or above it once a review folds
+    // away. While the run is shorter than the screen its end is in view already, and lining it up
+    // with the bottom would pull the run's heading down, away from the top of the screen.
+    const box = endRef.current?.getBoundingClientRect();
+    if (stickRef.current && running && box && (box.bottom > window.innerHeight || box.top < 0)) {
+      endRef.current?.scrollIntoView({ block: 'end' });
+    }
   }, [messages, running]);
 
   const done = status === 'ready' && derived.state === 'done';
@@ -274,6 +294,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
   const cost = usage ? estimateCost(usage, PRICING).total : undefined;
 
   const controls = {
+    started,
     speed,
     onSpeedChange: setSpeed,
     paused,
@@ -331,6 +352,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
             {mode === 'mock' && (
               <CompactRunControls
                 className="ml-auto lg:hidden"
+                started={started}
                 paused={paused}
                 running={running}
                 onPausedChange={setPaused}
@@ -360,18 +382,14 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
       </aside>
 
       {/*
-       * At least a screen tall, so the sections below start off screen and the run growing into
-       * its space doesn't push them around (layout shift).
+       * Once a run starts, at least a screen tall, so the sections below move once, when the reader
+       * presses Play, and not again as the run grows into its space (layout shift).
        */}
       <div
         data-inspect={inspect || undefined}
-        className="flex min-h-svh min-w-0 flex-col gap-6 lg:col-start-1 lg:row-start-2"
+        className={`flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-start-2 ${started ? 'min-h-svh' : ''}`}
       >
         <div className="flex flex-col gap-3">
-          <p className="text-fg-subtle text-[13px] leading-relaxed">
-            <span className="text-fg font-medium">Live demo, no API key.</span> A scripted coding agent adds rate
-            limiting to a Next.js route. Every panel is a kit component.
-          </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="border-line bg-raised/60 text-fg-muted hidden items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[11px] sm:inline-flex">
               <span className="bg-cyan size-1.5 rounded-full" aria-hidden="true" />
@@ -389,6 +407,8 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
             </div>
           </div>
         </div>
+
+        {mode === 'mock' && !started && <RunStart onPlay={replay} />}
 
         {userMessage && (
           <section aria-label="Your request" className="border-line bg-raised/60 rounded-xl border px-4 py-3.5">
