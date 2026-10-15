@@ -2,6 +2,10 @@ import { diffWordsWithSpace, parsePatch, structuredPatch, type StructuredPatch, 
 
 /** A file edit proposed by an agent. Provide either full contents or a unified patch. */
 export interface FileChange {
+  /**
+   * The file's path, e.g. `app/api/chat/route.ts`: the review shows it and the result returns it.
+   * Its extension picks the highlighting, unless `language` is given.
+   */
   path: string;
   /** Previous path, for renames. */
   oldPath?: string | undefined;

@@ -154,6 +154,11 @@ function useControllable<T>(value: T | undefined, initial: () => T, onChange: ((
 }
 
 export interface UseDiffReviewOptions {
+  /**
+   * The edits to review, one per file, with full contents (`oldContent` and `newContent`) or a
+   * unified `patch`. Compared by content: a new array of the same edits, such as one written
+   * inline, is not diffed again.
+   */
   files: readonly FileChange[];
   /**
    * Controlled decisions keyed by item id: a hunk's `${path}:${index}`, or `${path}:file` for a file
@@ -161,15 +166,27 @@ export interface UseDiffReviewOptions {
    * skipping a suffix another file's path already has.
    */
   decisions?: Readonly<Record<string, HunkDecision>> | undefined;
+  /**
+   * The decisions to start with, keyed like `decisions`, when the review keeps its own: to restore
+   * a review in progress, say. Read on the first render only.
+   */
   defaultDecisions?: Readonly<Record<string, HunkDecision>> | undefined;
+  /**
+   * Called with every decision, keyed like `decisions`, whenever one changes: an item accepted,
+   * rejected or reset, or a whole file or the whole review decided at once.
+   */
   onDecisionsChange?: ((decisions: Record<string, HunkDecision>) => void) | undefined;
   /** Controlled comments. */
   comments?: readonly DiffReviewComment[] | undefined;
+  /** The comments to start with, when the review keeps its own. Read on the first render only. */
   defaultComments?: readonly DiffReviewComment[] | undefined;
+  /** Called with every comment whenever one is added, edited or removed. */
   onCommentsChange?: ((comments: DiffReviewComment[]) => void) | undefined;
   /** Controlled "Viewed" marks, by file id (the path, or `path#2`… for a repeated path). */
   viewed?: Readonly<Record<string, boolean>> | undefined;
+  /** The "Viewed" marks to start with, by file id, when the review keeps its own. Read on the first render only. */
   defaultViewed?: Readonly<Record<string, boolean>> | undefined;
+  /** Called with every "Viewed" mark, by file id, whenever one is set or cleared. */
   onViewedChange?: ((viewed: Record<string, boolean>) => void) | undefined;
   /**
    * Called with the reviewed result, and a `toPatch` that gives the accepted changes as a unified
@@ -179,14 +196,21 @@ export interface UseDiffReviewOptions {
    * compare by content and the rest by value: an equal new array or object does not count as a change.
    */
   onSubmit?: ((result: DiffReviewResult, review: { toPatch: () => string }) => void | PromiseLike<void>) | undefined;
-  /** Decide nothing, comment on nothing: only read. */
+  /**
+   * Decide nothing, comment on nothing: only read.
+   * @default false
+   */
   readOnly?: boolean | undefined;
-  /** Lines of context around each change. Default 3. */
+  /**
+   * Lines of context around each change.
+   * @default 3
+   */
   context?: number | undefined;
   /**
    * Past this many lines added plus lines removed in one file, its changed region (from the first
    * changed line to the last) is shown as one hunk that replaces it, and the review says so. Diffing
-   * costs about the square of this number. Default 2,000.
+   * costs about the square of this number.
+   * @default 2000
    */
   maxEditLength?: number | undefined;
   /**
@@ -196,26 +220,40 @@ export interface UseDiffReviewOptions {
    * them on the main thread after the first paint. Without a working worker the latter is the fallback.
    */
   diffWorker?: DiffWorkerFactory | false | undefined;
-  /** After accepting or rejecting with the keyboard, move to the next undecided item. Default `true`. */
+  /**
+   * After accepting or rejecting with the keyboard, move to the next undecided item.
+   * @default true
+   */
   autoAdvance?: boolean | undefined;
-  /** Fold a file away once it is marked viewed. Default `true`. */
+  /**
+   * Fold a file away once it is marked viewed.
+   * @default true
+   */
   collapseViewed?: boolean | undefined;
   /** Words to use instead of the English defaults, for what the hook announces and names: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;
 }
 
+/** A file in the review, as it stands now. */
 export interface DiffReviewFileState {
   /** The file's id: its path, or `path#2`… for a path that repeats. */
   id: string;
+  /** The file's path, from its `FileChange`. */
   path: string;
+  /** The `FileChange` it comes from, as passed in `files`. */
   change: FileChange;
   /** `undefined` while the file is diffed in the background ("Comparing…"). */
   parsed: ParsedFileDiff | undefined;
   /** What it asks to decide: its hunks, or the file as a whole. */
   items: ReviewItem[];
+  /**
+   * `accepted`, `rejected` or `pending` when all its items are, `partial` for a mix, and
+   * `unchanged` with nothing to decide (or while it is being compared).
+   */
   decision: FileDecision;
   /** How many of its items are decided. */
   decided: number;
+  /** Marked "Viewed" by the reviewer. */
   viewed: boolean;
   /** Folded away: its items are skipped by J and K. */
   collapsed: boolean;
@@ -225,24 +263,38 @@ export interface DiffReviewFileState {
 
 /** Lines selected in a hunk, by index into `hunk.lines`. */
 export interface DiffReviewSelection {
+  /** The item the lines are in. */
   item: ReviewItem;
+  /** The hunk the lines are in: `item.hunk`. */
   hunk: DiffHunk;
-  /** Where the selection started, and where it ends (the line moved with the keyboard). */
+  /** The index the selection started at: Shift and the arrows extend it from here. */
   anchor: number;
+  /** The index it ends at: the one Shift and the arrows move. */
   head: number;
-  /** The first and last selected index. */
+  /** The first selected index. */
   from: number;
+  /** The last selected index. */
   to: number;
+  /**
+   * The selected lines' numbers, in the proposed file or, for removed lines only, in the original:
+   * what a comment on them records.
+   */
   range: LineRange;
 }
 
 /** A comment being written: a new one, or an edit of `commentId`. */
 export interface DiffReviewDraft {
+  /** The comment being edited; absent for a new one. */
   commentId?: string | undefined;
+  /** The file it is on, by id. */
   fileId: string;
+  /** What it is on: lines, a hunk or a whole file. */
   target: DiffReviewComment['target'];
+  /** The hunk it is on, for `lines` and `hunk`. */
   hunkId?: string | undefined;
+  /** The lines it is on, for `lines` and `hunk`: the selected lines, or the hunk's changed lines. */
   range?: LineRange | undefined;
+  /** What has been written so far. */
   text: string;
 }
 
@@ -253,30 +305,53 @@ export interface ShownContext {
 }
 
 export interface UseDiffReviewResult {
+  /** Every file, in the order of `files`: its id, diff, items, decision, and viewed and folded state. */
   files: DiffReviewFileState[];
   /** Every item to decide, in file order; `index` in the getters refers to this list. */
   items: ReviewItem[];
   /** The item in the tab order, focused by J and K. */
   activeIndex: number;
+  /** How many items are accepted, rejected and still pending, out of `total`. */
   counts: { accepted: number; rejected: number; pending: number; total: number };
   /** Some file is still being diffed in the background; applying waits for it. */
   comparing: boolean;
+  /** The decisions, keyed by item id; an item missing from it is `pending`. */
   decisions: Readonly<Record<string, HunkDecision>>;
+  /** The comments, in the order they were added. */
   comments: readonly DiffReviewComment[];
+  /** The "Viewed" marks, by file id. */
   viewed: Readonly<Record<string, boolean>>;
+  /** The lines selected in a hunk, with Shift and the arrows or a click on a line number. */
   selection: DiffReviewSelection | undefined;
+  /** The comment being written: render the editor (`getDraftProps()`) while it is set. */
   draft: DiffReviewDraft | undefined;
   /** Unchanged lines shown around hunks, by `${fileId}:${gap.before}`. */
   shown: Readonly<Record<string, ShownContext>>;
   /** What to announce: render it in a polite live region. */
   announcement: string;
+  /**
+   * The `readOnly` option. While it is `true` the keys, comments and `submit` do nothing: hide your
+   * decision buttons too, as `DiffReview` does.
+   */
   readOnly: boolean;
+  /** `true` on a Mac, to print ⌘ rather than Ctrl in your shortcut hints. `false` on the server and while hydrating. */
   isMac: boolean;
 
+  /**
+   * Decide one item by id: accept, reject, or `pending` to reset it. With `advance`, focus moves on
+   * to the next undecided item, as A and R do with `autoAdvance`.
+   */
   decide(id: string, decision: HunkDecision, options?: { advance?: boolean }): void;
+  /** Accept or reject every item of a file, as Alt+A and Alt+R do. */
   decideFile(fileId: string, decision: Exclude<HunkDecision, 'pending'>): void;
+  /** Accept or reject every item, as Shift+A and Shift+R do. Does nothing while a file is being compared. */
   decideAll(decision: Exclude<HunkDecision, 'pending'>): void;
+  /**
+   * Mark a file viewed, or clear the mark, as its checkbox and V do. With `collapseViewed`, a viewed
+   * file folds away.
+   */
   setViewed(fileId: string, viewed: boolean): void;
+  /** Fold a file away or unfold it, whatever its viewed mark. J and K skip a folded file's items. */
   setCollapsed(fileId: string, collapsed: boolean): void;
   /** Focus an item by index (clamped), as J and K do. */
   focusItem(index: number): void;
@@ -288,14 +363,22 @@ export interface UseDiffReviewResult {
   focusFile(fileId: string): void;
   /** Select lines `from…to` of a hunk item; `to` defaults to `from`. */
   selectLines(itemId: string, from: number, to?: number): void;
+  /** Clear the line selection, as Escape does. */
   clearSelection(): void;
   /** Start a comment: on the selected lines, else on the item (a hunk or a whole file), or edit one. */
   startComment(options?: { itemId?: string; commentId?: string }): void;
+  /** Set the text of the comment being written, for an editor that doesn't use `getDraftProps()`. */
   setDraftText(text: string): void;
   /** The comment editor's element, for focus. Stable across renders. */
   registerDraft(el: HTMLTextAreaElement | null): void;
+  /**
+   * Save the comment being written, or the edit of one, as ⌘/Ctrl+Enter in the editor does. With
+   * nothing written but spaces, it cancels instead.
+   */
   saveDraft(): void;
+  /** Close the comment editor without saving, as Escape does, and return focus to the item it was on. */
   cancelDraft(): void;
+  /** Delete a comment by id, and return focus to the item it was on. */
   removeComment(id: string): void;
   /** Show more unchanged lines of a file's gap: from its start, its end, or all of it. */
   showContext(fileId: string, gap: ContextGap, from: 'start' | 'end' | 'all'): void;
@@ -329,10 +412,12 @@ export interface UseDiffReviewResult {
     index: number,
     decision: Exclude<HunkDecision, 'pending'>,
   ): { type: 'button'; 'aria-pressed': boolean; onClick: () => void };
+  /** A button that accepts or rejects a whole file, with its shortcut, Alt+A or Alt+R, in `aria-keyshortcuts`. */
   getFileDecisionProps(
     fileId: string,
     decision: Exclude<HunkDecision, 'pending'>,
   ): { type: 'button'; onClick: () => void; 'aria-keyshortcuts': string };
+  /** The checkbox that marks a file viewed, with V in `aria-keyshortcuts`. Give it a label of your own. */
   getViewedProps(fileId: string): {
     ref: (el: HTMLInputElement | null) => void;
     type: 'checkbox';
@@ -342,12 +427,20 @@ export interface UseDiffReviewResult {
   };
   /** Click a line number to select it; Shift-click extends the selection in the same hunk. */
   getLineNumberProps(index: number, line: number): { onClick: (event: MouseEvent) => void };
+  /**
+   * The comment editor's text area: its value, focus when it opens, and its keys (⌘/Ctrl+Enter
+   * saves, Escape cancels). Give it a label of your own.
+   */
   getDraftProps(): {
     ref: (el: HTMLTextAreaElement | null) => void;
     value: string;
     onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   };
+  /**
+   * The apply button: it calls `submit`, is `aria-disabled` while a file is being compared, and has
+   * ⌘/Ctrl+Enter in `aria-keyshortcuts`.
+   */
   getSubmitProps(): {
     type: 'button';
     onClick: () => void;
