@@ -13,9 +13,10 @@ import { AUTHOR, GITHUB_URL, NPM_URL, PACKAGE, SITE_URL, TAGLINE } from '@/lib/s
 export const metadata = pageMetadata({
   // "signoff-ui: review what your agent changed and approve what it may do"
   title: `${PACKAGE}: ${TAGLINE.charAt(0).toLowerCase()}${TAGLINE.slice(1, -1)}`,
-  // Search results show about 160 characters.
+  // The pitch after the tagline, as in the README and on npm, less one clause: search results show
+  // about 160 characters.
   description:
-    'React components for multi-file diff review and tool approvals with AI SDK 6 & 7, AG-UI, ACP and assistant-ui. Watch a scripted agent run, no API key needed.',
+    'React components for multi-file diff review and tool approvals, for AI SDK 6 & 7, AG-UI and ACP agents, inside assistant-ui, AI Elements or your own chat.',
   path: '/',
 });
 
