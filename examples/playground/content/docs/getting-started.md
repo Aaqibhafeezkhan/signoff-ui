@@ -364,7 +364,7 @@ What each part is for:
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.
 - **`onError`.** A tool that throws becomes an `output-error` part, and its `errorText` goes through `onError`. By default that hides every message behind "An error occurred.", so the timeline would show that instead of `ENOENT`. In production, pass through the errors you're happy for users to read and keep the rest generic.
 
-For an agent that writes long answers, pass `throttle: 50` to `useChat` (`experimental_throttle` in AI SDK 6). `AgentMessage` parses only about the last 1,000 characters of the streaming text again on each delta, but text with a link reference or footnote definition, a code fence opened on the line of a list item or a quote, or a line outside fenced code that starts with `<`, is parsed whole on every delta, which takes longer the longer the text ([Known limitations](/docs/limits#known-limitations)); throttled, the messages update at most once every 50 ms.
+For an agent that writes long answers, pass `throttle: 50` to `useChat` (`experimental_throttle` in AI SDK 6). `AgentMessage` parses only about the last 1,000 characters of the streaming text again on each delta, but a long list or code block is parsed again until it ends, and text with a link reference or footnote definition, some code fences in list items, or a line outside fenced code that starts with `<`, is parsed whole on every delta, which takes longer the longer the text ([Known limitations](/docs/limits#known-limitations)); throttled, the messages update at most once every 50 ms.
 
 ### When a run fails
 

@@ -133,20 +133,32 @@ const BLANK = /^[ \t\r]*$/;
 const BLOCK_START = /^[^\s\d*+-]/;
 /** Blocks are parsed together up to about this many characters: each parse has a fixed cost too. */
 const BLOCK_CHARS = 1_000;
-/** A fence: three or more backticks (with none after them on the line) or tildes. */
-const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)/;
+/** A fence, at any indent: three or more backticks (with none after them on the line) or tildes. */
+const FENCE = /^([ \t]*)(`{3,}(?=[^`]*$)|~{3,})(.*)/;
 /**
  * A fence opened on the line of a list item (`1. ```bash`) or a quote. Under a list item its closing
  * line is indented, as a fence at the margin may be, so the fences after it would be misread.
  */
 const CONTAINER_FENCE = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)+(?:`{3,}(?=[^`]*$)|~{3})/;
 /**
- * What may be a link reference or footnote definition (its label may hold `\]`), also in a list item
- * or a quote, or indented under one: CommonMark applies those to the whole text.
+ * What may be a link reference or footnote definition (its label may hold `\]`, or go on to the next
+ * line), also in a list item or a quote, or indented under one: CommonMark applies those to the whole
+ * text.
  */
-const DEFINITION = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)*\[(?:[^\\\]\n]|\\.)*\]:/;
+const DEFINITION = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)*\[(?:[^\\\]\n]|\\.)*(?:\]:|\\?$)/;
 /** What may start an HTML block, some of which go on past blank lines. */
 const HTML_START = /^ {0,3}</;
+
+/** The columns a line's leading spaces and tabs take, with a tab stop every 4. */
+function indentOf(line: string) {
+  let column = 0;
+  for (const char of line) {
+    if (char === ' ') column++;
+    else if (char === '\t') column += 4 - (column % 4);
+    else break;
+  }
+  return column;
+}
 
 /**
  * The text cut into top-level blocks, each parsed on its own, so that a streamed delta parses only
@@ -159,12 +171,21 @@ function splitBlocks(text: string): string[] {
   let start = 0;
   let size = 0;
   let fence = '';
+  /** The open fence's indent. */
+  let indent = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const marker = FENCE.exec(line);
     if (fence) {
-      // Closed by the same character, at least as many times, with nothing after it.
-      if (marker?.[1]!.startsWith(fence) && BLANK.test(marker[2]!)) fence = '';
+      // Closed by the same character, at least as many times, with nothing after it. A fence at the
+      // margin closes at up to 3 spaces. An indented one may be in a list item, which this does not
+      // follow: it is followed while its lines keep at least its indent and it closes at that indent,
+      // and otherwise the text is one block.
+      if (marker?.[2]!.startsWith(fence) && BLANK.test(marker[3]!)) {
+        const at = indentOf(line);
+        if (indent === 0 ? at <= 3 : at === indent) fence = '';
+        else if (indent > 0) return [text];
+      } else if (indent > 0 && !BLANK.test(line) && indentOf(line) < indent) return [text];
     } else {
       // Definitions are used across blocks, and some HTML blocks go on past blank lines: text with
       // either, outside fenced code (where `[key: string]: T` and `<div>` are only code), is one block.
@@ -175,7 +196,8 @@ function splitBlocks(text: string): string[] {
         start = i;
         size = 0;
       }
-      fence = marker?.[1] ?? '';
+      fence = marker?.[2] ?? '';
+      indent = marker ? indentOf(line) : 0;
     }
     size += line.length + 1;
   }

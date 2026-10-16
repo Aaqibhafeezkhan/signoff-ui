@@ -137,15 +137,24 @@ describe('Markdown, a block at a time', () => {
     expect(parsed.lengths.length).toBeGreaterThan(5);
   });
 
+  /**
+   * A code fence in `item`, then 1,202 characters of prose and a code block of terminal output with
+   * blank lines in it. Cut with the fences misread, the output splits into paragraphs and `All green.`
+   * lands in a code block that never closes.
+   */
+  const fenceThenOutput = (item: string) => {
+    const steps = Array.from({ length: 24 }, (_, i) => `Step ${i} checks package ${i} and says what it found.`);
+    const output = '```\nRUN  v4.1.0\n\nTest Files  12 passed (12)\n\nTests  140 passed (140)\n```';
+    return `To check:\n\n${item}\n\n${steps.join('\n\n')}\n\nThe output:\n\n${output}\n\nAll green.`;
+  };
+
   // Under a list item, the fence's closing line is indented, as a fence at the margin may be: cut,
   // a later code block of terminal output would split into paragraphs and swallow the text after it.
   it.each([
     ['a numbered list item', '1. ```bash\n   pnpm install\n   pnpm test\n   ```'],
     ['a list item', '- ```bash\n  pnpm install\n  pnpm test\n  ```'],
   ])('renders a code fence opened on the line of %s as one whole parse does', (_, item) => {
-    const steps = Array.from({ length: 24 }, (_, i) => `Step ${i} checks package ${i} and says what it found.`);
-    const output = '```\nRUN  v4.1.0\n\nTest Files  12 passed (12)\n\nTests  140 passed (140)\n```';
-    const text = `To check:\n\n${item}\n\n${steps.join('\n\n')}\n\nThe output:\n\n${output}\n\nAll green.`;
+    const text = fenceThenOutput(item);
     const whole = wholeMarkup(text);
     // Two code blocks, and the last line a paragraph after them.
     expect(whole.split('<pre')).toHaveLength(3);
@@ -155,12 +164,57 @@ describe('Markdown, a block at a time', () => {
     expect(parsed.lengths).toHaveLength(1);
   });
 
+  // In a list item, a fence may close up to three spaces past the item's content, so a fence that
+  // opens and closes at different indents is read only as one whole parse reads it.
+  it.each([
+    ['opened at 3 spaces and closed at 4', '1. Install:\n\n   ```bash\n   pnpm install\n    ```'],
+    ['opened at 4 spaces and closed at 3', '1. Install:\n\n    ```bash\n    pnpm install\n   ```'],
+    ['opened at 4 spaces and closed at 2', '- Install:\n\n    ```bash\n    pnpm install\n  ```'],
+    ['opened at 2 spaces and closed at 5', '- Install:\n\n  ```bash\n  pnpm install\n     ```'],
+    [
+      'opened at 3 spaces and closed at 4, in a tight list',
+      '1. Install:\n   ```bash\n   pnpm install\n    ```\n2. Then:',
+    ],
+    ['indented with a tab and closed at 2 spaces', '- Install:\n\n\t```bash\n\tpnpm install\n  ```'],
+  ])('renders a code fence in a list item %s as one whole parse does', (_, item) => {
+    const text = fenceThenOutput(item);
+    const whole = wholeMarkup(text);
+    expect(whole.split('<pre')).toHaveLength(3);
+    expect(whole).toMatch(/<p[^>]*>All green\.<\/p><\/div>$/);
+    parsed.lengths = [];
+    expect(markup(text)).toBe(whole);
+    expect(parsed.lengths).toHaveLength(1);
+  });
+
+  // A line at the margin ends a list item, and the fence in it: a fence line after it opens a code
+  // block of its own, which runs to the next fence.
+  it.each([
+    ['a fence on its line closed at the margin', '1. ```bash\n   pnpm install\n```'],
+    ['its fenced code written at the margin', '1. Install:\n   ```bash\npnpm install\n   ```'],
+  ])('renders a list item with %s as one whole parse does', (_, item) => {
+    const text = fenceThenOutput(item);
+    const whole = wholeMarkup(text);
+    parsed.lengths = [];
+    expect(markup(text)).toBe(whole);
+    expect(parsed.lengths).toHaveLength(1);
+  });
+
+  // A definition's label may go on to the next line.
+  it('resolves a reference to a definition whose label spans two lines, from another block', () => {
+    const { container } = render(
+      <Markdown>{`See [the docs page].\n\n${answer(1_200)}\n\n[the docs\npage]: https://example.com/docs`}</Markdown>,
+    );
+    expect(parsed.lengths).toHaveLength(1);
+    expect(container.querySelector('a[href="https://example.com/docs"]')).toHaveTextContent('the docs page');
+  });
+
   // A fence on a line of its own under a list item opens and closes at the same indent, so it is
   // followed as one at the margin is.
   it('still cuts text whose code fences are indented under list items', () => {
     const steps =
       '1. Install:\n\n   ```bash\n   pnpm install\n\n   pnpm build\n   ```\n\n' +
-      '2. Check:\n   ```bash\n   pnpm test\n   ```\n\n- Or with npm:\n\n  ```bash\n  npm test\n  ```';
+      '2. Check:\n   ```bash\n   pnpm test\n   ```\n\n- Or with npm:\n\n  ```bash\n  npm test\n  ```\n\n' +
+      '- Or with yarn:\n\n    ```bash\n    yarn test\n    ```';
     const text = `${answer(2_000)}\n\n${steps}\n\n${answer(2_000)}\n\n${steps}`;
     const whole = wholeMarkup(text);
     expect(parsed.lengths).toHaveLength(1);
