@@ -1,5 +1,0 @@
----
-'signoff-ui': patch
----
-
-`deriveAgentState` reads `thinking` while the model answers a call that has settled or a sub-agent that has finished. After a person denied `run_command`, the status read "Working run_command" with a live timer until the model's first token, as if the denied command were running; it did the same after a call finished or failed, and after a sub-agent finished, named after that sub-agent's last call. A call or a sub-agent of the same step still running beside a settled one, such as a parallel call, still reads `working`, and a running sub-agent is named after the call it is still on, not one it has finished (the sub-agent's own name between its calls). `AgentMessage` and `ToolCallTimeline` take `failed`: pass `failed={status === 'error'}` with `active={false}`, and an approved call whose request failed (a server error, a dropped connection) reads "Stopped" instead of "Running" under the Error status. The AG-UI and ACP walkthroughs, their demos, the playground and examples/coding-agent pass it too.
