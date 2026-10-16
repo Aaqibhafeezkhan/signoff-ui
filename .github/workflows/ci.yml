@@ -6,17 +6,22 @@ on:
   pull_request:
   # Started by the release workflow on its release pull request, which its own pushes can't trigger.
   workflow_dispatch:
+  # Daily, the examples installed fresh from npm (the fresh-install job) and nothing else.
+  schedule:
+    - cron: '17 5 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The daily run has a group of its own: a push to main doesn't cancel it, nor it the push's run.
+  group: ci-${{ github.ref }}${{ github.event_name == 'schedule' && '-daily' || '' }}
   cancel-in-progress: true
 
 jobs:
   ci:
     name: Lint, typecheck, test, build
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -82,6 +87,7 @@ jobs:
 
   ai-sdk-6:
     name: AI SDK 6
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -108,6 +114,7 @@ jobs:
 
   react-18:
     name: React 18
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -131,6 +138,7 @@ jobs:
 
   nextjs-quickstart:
     name: Next.js quickstart
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -157,6 +165,7 @@ jobs:
 
   assistant-ui:
     name: assistant-ui binding
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -179,6 +188,7 @@ jobs:
 
   coding-agent:
     name: Coding agent reference app
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -208,3 +218,106 @@ jobs:
       # npm pack, then a copy of the example built against the tarball with Next.js: what an app installs from npm.
       - name: Run the reference app from the packed package in Chrome, on a desktop and a phone
         run: pnpm smoke:coding-agent
+
+  # The playground, axe and the quickstart in Playwright's WebKit, Safari's engine, on a Mac, where it
+  # behaves as Safari and iOS do: a click on a button doesn't focus it.
+  webkit:
+    name: WebKit (Safari's engine)
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install WebKit
+        run: pnpm exec playwright-core install webkit
+
+      - name: Build library, registry and playground
+        run: pnpm build:lib && pnpm registry:build && pnpm build:playground
+
+      - name: Playground in WebKit, with focus after a click on the review's controls
+        run: pnpm smoke:playground
+        env:
+          BROWSER: webkit
+
+      - name: Accessibility in WebKit
+        run: pnpm a11y
+        env:
+          BROWSER: webkit
+
+      - name: Build examples/nextjs-minimal
+        run: pnpm --filter nextjs-minimal build
+
+      - name: Run the quickstart in WebKit
+        run: pnpm smoke:nextjs
+        env:
+          BROWSER: webkit
+
+  firefox:
+    name: Firefox
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Firefox
+        run: pnpm exec playwright-core install --with-deps firefox
+
+      - name: Build library, registry and playground
+        run: pnpm build:lib && pnpm registry:build && pnpm build:playground
+
+      - name: Playground in Firefox
+        run: pnpm smoke:playground
+        env:
+          BROWSER: firefox
+
+      - name: Build examples/nextjs-minimal
+        run: pnpm --filter nextjs-minimal build
+
+      - name: Run the quickstart in Firefox
+        run: pnpm smoke:nextjs
+        env:
+          BROWSER: firefox
+
+  # The examples as someone outside this repository runs them: copied out, installed from the
+  # registry with no lockfile, and started with `dev`. Daily with signoff-ui from npm; on the version
+  # pull request (and any run started by hand) with the package it is about to publish.
+  fresh-install:
+    name: Examples installed fresh from npm
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.head_ref == 'changeset-release/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build library
+        if: github.event_name != 'schedule'
+        run: pnpm build:lib
+
+      - name: Each example installed from npm, run with dev in Chrome, typechecked
+        run: pnpm smoke:fresh-install ${{ github.event_name != 'schedule' && '--pack' || '' }}

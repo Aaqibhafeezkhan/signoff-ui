@@ -4,11 +4,23 @@
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
 //   pnpm smoke:playground   # starts the built playground on :3220, or tests BASE_URL if set
+//   BROWSER=webkit pnpm smoke:playground   # or firefox: Playwright's builds, not Chrome
+//
+// Playwright's WebKit is Safari's engine (`pnpm exec playwright-core install webkit firefox`). On a
+// Mac it behaves as Safari does: a click on a button doesn't focus it.
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import { chromium, firefox, webkit } from 'playwright-core';
+
+const BROWSER = process.env.BROWSER ?? 'chrome';
+const launch = {
+  chrome: () => chromium.launch({ channel: 'chrome' }),
+  firefox: () => firefox.launch(),
+  webkit: () => webkit.launch(),
+}[BROWSER];
+if (!launch) throw new Error(`BROWSER is chrome, firefox or webkit, not ${BROWSER}`);
 
 const PORT = 3220;
 const BASE = process.env.BASE_URL ?? `http://localhost:${PORT}`;
@@ -30,7 +42,7 @@ if (!process.env.BASE_URL) {
   }
 }
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await launch();
 let failed = false;
 const check = (ok, label, detail = '') => {
   failed ||= !ok;
@@ -580,10 +592,10 @@ try {
   await wide.close();
 
   // No page scrolls sideways, and nothing spills out of a docs article, on a phone, a tablet or a
-  // laptop, in either theme.
+  // laptop, in either theme; nor at 320px, the width WCAG's reflow criterion (1.4.10) asks for.
   const sideways = [];
   for (const colorScheme of ['light', 'dark']) {
-    for (const width of [390, 768, 1024, 1440]) {
+    for (const width of [320, 390, 768, 1024, 1440]) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme });
       for (const path of [
         '/',
@@ -611,7 +623,7 @@ try {
   }
   check(
     sideways.length === 0,
-    'no page scrolls sideways at 390, 768, 1024 or 1440px, light or dark',
+    'no page scrolls sideways at 320, 390, 768, 1024 or 1440px, light or dark',
     sideways.join('; '),
   );
 
@@ -787,6 +799,90 @@ try {
     String(replayFocus),
   );
   await replay.close();
+
+  // With reduced motion asked for, nothing moves through a run up to the approval card: no keyframe
+  // animation (shimmer, pulse, blink) and no transition but a colour's.
+  const still = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    colorScheme: 'dark',
+    reducedMotion: 'reduce',
+  });
+  const calm = await still.newPage();
+  await calm.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
+  const moving = new Set();
+  const calmCard = calm.locator(runPending);
+  for (let sample = 0; sample < 120 && (await calmCard.count()) === 0; sample++) {
+    const running = await calm.evaluate(() =>
+      document
+        .getAnimations()
+        .filter((a) => !(a instanceof CSSTransition && /color$/.test(a.transitionProperty)))
+        .map((a) => {
+          const target = a.effect?.target;
+          return `${a.animationName ?? a.transitionProperty} on ${target?.dataset?.slot ?? target?.tagName.toLowerCase()}`;
+        }),
+    );
+    for (const animation of running) moving.add(animation);
+    await calm.waitForTimeout(250);
+  }
+  check(
+    (await calmCard.count()) > 0 && moving.size === 0,
+    'reduced motion: nothing animates through a run, up to the approval card (colour changes aside)',
+    [...moving].join(', ') || 'the approval card never showed',
+  );
+  await still.close();
+
+  // A click keeps the keys working. Chrome and Firefox focus the button clicked; Safari focuses no
+  // button on a click, so the review's root takes focus instead (its tabIndex -1). Either way, after
+  // a click on Accept all, Reject file or Viewed, J moves to a hunk and ⌘Enter applies the review,
+  // rather than reaching the page, where a pending card with globalShortcut would take ⌘Enter.
+  const clicks = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  await clicks.goto(`${BASE}/docs/components/diff-review`, { waitUntil: 'networkidle' });
+  const clicked = clicks.locator('main [data-slot="signoff-diff-review"]').first();
+  const focused = () =>
+    clicks.evaluate(() => {
+      const el = document.activeElement;
+      return `${el?.tagName.toLowerCase()}${el?.dataset.slot ? `[${el.dataset.slot}]` : ''}`;
+    });
+  const lost = [];
+  for (const [name, control] of [
+    ['Accept all', clicked.getByRole('button', { name: 'Accept all' })],
+    ['Reject file', clicked.getByRole('button', { name: /^Reject file/ }).first()],
+    ['Viewed', clicked.getByRole('checkbox').first()],
+  ]) {
+    await control.click();
+    const after = await focused();
+    const kept = await clicked.evaluate((el) => el.contains(document.activeElement));
+    await clicks.keyboard.press('j');
+    const moved = await focused();
+    if (!kept || moved !== 'div[signoff-diff-hunk]') lost.push(`${name}: ${after}, then J: ${moved}`);
+  }
+  await clicked.getByRole('button', { name: 'Accept all' }).click();
+  await clicks.keyboard.press('ControlOrMeta+Enter');
+  const applied = await clicks
+    .getByRole('group', { name: 'Tool output' })
+    .waitFor({ timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  check(
+    lost.length === 0 && applied,
+    'diff review: after a click on Accept all, Reject file or Viewed, J moves to a hunk and ⌘Enter applies',
+    `${lost.join('; ')}${applied ? '' : `; ⌘Enter after Accept all: not applied, focus on ${await focused()}`}`,
+  );
+  // The same for the timeline: after a click on a call, ↓ moves to the next one. Not yet in WebKit,
+  // where the click leaves focus on the page (the timeline's root can't take it): reported, not failed.
+  await clicks.goto(`${BASE}/docs/components/tool-call-timeline`, { waitUntil: 'networkidle' });
+  const call = clicks.locator('main [data-slot="signoff-tool-call-trigger"]').first();
+  await call.click();
+  const afterCall = await focused();
+  await clicks.keyboard.press('ArrowDown');
+  const nextCall = await clicks.evaluate(
+    (first) => document.activeElement !== first && document.activeElement?.dataset.slot === 'signoff-tool-call-trigger',
+    await call.elementHandle(),
+  );
+  const timelineLabel = 'timeline: after a click on a call, ↓ moves to the next one';
+  if (BROWSER === 'webkit' && !nextCall) console.log(`known  ${timelineLabel}: not in WebKit, focus on ${afterCall}`);
+  else check(nextCall, timelineLabel, `focus on ${afterCall}, then ↓: ${await focused()}`);
+  await clicks.close();
 
   // The components page: the anchors launch posts link to, npm snippets that bring the styles, and the
   // header's theme switch, which re-themes the page and the frames, with no axe violations

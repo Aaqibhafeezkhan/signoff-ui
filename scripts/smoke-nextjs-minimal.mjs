@@ -5,9 +5,18 @@
 //
 //   pnpm build:lib && pnpm --filter nextjs-minimal build
 //   pnpm smoke:nextjs   # starts the built example on :3210, or tests BASE_URL if set
+//   BROWSER=webkit pnpm smoke:nextjs   # or firefox (`pnpm exec playwright-core install webkit firefox`)
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import { chromium, firefox, webkit } from 'playwright-core';
+
+const BROWSER = process.env.BROWSER ?? 'chrome';
+const launch = {
+  chrome: () => chromium.launch({ channel: 'chrome' }),
+  firefox: () => firefox.launch(),
+  webkit: () => webkit.launch(),
+}[BROWSER];
+if (!launch) throw new Error(`BROWSER is chrome, firefox or webkit, not ${BROWSER}`);
 
 const PORT = 3210;
 const BASE = process.env.BASE_URL ?? `http://localhost:${PORT}`;
@@ -46,7 +55,7 @@ async function runTotal(page) {
   return { ttft: ttft && parseDuration(ttft), total: parseDuration(total) };
 }
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await launch();
 const errors = [];
 try {
   const page = await browser.newPage();
