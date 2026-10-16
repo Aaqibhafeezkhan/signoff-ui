@@ -36,17 +36,24 @@ describe('link previews', () => {
   );
   const alt = (path: string) => /export const alt = (.+);/.exec(source(path))?.[1] ?? '';
 
-  it('give every image an alt that starts with the site’s name, as the static ones do', () => {
+  it('give every image an alt that names the site, and none reads "An signoff-ui"', () => {
     assert.ok(images.length >= 5, images.join(', '));
     for (const path of images) {
-      // Not "An signoff-ui docs page": the name, then what the card shows.
-      assert.match(alt(join('app', path)), /^(['`"])(signoff-ui|\$\{PACKAGE\})[ :]/, path);
+      assert.match(alt(join('app', path)), /signoff-ui|\$\{PACKAGE\}/, path);
+      assert.doesNotMatch(alt(join('app', path)), /\bAn signoff-ui\b/, path);
     }
   });
 
   it('say what a page’s card shows: its title and summary, or the component and what it does', () => {
-    assert.match(alt('app/docs/[slug]/opengraph-image.tsx'), /^'signoff-ui docs: .*title and summary'$/);
-    assert.match(alt('app/docs/components/[slug]/opengraph-image.tsx'), /^'signoff-ui: .*component.*what it does'$/);
+    // One alt serves every page of a dynamic route, so it describes the card rather than one page.
+    assert.match(
+      alt('app/docs/[slug]/opengraph-image.tsx'),
+      /^'Preview card from the signoff-ui docs, .*title and summary'$/,
+    );
+    assert.match(
+      alt('app/docs/components/[slug]/opengraph-image.tsx'),
+      /^'Preview card from the signoff-ui docs, .*component name and what it does'$/,
+    );
   });
 });
 
@@ -91,13 +98,18 @@ describe('sitemap dates on a shallow clone', () => {
     return join(temp, name, 'examples/playground');
   };
 
-  // The playground's own script, which `pnpm build` runs before `next build`.
+  // The playground's own script, which `pnpm build` runs before `next build`, run in the clone. What
+  // it prints, git's errors included, goes to stderr.
   const scripts = (JSON.parse(source('package.json')) as { scripts: Record<string, string> }).scripts;
   const unshallow = (cwd: string, extra: Env = {}) => {
-    assert.ok(scripts.unshallow, 'package.json has no unshallow script');
-    const result = spawnSync(scripts.unshallow, { cwd, shell: true, encoding: 'utf8', env: { ...env, ...extra } });
+    const result = spawnSync(process.execPath, [join(SITE, 'scripts/unshallow.mjs')], {
+      cwd,
+      encoding: 'utf8',
+      env: { ...env, ...extra },
+    });
     // It never fails the build: without history, pages go without a date, as before.
     assert.equal(result.status, 0, result.stderr);
+    return result.stderr;
   };
   const shallow = (cwd: string) => run(cwd, 'git', ['rev-parse', '--is-shallow-repository']);
   // What the sitemap and the docs pages read, from lib/git.ts run in the clone as `next build` runs.
@@ -110,20 +122,35 @@ describe('sitemap dates on a shallow clone', () => {
     ]);
 
   it('runs before next build', () => {
+    assert.equal(scripts.unshallow, 'node scripts/unshallow.mjs');
     assert.match(scripts.build ?? '', /^pnpm unshallow && /);
   });
 
   it('fetches the history on Vercel, so a page not changed lately keeps its date', () => {
     const cwd = clone('on-vercel');
     assert.equal(lastModified(cwd), 'none');
-    unshallow(cwd, { VERCEL: '1' });
+    assert.equal(unshallow(cwd, { VERCEL: '1' }), '');
     assert.equal(shallow(cwd), 'false');
     assert.equal(lastModified(cwd), new Date(OLD).toISOString());
   });
 
+  it('says so in the build log when the clone is still shallow, as one with no remote is', () => {
+    const cwd = clone('no-remote');
+    run(cwd, 'git', ['remote', 'remove', 'origin']);
+    // git fetches nothing here, and git 2.54 prints nothing about it and exits with 0, so the last
+    // line of the log is the script's own.
+    const log = unshallow(cwd, { VERCEL: '1' });
+    assert.equal(shallow(cwd), 'true');
+    assert.equal(lastModified(cwd), 'none');
+    assert.match(
+      log,
+      /(^|\n)sitemap dates: the clone is still shallow, .*set VERCEL_DEEP_CLONE=true on the project\n$/,
+    );
+  });
+
   it('leaves any other clone as it is: CI and local builds fetch nothing', () => {
     const cwd = clone('elsewhere');
-    unshallow(cwd);
+    assert.equal(unshallow(cwd), '');
     assert.equal(shallow(cwd), 'true');
     assert.equal(lastModified(cwd), 'none');
   });
