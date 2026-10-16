@@ -293,6 +293,26 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once', input: { command: 'git push --force origin' } });
   });
 
+  it('a press globalShortcut arms from outside a critical card ends when focus or a click goes elsewhere', async () => {
+    expect(text()).toContain(
+      'A press it arms on a `critical` card from outside the card ends when focus or a click goes anywhere but the card, so after typing in a composer and sending, the next ⌘/Ctrl+Enter is a first press again.',
+    );
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    render(<Page cards={[{ globalShortcut: true, risk: 'critical', input: { command: 'rm -rf ~' }, onDecide }]} />);
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(screen.getByRole('button', { name: /^Confirm approval/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    await user.keyboard('wait, not that');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
+    // A first press again: the next one confirms.
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once' });
+  });
+
   it('with several pending cards, globalShortcut approves the latest to ask', async () => {
     expect(text()).toContain(
       "With several pending, as when `AgentMessage`'s `approvalProps` turns it on for parallel calls, the keys answer one card: the one they're pressed in, or else the latest to ask.",

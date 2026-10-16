@@ -139,7 +139,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   /**
    * Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending, except a text field,
    * where the keys are the field's (a chat composer's send, say). With several cards pending, one
-   * answers: the card the keys are pressed in, else the latest to ask.
+   * answers: the card the keys are pressed in, else the latest to ask. A critical press armed from
+   * outside the card ends when focus or a click goes anywhere but the card.
    * @default false
    */
   globalShortcut?: boolean;
@@ -401,9 +402,9 @@ const globalCards: GlobalCard[] = [];
 
 /**
  * What a critical action's first press armed. It holds until the second press, Escape, or focus
- * leaving `ref`'s element, with no timer to beat: the person confirms at their own pace, after a
- * screen reader has read the request (WCAG 2.2.1). It belongs to the `call` it was armed on, so
- * new arguments, or new calls waiting, start disarmed.
+ * or a click going outside `ref`'s element, with no timer to beat: the person confirms at their
+ * own pace, after a screen reader has read the request (WCAG 2.2.1). It belongs to the `call` it
+ * was armed on, so new arguments, or new calls waiting, start disarmed.
  */
 function useArmed<T>(ref: RefObject<HTMLElement | null>, call: unknown) {
   const [armed, setArmed] = useState<{ value: T; call: unknown }>();
@@ -424,11 +425,23 @@ function useArmed<T>(ref: RefObject<HTMLElement | null>, call: unknown) {
     const onFocusOut = (event: globalThis.FocusEvent) => {
       if (!element?.contains(event.relatedTarget as Node | null)) disarm();
     };
+    // Armed by ⌘/Ctrl+Enter from outside, focus was never in here to leave: focus or a click going
+    // anywhere else ends it, so typing in a composer and sending doesn't leave one press to go.
+    // The click is for Safari, where a click on a button doesn't focus it. The path, not the
+    // target, as the target out here of a card in a shadow root is its host.
+    const onOutside = (event: Event) => {
+      if (!(element && event.composedPath().includes(element))) disarm();
+    };
     window.addEventListener('keydown', onKey);
     element?.addEventListener('focusout', onFocusOut);
+    // Capturing, so a handler that stops the event on its way doesn't keep the press armed.
+    document.addEventListener('focusin', onOutside, true);
+    document.addEventListener('pointerdown', onOutside, true);
     return () => {
       window.removeEventListener('keydown', onKey);
       element?.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('focusin', onOutside, true);
+      document.removeEventListener('pointerdown', onOutside, true);
     };
   }, [armed, ref, disarm]);
   const arm = (value: T | undefined) => setArmed(value === undefined ? undefined : { value, call });
@@ -447,7 +460,7 @@ function focusedElement(): Element | null {
  * how risky it is, and lets the user approve or deny by mouse or keyboard, once,
  * for the session or always, with the arguments edited first when `editable`.
  * Critical actions require a second confirming press: the first stays armed, with no time limit,
- * until Escape or focus leaves the card.
+ * until Escape, or focus or a click goes outside the card.
  *
  * The card is a group named by its title, not a landmark, so a run with many approvals doesn't
  * fill landmark navigation; pass `role="region"` to make it one.

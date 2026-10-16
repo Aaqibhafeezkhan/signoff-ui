@@ -340,6 +340,80 @@ describe('ApprovalCard: a critical confirmation waits for a second, separate pre
     expect(onDecide).not.toHaveBeenCalled();
   });
 
+  it('with globalShortcut, a press armed outside the card ends when the person goes on: typing and sending, then one ⌘/Ctrl+Enter, does not approve', async () => {
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    render(<Page card={{ risk: 'critical', globalShortcut: true, onDecide, input: { command: 'rm -rf ~' } }} />);
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(armed()).toBeInTheDocument();
+    // Focus was never in the card, so it never left it: going on elsewhere has to end the press.
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    expect(armed()).not.toBeInTheDocument();
+    await user.keyboard('looks wrong, stop');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(armed()).toBeInTheDocument();
+  });
+
+  it.each([
+    ['a button', () => screen.getByRole('button', { name: 'Send' })],
+    ['the page', () => document.body],
+  ])(
+    'where a click does not focus (Safari), a click on %s outside the card ends a press armed there',
+    async (_, target) => {
+      const onDecide = vi.fn();
+      const user = userEvent.setup();
+      render(<Page card={{ risk: 'critical', globalShortcut: true, onDecide }} />);
+      await user.keyboard('{Control>}{Enter}{/Control}');
+      expect(armed()).toBeInTheDocument();
+      // fireEvent, like Safari on a button, moves no focus: the click itself ends the press.
+      fireEvent.pointerDown(target());
+      expect(armed()).not.toBeInTheDocument();
+      await user.keyboard('{Control>}{Enter}{/Control}');
+      expect(onDecide).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      'the next ⌘/Ctrl+Enter',
+      (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Control>}{Enter}{/Control}'),
+    ],
+    // A click on the card's own Confirm button is the second press, not a move elsewhere.
+    ['a click on Confirm approval', (user: ReturnType<typeof userEvent.setup>) => user.click(armed()!)],
+  ])('with globalShortcut, a press armed outside the card is confirmed by %s', async (_, confirm) => {
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page card={{ risk: 'critical', globalShortcut: true, onDecide }} />);
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(armed()).toBeInTheDocument();
+    await confirm(user);
+    expect(decisions(onDecide)).toEqual(['allow-once']);
+  });
+
+  it('in a shadow root, a click on the card’s own Confirm button still confirms', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    onTestFinished(() => host.remove());
+    const root = host.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    root.append(container);
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    const card = (
+      <ApprovalCard toolName="run_command" input={{ command: 'rm -rf ~' }} risk="critical" onDecide={onDecide} />
+    );
+    render(card, { container });
+    const approve = () => container.querySelector<HTMLButtonElement>('[data-decision="allow-once"]')!;
+    // Out here, the click's target is the shadow host, outside the card: the path says where it began.
+    await user.click(approve());
+    expect(approve()).toHaveTextContent(/^Confirm approval/);
+    await user.click(approve());
+    expect(decisions(onDecide)).toEqual(['allow-once']);
+  });
+
   it('focus leaving the card disarms it; focus moving inside it does not', async () => {
     const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
     const user = userEvent.setup();
@@ -505,6 +579,17 @@ describe('ToolApprovalBatch: Approve all over a critical call waits for a second
     fireEvent.click(screen.getByRole('button', { name: 'Approve all' }));
     expect(armed()).toBeInTheDocument();
     act(() => screen.getByRole('button', { name: 'Send' }).focus());
+    expect(armed()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }));
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
+  it('a click outside it that moves no focus (Safari) disarms it; one inside it does not', () => {
+    const { onRespond } = setupBatch();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }));
+    fireEvent.pointerDown(screen.getByRole('group', { name: 'Approvals waiting' }));
+    expect(armed()).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Send' }));
     expect(armed()).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Approve all' }));
     expect(onRespond).not.toHaveBeenCalled();
