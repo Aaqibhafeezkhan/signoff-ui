@@ -363,6 +363,8 @@ What each part is for:
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.
 - **`onError`.** A tool that throws becomes an `output-error` part, and its `errorText` goes through `onError`. By default that hides every message behind "An error occurred.", so the timeline would show that instead of `ENOENT`. In production, pass through the errors you're happy for users to read and keep the rest generic.
 
+For an agent that writes long answers, pass `throttle: 50` to `useChat` (`experimental_throttle` in AI SDK 6). `AgentMessage` parses the streaming text again on every delta, which takes longer the longer the text ([Known limitations](/docs/limits#known-limitations)); throttled, the messages update at most once every 50 ms.
+
 ### When a run fails
 
 A request that fails leaves the status reading "Error", and the client says why under it: it takes `error` from `useChat` and renders `{error && <p role="alert">{error.message}</p>}` after `<AgentStatus>`. On a first run, the most likely cause is a missing API key. The route then fails before it calls the model, and the server's log has `AI_LoadAPIKeyError`: "OpenAI API key is missing. Pass it using the 'apiKey' parameter or the OPENAI_API_KEY environment variable." The route's `onError` sends that message to the client, where every failure would otherwise read "An error occurred.", and `useChat` returns it as `error`. The client renders only the last assistant message, so the text you sent isn't on screen.
