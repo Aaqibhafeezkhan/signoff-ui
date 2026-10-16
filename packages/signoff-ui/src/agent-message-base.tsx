@@ -47,6 +47,12 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
    * See `ToolCallTimeline`'s `active`.
    */
   active?: boolean;
+  /**
+   * The run ended in an error (`useChat`'s `status === 'error'`, or a run restored from history that
+   * ended in one). Default `false`. With `active={false}`, approved calls whose result never came back
+   * then read "Stopped" too. See `ToolCallTimeline`'s `failed`.
+   */
+  failed?: boolean;
   tools?: Record<string, ToolMeta> | undefined;
   /**
    * Render a tool part yourself. Return `undefined` to use the default timeline,
@@ -110,6 +116,7 @@ export function AgentMessageBase({
   message,
   streaming = false,
   active = true,
+  failed = false,
   tools,
   renderTool,
   onToolApproval,
@@ -241,6 +248,7 @@ export function AgentMessageBase({
                   tools={tools}
                   timings={timings}
                   active={active}
+                  failed={failed}
                   renderExtra={
                     onToolApproval
                       ? (part) =>

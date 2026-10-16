@@ -164,13 +164,15 @@ export function getAllToolParts(parts: readonly AnyUIPart[]): ToolPart[] {
 /**
  * Calls that only the model or a tool can still finish: input still streaming, running, or partial
  * output. Once the run has ended, these were cut off. An approved call waiting for the app to send
- * the continuation (`approval-responded`) is not one: `useChat` sends it after a render.
+ * the continuation (`approval-responded`) is not one: `useChat` sends it after a render. Once that
+ * request has `failed`, it is: its result will not come.
  */
-export function isInterruptibleToolPart(part: ToolPart): boolean {
+export function isInterruptibleToolPart(part: ToolPart, failed = false): boolean {
   return (
     part.state === 'input-streaming' ||
     part.state === 'input-available' ||
-    (part.state === 'output-available' && part.preliminary === true)
+    (part.state === 'output-available' && part.preliminary === true) ||
+    (failed && part.state === 'approval-responded' && part.approval.approved === true)
   );
 }
 
@@ -319,11 +321,20 @@ export function deriveAgentState({
   if (clientWait && status !== 'submitted') return { state: 'awaiting-approval', detail: getToolPartName(clientWait) };
   if (status === 'submitted') return { state: 'thinking' };
   if (status === 'streaming') {
-    const last = parts.at(-1);
+    let last = parts.at(-1);
     if (!last || last.type === 'step-start' || last.type === 'reasoning') return { state: 'thinking' };
+    // A settled call (done, failed or denied) or a sub-agent that has finished is not work: the model
+    // is answering it. Parallel calls settle in any order, so a call or sub-agent of this step still
+    // running before it is. Calls of earlier steps had all settled when this one started.
+    if (isSettledWork(last)) {
+      const step = parts.slice(parts.findLastIndex((p) => p.type === 'step-start') + 1);
+      last = step.findLast((p) => (isToolPart(p) || isSubagentPart(p)) && !isSettledWork(p));
+      if (!last) return { state: 'thinking' };
+    }
     if (isToolPart(last)) return { state: 'working', detail: getToolPartName(last) };
     if (isSubagentPart(last)) {
-      const call = getAllToolParts([last]).at(-1);
+      // Its call still going, or the sub-agent itself while it thinks between calls.
+      const call = getAllToolParts([last]).findLast((t) => !isSettledPhase(getToolPhase(t)));
       return { state: 'working', detail: call ? getToolPartName(call) : last.data.name };
     }
     if (last.type === 'text') return { state: 'working', detail: writingResponse };
@@ -335,6 +346,12 @@ export function deriveAgentState({
     if (parts.some(isUnfinishedPart)) return { state: 'stopped' };
   }
   return parts.length > 0 ? { state: 'done' } : { state: 'idle' };
+}
+
+/** A call that has settled (done, failed or denied), or a sub-agent no longer running. */
+function isSettledWork(part: AnyUIPart): boolean {
+  if (isToolPart(part)) return isSettledPhase(getToolPhase(part));
+  return isSubagentPart(part) && part.data.status !== 'running';
 }
 
 /** A part the run left unfinished: text or reasoning still streaming, or an interrupted tool call. */

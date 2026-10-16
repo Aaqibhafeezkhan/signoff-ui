@@ -47,6 +47,7 @@ export function AgentRun() {
           streaming={status === 'streaming'}
           // Once the run has finished, been stopped or failed, calls that never settled read "Stopped".
           active={state !== 'done' && state !== 'stopped' && state !== 'error'}
+          failed={status === 'error'}
           onToolApproval={addToolApprovalResponse}
           // The proposed edit, reviewed hunk by hunk: the agent gets the files as applied, and your comments.
           renderTool={(part) =>

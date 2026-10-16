@@ -41,6 +41,7 @@ export function AgentRun() {
           message={last}
           streaming={status === 'streaming'}
           active={state !== 'done' && state !== 'stopped' && state !== 'error'}
+          failed={status === 'error'}
           onToolApproval={respond}
         />
       ) : null}
