@@ -1,5 +1,5 @@
 import { act, render, renderHook, waitFor } from '@testing-library/react';
-import { useEffect, useRef } from 'react';
+import { StrictMode, useEffect, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApprovalRule } from '../src/lib/policy';
 import {
@@ -358,6 +358,54 @@ describe('useApprovalPolicy', () => {
     render(<Page />);
     expect((saved.load() as ApprovalRule[]).map((r) => r.id)).toEqual(['mine', 'no-push']);
   });
+
+  it.each([false, true])(
+    'keeps and saves the changes a child makes before the storage loads, in StrictMode (async storage: %s)',
+    async (async) => {
+      const saved = memoryRuleStorage([
+        { id: 'no-push', tool: 'run_command', effect: 'deny', scope: 'always' },
+        { id: 'old', tool: 'read_file', effect: 'allow', scope: 'always' },
+      ]);
+      let release = () => {};
+      const storage: ApprovalRuleStorage = {
+        load: () => (async ? new Promise((resolve) => (release = () => resolve(saved.load()))) : saved.load()),
+        save: (rules) => saved.save(rules),
+        loadRemovedDefaults: () => saved.loadRemovedDefaults!(),
+        saveRemovedDefaults: (removed) => saved.saveRemovedDefaults!(removed),
+      };
+      let policy!: ApprovalPolicy;
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        // Once, though StrictMode runs the effect twice.
+        const done = useRef(false);
+        useEffect(() => {
+          if (done.current) return;
+          done.current = true;
+          policy.addRule({ id: 'mine', tool: 'search', effect: 'allow', scope: 'always' });
+          policy.addRule({ id: 'old', tool: 'write_file', effect: 'allow', scope: 'always' });
+          policy.removeRule('default:list');
+        });
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage, defaultRules: [LIST] });
+        return <Child policy={policy} />;
+      }
+      render(
+        <StrictMode>
+          <Page />
+        </StrictMode>,
+      );
+      await act(async () => release());
+      const kept = [
+        ['mine', 'search'],
+        ['old', 'write_file'],
+        ['no-push', 'run_command'],
+      ];
+      await waitFor(() => expect(policy.rules.map((r) => [r.id, r.tool])).toEqual(kept));
+      expect((saved.load() as ApprovalRule[]).map((r) => [r.id, r.tool])).toEqual(kept);
+      expect(saved.loadRemovedDefaults!()).toEqual(['default:list']);
+    },
+  );
 
   /** A storage holding a saved deny rule, sync or async: `release` lets an async one load. */
   function savedDeny(async: boolean) {

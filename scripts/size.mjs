@@ -42,7 +42,7 @@ const rows = [
   [
     '`AgentMessage` (`/custom-markdown`, for your own renderer: no react-markdown)',
     `export { AgentMessage } from ${customMarkdown};`,
-    34.5,
+    35.5,
     ['react-markdown', 'remark-gfm', 'remend'],
   ],
   ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 3.7],
@@ -50,7 +50,7 @@ const rows = [
   [
     '`signoffTools` (`/assistant-ui`, with DiffReview and the approval card)',
     `export * from ${JSON.stringify(join(dist, 'assistant-ui.js'))};`,
-    52.5,
+    55,
   ],
   ['Everything in the main entry', `export * from ${index};`, 126.5],
 ];

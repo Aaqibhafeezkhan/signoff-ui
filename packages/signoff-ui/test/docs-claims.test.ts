@@ -52,6 +52,17 @@ describe('Performance and limits: rules', () => {
     expect(item(limitations, 'Rules from the client.')).toContain("a person's grants on top of your server policy");
   });
 
+  it("says the matching bound is each rule's, with the matcher's numbers, and to cap the arguments", () => {
+    const bullet = item(limitations, 'Rules from the client.');
+    const policy = readFileSync(join(root, 'packages/signoff-ui/src/lib/policy.ts'), 'utf8');
+    expect(policy).toContain('const RULE_STEPS = 20_000;');
+    expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
+    expect(bullet).toContain('Each rule gets 20,000 matching steps and 30 more for each character it reads');
+    expect(bullet).toContain('That bounds each rule, not a call');
+    expect(bullet).toContain("cap the length of the arguments in the tool's input schema");
+    expect(bullet).not.toMatch(/can't hold up/);
+  });
+
   const noPush: ApprovalRule[] = [
     { id: 'no-push', tool: 'run_command', args: { command: 'git push*' }, effect: 'deny', scope: 'always' },
   ];

@@ -417,9 +417,10 @@ const specificity = (rule: ApprovalRule) =>
  * The rule that decides a call, if any. A deny rule wins over an allow rule, whatever their
  * order; among rules of the same effect the most specific is the one reported. Each rule's matching
  * takes a bounded amount of work, in proportion to the arguments it reads: far more than common
- * patterns need, however long the arguments. A rule that runs out before it can tell counts against
- * the call: an allow rule allows nothing, and a deny rule denies, reported as `unchecked` when no
- * other deny rule covers the call.
+ * patterns need, however long the arguments. The bound is each rule's, so a call's work grows with
+ * the number of rules times the arguments' length: cap the arguments where a client sends rules. A
+ * rule that runs out before it can tell counts against the call: an allow rule allows nothing, and a
+ * deny rule denies, reported as `unchecked` when no other deny rule covers the call.
  */
 export function evaluateRules(rules: readonly ApprovalRule[], toolName: string, input: unknown): RuleMatch | undefined {
   // Each argument's commands, split once for all the rules.

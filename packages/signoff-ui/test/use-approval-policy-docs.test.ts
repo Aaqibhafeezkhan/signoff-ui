@@ -14,6 +14,8 @@ import { evaluateRules, toToolApproval, type ApprovalRule } from '../src/lib/pol
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const page = readFileSync(join(root, 'examples/playground/content/components/use-approval-policy.md'), 'utf8');
+/** The matcher's source, for the steps each rule starts with and earns for each character it reads. */
+const policy = readFileSync(join(root, 'packages/signoff-ui/src/lib/policy.ts'), 'utf8');
 
 /** A `###` section, from its heading to the next heading. */
 function section(heading: string) {
@@ -61,6 +63,10 @@ describe('the useApprovalPolicy page: patterns', () => {
     expect(denies('git push*', 'echo git push')).toBe(false);
     expect(reads).toContain('it also denies `git commit -m "wip; git push"`');
     expect(denies('git push*', 'git commit -m "wip; git push"')).toBe(true);
+    expect(reads).toContain(
+      'any word after `sudo` or `timeout` may start the command, `sudo grep -rn "git push" docs` too.',
+    );
+    expect(denies('git push*', 'sudo grep -rn "git push" docs')).toBe(true);
     expect(reads).toContain("`rm*` denies `['rm', '-rf', '~']`");
     expect(denies('rm*', ['rm', '-rf', '~'])).toBe(true);
     expect(reads).toContain('`npm test*` allows neither ` npm test` nor `FOO=1 npm test`');
@@ -101,7 +107,11 @@ describe('the useApprovalPolicy page: patterns', () => {
   });
 
   it('says what happens to a rule that stops before it can tell, with the reason it gives', () => {
-    const bound = paragraph(patterns, 'Each rule gets a number of matching steps');
+    const bound = paragraph(patterns, 'Each rule gets ');
+    expect(policy).toContain('const RULE_STEPS = 20_000;');
+    expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
+    expect(bound).toContain('Each rule gets 20,000 matching steps, and 30 more for each character it reads');
+    expect(bound).toContain('That bounds each rule, not a call, whose matching grows with the number of rules');
     expect(bound).toContain('a rule such as `**PRIVATE KEY**` is decided on an argument of any length');
     const reason = /`toToolApproval`'s is "([^"]*)…"/.exec(bound)?.[1];
     expect(reason).toBe('Denied: the arguments are too long to check against a rule: ');
@@ -131,6 +141,15 @@ describe('the useApprovalPolicy page: patterns', () => {
 
 describe("the useApprovalPolicy page: the server's rules win", () => {
   const text = section("The server's rules win");
+
+  it("says what bounds a call's matching, and to cap the arguments on a route that takes rules", () => {
+    const bound = paragraph(text, 'The route gets whatever the client sent');
+    expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
+    expect(bound).toContain('bounded at about 30 steps for each character it reads');
+    expect(bound).toContain('grows with the number of rules times the length of its arguments');
+    expect(bound).toContain('cap the length of the arguments they read');
+    expect(bound).not.toMatch(/however many|can't hold up/);
+  });
 
   it("says a client's rule can approve a call the server's deny patterns miss, as it does", () => {
     expect(text).toContain('It can approve one their patterns miss, such as `git -C . push` past a `git push*`');

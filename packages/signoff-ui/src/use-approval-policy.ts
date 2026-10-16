@@ -299,6 +299,9 @@ export function useApprovalPolicy({
   // every render) does not reload it. Saves go to the current one.
   const [loadFrom] = useState(storage);
   useEffect(() => {
+    // Run again once it has loaded, as StrictMode does: loading again would put the saved rules back
+    // over the changes made before, and drop their save.
+    if (!early.current) return;
     let live = true;
     const apply = ([loaded, removed]: readonly [readonly ApprovalRule[], readonly string[]]) => {
       if (!live) return;

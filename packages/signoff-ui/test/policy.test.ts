@@ -236,6 +236,15 @@ describe('deny rules read each command of a line', () => {
     expect(both(command)).toMatchObject({ type: 'approved' });
   });
 
+  it.each([
+    ['git push*', 'git commit -m "wip; git push"'],
+    ['git push*', 'sudo grep -rn "git push" docs'],
+    ['git push*', 'timeout 60 echo git push'],
+    ['rm*', 'timeout 300 npm test -- --grep rm'],
+  ])('over-denies, as the changeset says: %s denies %j', (pattern, command) => {
+    expect(denies(pattern, command)).toBe(true);
+  });
+
   it('keeps allow rules matching from the first character', () => {
     const allows = (pattern: string, command: unknown) =>
       evaluateRules([rule({ args: { command: pattern } })], 'run_command', { command })?.effect === 'allow';
