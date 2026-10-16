@@ -7,7 +7,7 @@ export interface FileChange {
    * Its extension picks the highlighting, unless `language` is given.
    */
   path: string;
-  /** Previous path, for renames. */
+  /** Previous path, for renames. Read from a git rename `patch` when omitted. */
   oldPath?: string | undefined;
   /** Original file contents. Omit (or pass '') for new files. */
   oldContent?: string | undefined;
@@ -385,7 +385,9 @@ export function parseWithin(
     };
   });
 
-  const renamed = !!change.oldPath && change.oldPath !== path;
+  // A git rename patch (`git diff` finds renames by default) names the old path.
+  const oldPath = change.oldPath ?? (patched?.isRename ? renamedFrom(change.patch!, patched) : undefined);
+  const renamed = !!oldPath && oldPath !== path;
   let status: FileStatus = 'modified';
   if (renamed) status = 'renamed';
   else if (change.oldContent === '' || (change.oldContent === undefined && !change.patch)) status = 'added';
@@ -404,7 +406,7 @@ export function parseWithin(
   return {
     id,
     path,
-    oldPath: change.oldPath,
+    oldPath,
     status,
     language: change.language ?? inferLanguage(path),
     hunks: parsed,
@@ -424,6 +426,15 @@ function readPatch(patch: string): StructuredPatch | undefined | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The old path of a git rename patch, from its `rename from` line, which has no `a/` prefix (or
+ * `i/`, or none, as git may be set to write on the `---` line). A quoted one is read by jsdiff.
+ */
+function renamedFrom(patch: string, parsed: StructuredPatch) {
+  const from = /^rename from (.+?)\r?$/m.exec(patch)?.[1];
+  return from && !from.startsWith('"') ? from : parsed.oldFileName?.replace(/^a\//, '');
 }
 
 /** Contents as the types allow them: a string, or missing (`null` too, from JSON). */

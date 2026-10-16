@@ -51,10 +51,12 @@ export {
 export {
   computeReviewResult,
   contextGaps,
+  decisionsFromToolOutput,
   reviewItems,
   reviewResumeEntry,
   reviewToolOutput,
   toPatch,
+  type CommentRange,
   type CommentSide,
   type ContextGap,
   type DiffReviewComment,

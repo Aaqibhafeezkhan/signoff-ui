@@ -58,6 +58,13 @@ export interface DiffReviewComment {
   startLine?: number | undefined;
   /** The last line it is on, numbered like `startLine`. */
   endLine?: number | undefined;
+  /**
+   * With `side: 'new'`, when removed lines are among the lines it is on: the first of them all that
+   * is in the original, numbered there. Removed lines have no number in the proposed file.
+   */
+  oldStartLine?: number | undefined;
+  /** The last line it is on that is in the original, numbered like `oldStartLine`. */
+  oldEndLine?: number | undefined;
   /** What the reviewer wrote. */
   text: string;
 }
@@ -66,6 +73,17 @@ export interface LineRange {
   side: CommentSide;
   startLine: number;
   endLine: number;
+}
+
+/**
+ * The lines a comment records: their range, and with removed lines among lines of the proposed
+ * file, their range in the original too.
+ */
+export interface CommentRange extends LineRange {
+  /** With `side: 'new'` and removed lines among the lines: the first one in the original, numbered there. */
+  oldStartLine?: number | undefined;
+  /** The last of them that is in the original, numbered like `oldStartLine`. */
+  oldEndLine?: number | undefined;
 }
 
 const number = (line: DiffLine, side: CommentSide) => (side === 'new' ? line.newNumber : line.oldNumber);
@@ -83,6 +101,19 @@ export function linesRange(hunk: DiffHunk, from: number, to: number): LineRange 
   return { side: 'new', startLine: hunk.newStart, endLine: hunk.newStart };
 }
 
+/**
+ * What a comment on `hunk.lines[from…to]` records: `linesRange`, and when it is numbered in the
+ * proposed file with removed lines among the lines, their range in the original as well, which
+ * removed lines are only in.
+ */
+export function commentRange(hunk: DiffHunk, from: number, to: number): CommentRange {
+  const range = linesRange(hunk, from, to);
+  const lines = hunk.lines.slice(Math.min(from, to), Math.max(from, to) + 1);
+  if (range.side !== 'new' || !lines.some((l) => l.type === 'del')) return range;
+  const olds = lines.map((l) => l.oldNumber).filter((n): n is number => n !== undefined);
+  return { ...range, oldStartLine: olds[0]!, oldEndLine: olds.at(-1)! };
+}
+
 /** Indices of a hunk's first and last changed line. */
 export function changedSpan(hunk: DiffHunk): [number, number] {
   const first = hunk.lines.findIndex((l) => l.type !== 'context');
@@ -98,17 +129,26 @@ export function hunkRange(hunk: DiffHunk): LineRange {
   return linesRange(hunk, first, last);
 }
 
-/** Indices of the lines a comment covers in its hunk, or `undefined` when they are not in it. */
-export function commentSpan(hunk: DiffHunk, comment: DiffReviewComment): [number, number] | undefined {
-  if (comment.target === 'hunk') return changedSpan(hunk);
-  const { side, startLine, endLine } = comment;
-  if (side === undefined || startLine === undefined || endLine === undefined) return undefined;
+/** Indices of the lines numbered `startLine…endLine` in `side`, or `undefined` when they are not in the hunk. */
+function sideSpan(hunk: DiffHunk, side: CommentSide, startLine: number, endLine: number): [number, number] | undefined {
   const from = hunk.lines.findIndex((l) => number(l, side) === startLine);
   let to = -1;
   hunk.lines.forEach((l, i) => {
     if (number(l, side) === endLine) to = i;
   });
   return from === -1 || to === -1 || to < from ? undefined : [from, to];
+}
+
+/** Indices of the lines a comment covers in its hunk, or `undefined` when they are not in it. */
+export function commentSpan(hunk: DiffHunk, comment: DiffReviewComment): [number, number] | undefined {
+  if (comment.target === 'hunk') return changedSpan(hunk);
+  const { side, startLine, endLine, oldStartLine, oldEndLine } = comment;
+  if (side === undefined || startLine === undefined || endLine === undefined) return undefined;
+  const span = sideSpan(hunk, side, startLine, endLine);
+  if (!span || side !== 'new' || oldStartLine === undefined || oldEndLine === undefined) return span;
+  // The removed lines, at either end of the selection, are in the original's range only.
+  const old = sideSpan(hunk, 'old', oldStartLine, oldEndLine);
+  return old ? [Math.min(span[0], old[0]), Math.max(span[1], old[1])] : span;
 }
 
 const SIGN: Record<DiffLine['type'], string> = { context: ' ', add: '+', del: '-' };
@@ -386,9 +426,18 @@ export interface DiffReviewToolOutput {
     side?: CommentSide;
     startLine?: number;
     endLine?: number;
+    /** With `side: 'new'` and removed lines among the lines commented on: their range in the original. */
+    oldStartLine?: number;
+    oldEndLine?: number;
     text: string;
     excerpt?: string;
   }>;
+  /**
+   * Each decided item by id, a hunk's `${path}:${index}` or a whole file's `${path}:file`, as in
+   * `DiffReview`'s `decisions`: what `decisionsFromToolOutput` reads to show the review again.
+   * Undecided items are left out. Absent from outputs saved by versions before it was added.
+   */
+  decisions?: Record<string, Exclude<HunkDecision, 'pending'>>;
   /** With `patch`: the accepted changes as a unified diff. */
   patch?: string;
 }
@@ -417,7 +466,8 @@ function summarize(result: DiffReviewResult) {
 /**
  * A review result shaped for the agent: a one-line summary, each file's decision (with its contents
  * by default, and `viewed: true` when the reviewer marked it viewed), the rejected hunks with their
- * lines, and every comment with its lines. JSON, so it is an AI SDK tool output as it is:
+ * lines, every comment with its lines, and each decided hunk by id, so the review can be shown
+ * again from it (`decisionsFromToolOutput`). JSON, so it is an AI SDK tool output as it is:
  * `addToolOutput({ tool, toolCallId, output: reviewToolOutput(result) })`.
  * The summary is written in English for the model, whatever language the UI is in.
  */
@@ -439,16 +489,38 @@ export function reviewToolOutput(
       ...(contents && file.content !== undefined ? { content: file.content } : {}),
     })),
     rejectedHunks: result.rejectedHunks.map(({ path, header, diff }) => ({ path, header, diff })),
-    comments: result.comments.map(({ path, side, startLine, endLine, text, excerpt }) => ({
+    comments: result.comments.map(({ path, side, startLine, endLine, oldStartLine, oldEndLine, text, excerpt }) => ({
       path,
       ...(side ? { side } : {}),
       ...(startLine !== undefined ? { startLine } : {}),
       ...(endLine !== undefined ? { endLine } : {}),
+      ...(oldStartLine !== undefined && oldEndLine !== undefined ? { oldStartLine, oldEndLine } : {}),
       text,
       ...(excerpt ? { excerpt } : {}),
     })),
+    decisions: Object.fromEntries(
+      result.files.flatMap((file) => [
+        ...file.accepted.map((id) => [id, 'accepted'] as const),
+        ...file.rejected.map((id) => [id, 'rejected'] as const),
+      ]),
+    ),
     ...(patch !== undefined ? { patch } : {}),
   };
+}
+
+/**
+ * The decisions a review's tool output records, keyed as `DiffReview`'s `decisions`: to show a
+ * review again from its saved result, read-only, with the same `files`. Anything that is not such
+ * an output, or one made before it recorded decisions, gives none.
+ */
+export function decisionsFromToolOutput(output: unknown): Record<string, HunkDecision> {
+  const recorded = (output as { decisions?: unknown } | null | undefined)?.decisions;
+  const decisions: Record<string, HunkDecision> = {};
+  if (!recorded || typeof recorded !== 'object') return decisions;
+  for (const [id, decision] of Object.entries(recorded)) {
+    if (decision === 'accepted' || decision === 'rejected') decisions[id] = decision;
+  }
+  return decisions;
 }
 
 /** An AG-UI `ResumeEntry` answering an interrupt with a review (`AgUiResumeEntry`, typed here). */

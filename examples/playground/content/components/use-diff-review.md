@@ -6,7 +6,7 @@ Spread `getRootProps()` on the element around the review: it holds the keyboard.
 
 ### Decisions
 
-`getDecisionProps(i, 'accepted')` and `getDecisionProps(i, 'rejected')` are the two buttons for an item, with `aria-pressed`; pressing one again resets the item. `getFileDecisionProps(fileId, decision)` decides a whole file, and `decideAll` the whole review. Pass `decisions` and `onDecisionsChange` to control them, or `defaultDecisions` to start from some. `counts` has how many are accepted, rejected and pending.
+`getDecisionProps(i, 'accepted')` and `getDecisionProps(i, 'rejected')` are the two buttons for an item, with `aria-pressed`; pressing one again resets the item. `getFileDecisionProps(fileId, decision)` decides a whole file, and `decideAll` the whole review. Pass `decisions` and `onDecisionsChange` to control them, or `defaultDecisions` to start from some. `counts` has how many are accepted, rejected and pending. When a file's contents change under the review, its decisions, viewed mark and comments are dropped, as on [`DiffReview`](/docs/components/diff-review), and controlled ones are sent to `onDecisionsChange`, `onViewedChange` and `onCommentsChange` without them.
 
 ### Comments
 
