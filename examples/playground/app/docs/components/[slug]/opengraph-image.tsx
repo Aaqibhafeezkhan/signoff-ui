@@ -1,7 +1,9 @@
 import { COMPONENTS, getComponent } from '@/lib/components';
 import { OG_SIZE, ogImage } from '@/lib/og';
 
-export const alt = 'An signoff-ui component';
+// Next.js reads one alt for every page of the route, so it describes the card, which carries the
+// component's name and summary as text. A per-page alt would come from each page's metadata instead.
+export const alt = 'Preview card from the signoff-ui docs, showing the component name and what it does';
 export const size = OG_SIZE;
 export const contentType = 'image/png';
 

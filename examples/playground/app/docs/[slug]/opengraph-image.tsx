@@ -1,7 +1,9 @@
 import { getGuide, GUIDES } from '@/lib/docs';
 import { OG_SIZE, ogImage } from '@/lib/og';
 
-export const alt = 'An signoff-ui docs page';
+// Next.js reads one alt for every page of the route, so it describes the card, which carries the
+// page's title and summary as text. A per-page alt would come from each page's metadata instead.
+export const alt = 'Preview card from the signoff-ui docs, showing the page title and summary';
 export const size = OG_SIZE;
 export const contentType = 'image/png';
 
