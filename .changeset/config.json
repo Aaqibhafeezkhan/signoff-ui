@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "dgesteves/signoff-ui" }],
+  "changelog": ["../scripts/changelog.mjs", { "repo": "dgesteves/signoff-ui", "maintainers": ["dgesteves"] }],
   "commit": false,
   "fixed": [],
   "linked": [],

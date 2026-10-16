@@ -66,6 +66,6 @@ pnpm add --save-dev react@^18.2.0 react-dom@^18.2.0 @types/react@^18 @types/reac
 
 ## Changesets
 
-A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm. Its version step, `pnpm version-packages`, also moves `examples/coding-agent` to `signoff-ui@^<new version>`, so a copy of the example installs the release its code is written for.
+A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm. Its version step, `pnpm version-packages`, also moves `examples/coding-agent` to `signoff-ui@^<new version>`, so a copy of the example installs the release its code is written for. [RELEASING.md](./RELEASING.md) covers the release workflow, its dry run, and what to do when a release step fails.
 
 By contributing, you agree that your work is released under the [MIT license](./LICENSE) and that you follow the [code of conduct](./CODE_OF_CONDUCT.md).
