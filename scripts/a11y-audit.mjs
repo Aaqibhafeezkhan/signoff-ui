@@ -1,16 +1,26 @@
 // Runs axe-core in real Chrome against the playground: the home page's first screen as it loads and
 // with its panel filled, the run's states (approval pending, diff review, done), the components page,
 // the docs and a phone viewport, in the dark theme and then the light one.
-// Unlike the jsdom tests, this checks color contrast with real layout.
+// Unlike the jsdom tests, this checks color contrast with real layout. It also turns on axe's
+// target-size rule (WCAG 2.5.8, 24px targets), which axe leaves off by default.
 //
 //   pnpm build:lib && pnpm registry:build && pnpm build:playground
 //   pnpm a11y   # starts the built playground on :3230, or audits BASE_URL if set
 //   BASE_URL=http://localhost:3100 pnpm a11y   # the one `pnpm dev` serves
+//   BROWSER=webkit pnpm a11y   # or firefox (`pnpm exec playwright-core install webkit firefox`)
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import { chromium, firefox, webkit } from 'playwright-core';
+
+const BROWSER = process.env.BROWSER ?? 'chrome';
+const launch = {
+  chrome: () => chromium.launch({ channel: 'chrome' }),
+  firefox: () => firefox.launch(),
+  webkit: () => webkit.launch(),
+}[BROWSER];
+if (!launch) throw new Error(`BROWSER is chrome, firefox or webkit, not ${BROWSER}`);
 
 const PORT = 3230;
 const BASE = process.env.BASE_URL ?? `http://localhost:${PORT}`;
@@ -34,13 +44,16 @@ if (!process.env.BASE_URL) {
 const require = createRequire(join(import.meta.dirname, '../packages/signoff-ui/package.json'));
 const axeSource = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await launch();
 let failures = 0;
 
 async function audit(page, label) {
   await page.addScriptTag({ content: axeSource });
   const violations = await page.evaluate(async () => {
-    const result = await window.axe.run(document, { resultTypes: ['violations'] });
+    const result = await window.axe.run(document, {
+      resultTypes: ['violations'],
+      rules: { 'target-size': { enabled: true } },
+    });
     return result.violations.map((v) => ({
       id: v.id,
       impact: v.impact,
@@ -169,6 +182,10 @@ for (const path of ['/docs/components/diff-review', '/components']) {
   await settle(page);
   await audit(page, `${path} · a rejected hunk, 390px viewport`);
 }
+// The limits page's tables, on a phone too.
+await page.goto(`${BASE}/docs/limits`, { waitUntil: 'networkidle' });
+await settle(page);
+await audit(page, 'docs /docs/limits · 390px viewport');
 
 // The light theme, with a light OS: the site follows it until the reader picks.
 const light = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
