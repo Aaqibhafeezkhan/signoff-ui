@@ -1,6 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { AgentMessage } from '../src/agent-message';
 import {
   ApprovalCard,
   ToolApprovalBatch,
@@ -8,7 +10,7 @@ import {
   type ApprovalDecision,
   type ToolApprovalResponse,
 } from '../src/approval-card';
-import { toolPart } from './utils';
+import { assistant, toolPart } from './utils';
 
 /*
  * A decision needs the person's action (SECURITY.md): a held key, focus taken out of the field
@@ -275,5 +277,272 @@ describe('ToolApprovalBatch: a held Enter answers once', () => {
       { id: 'approval_a', approved: false },
       { id: 'approval_b', approved: false },
     ]);
+  });
+});
+
+/*
+ * A critical action's first press arms it, and the confirmation waits for the person: no timer to
+ * beat while a screen reader reads "Press approve again" (WCAG 2.2.1), until the second press,
+ * Escape, or focus leaving the card. The second click of a double click is not a second press.
+ */
+describe('ApprovalCard: a critical confirmation waits for a second, separate press', () => {
+  const armed = () => screen.queryByRole('button', { name: /^Confirm approval/ });
+
+  it('stays armed with no time limit: a press a minute later confirms', () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { onDecide, card } = setup({ risk: 'critical' });
+    card.focus();
+    fireEvent.keyDown(card, { key: 'y' });
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(armed()).toHaveAttribute('data-decision', 'allow-once');
+    fireEvent.keyDown(card, { key: 'y' });
+    expect(decisions(onDecide)).toEqual(['allow-once']);
+  });
+
+  it.each([
+    ['Approve', 'allow-once'],
+    ['For this session', 'allow-session'],
+    ['Always', 'allow-always'],
+  ] as const)('a double click on %s arms it and does not confirm it', async (name, decision) => {
+    const { user, onDecide } = setup({ risk: 'critical' });
+    await user.dblClick(screen.getByRole('button', { name }));
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(armed()).toHaveAttribute('data-decision', decision);
+    // A later click is the second press.
+    await user.click(armed()!);
+    expect(decisions(onDecide)).toEqual([decision]);
+  });
+
+  it('Escape in the card disarms it: the next press arms it again', async () => {
+    const { user, onDecide, card } = setup({ risk: 'critical' });
+    card.focus();
+    await user.keyboard('y');
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    await user.keyboard('y');
+    expect(onDecide).not.toHaveBeenCalled();
+    expect(armed()).toBeInTheDocument();
+  });
+
+  it('with globalShortcut, Escape outside the card disarms what ⌘/Ctrl+Enter armed there', async () => {
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    render(<Page card={{ risk: 'critical', globalShortcut: true, onDecide }} />);
+    screen.getByRole('button', { name: 'Send' }).focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(armed()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('focus leaving the card disarms it; focus moving inside it does not', async () => {
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page card={{ risk: 'critical', onDecide }} />);
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onDecide).not.toHaveBeenCalled();
+    await user.tab({ shift: true });
+    expect(armed()).toBeInTheDocument();
+    await user.click(armed()!);
+    expect(decisions(onDecide)).toEqual(['allow-once']);
+  });
+
+  it('a card that asks again starts disarmed', async () => {
+    const user = userEvent.setup();
+    const card = (status: 'pending' | 'approved') => (
+      <ApprovalCard toolName="run_command" input={{ command: 'rm -rf ~' }} risk="critical" status={status} />
+    );
+    const { rerender } = render(card('pending'));
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    rerender(card('approved'));
+    rerender(card('pending'));
+    expect(armed()).not.toBeInTheDocument();
+  });
+
+  it('new arguments start disarmed: the press was for the old ones', async () => {
+    const onApprove = vi.fn();
+    const user = userEvent.setup();
+    const card = (command: string) => (
+      <ApprovalCard toolName="run_command" input={{ command }} risk="critical" onApprove={onApprove} />
+    );
+    const { rerender } = render(card('rm -rf build'));
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    // The same arguments, as a new object: still the same call.
+    rerender(card('rm -rf build'));
+    expect(armed()).toBeInTheDocument();
+    rerender(card('rm -rf ~'));
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onApprove).not.toHaveBeenCalled();
+  });
+});
+
+describe('ToolApprovalBatch: Approve all over a critical call waits for a second, separate press', () => {
+  const command = (cmd: string, id: string) =>
+    toolPart('approval-requested', { toolName: 'run_command', toolCallId: id, input: { command: cmd } });
+  const parts = [command('rm -rf ~', 'a'), command('npm test', 'b')];
+  const armed = () => screen.queryByRole('button', { name: 'Confirm approve all' });
+
+  function setupBatch() {
+    const onRespond = vi.fn<(r: ToolApprovalResponse) => void>();
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Send</button>
+        <ToolApprovalBatch
+          parts={parts}
+          onRespond={onRespond}
+          tools={{
+            run_command: {
+              risk: (input) => ((input as { command: string }).command === 'rm -rf ~' ? 'critical' : 'low'),
+            },
+          }}
+        />
+      </>,
+    );
+    return { onRespond, user };
+  }
+
+  it('a double click on Approve all arms it and approves nothing', async () => {
+    const { onRespond, user } = setupBatch();
+    await user.dblClick(screen.getByRole('button', { name: 'Approve all' }));
+    expect(onRespond).not.toHaveBeenCalled();
+    expect(armed()).toBeInTheDocument();
+    await user.click(armed()!);
+    expect(onRespond).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays armed with no time limit', () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { onRespond } = setupBatch();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve all' }));
+    act(() => vi.advanceTimersByTime(60_000));
+    fireEvent.click(armed()!);
+    expect(onRespond.mock.calls.map(([r]) => r)).toEqual([
+      { id: 'approval_a', approved: true },
+      { id: 'approval_b', approved: true },
+    ]);
+  });
+
+  it('a call that arrives while it is armed needs a new first press', async () => {
+    const onRespond = vi.fn<(r: ToolApprovalResponse) => void>();
+    const user = userEvent.setup();
+    const tools = { run_command: { risk: 'critical' as const } };
+    const { rerender } = render(<ToolApprovalBatch parts={parts} onRespond={onRespond} tools={tools} />);
+    await user.click(screen.getByRole('button', { name: 'Approve all' }));
+    expect(armed()).toBeInTheDocument();
+    rerender(
+      <ToolApprovalBatch parts={[...parts, command('git push --force', 'c')]} onRespond={onRespond} tools={tools} />,
+    );
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve all' }));
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Escape', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}')],
+    [
+      'focus leaving it',
+      (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Send' })),
+    ],
+  ])('%s disarms it', async (_, leave) => {
+    const { onRespond, user } = setupBatch();
+    await user.click(screen.getByRole('button', { name: 'Approve all' }));
+    await leave(user);
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve all' }));
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * With several pending cards, as parallel calls give, one ⌘/Ctrl+Enter answers one card: the one
+ * the keys are pressed in, or else the latest to ask. It used to be the first that mounted,
+ * wherever the person was looking.
+ */
+describe('ApprovalCard: with several pending cards, globalShortcut answers one', () => {
+  function Cards({ count, approved, preview = false }: { count: number; approved: string[]; preview?: boolean }) {
+    const [done, setDone] = useState<string[]>([]);
+    return (
+      <>
+        <button type="button">Send</button>
+        {Array.from({ length: count }, (_, i) => {
+          const title = `Card ${i + 1}`;
+          return (
+            <ApprovalCard
+              key={title}
+              toolName="run_command"
+              title={title}
+              input={{ command: `pnpm step-${i + 1}` }}
+              preview={preview ? <button type="button">Details {i + 1}</button> : undefined}
+              globalShortcut
+              status={done.includes(title) ? 'approved' : 'pending'}
+              onApprove={() => {
+                approved.push(title);
+                setDone((d) => [...d, title]);
+              }}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  it('outside the cards, it approves the latest to ask, then the one before it', async () => {
+    const approved: string[] = [];
+    const user = userEvent.setup();
+    render(<Cards count={3} approved={approved} />);
+    for (let press = 0; press < 2; press++) {
+      screen.getByRole('button', { name: 'Send' }).focus();
+      await user.keyboard('{Control>}{Enter}{/Control}');
+    }
+    expect(approved).toEqual(['Card 3', 'Card 2']);
+  });
+
+  it('a card that arrives later takes it over', async () => {
+    const approved: string[] = [];
+    const user = userEvent.setup();
+    const { rerender } = render(<Cards count={1} approved={approved} />);
+    rerender(<Cards count={2} approved={approved} />);
+    screen.getByRole('button', { name: 'Send' }).focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(approved).toEqual(['Card 2']);
+  });
+
+  it('pressed in a card’s custom preview, it approves that card, not the latest', async () => {
+    const approved: string[] = [];
+    const user = userEvent.setup();
+    render(<Cards count={3} approved={approved} preview />);
+    screen.getByRole('button', { name: 'Details 2' }).focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(approved).toEqual(['Card 2']);
+  });
+
+  it('AgentMessage with approvalProps: one press answers the last of two parallel calls', async () => {
+    const onToolApproval = vi.fn<(r: ToolApprovalResponse) => void>();
+    const user = userEvent.setup();
+    const call = (id: string, cmd: string) =>
+      toolPart('approval-requested', { toolName: 'run_command', toolCallId: id, input: { command: cmd } });
+    render(
+      <AgentMessage
+        message={assistant([call('p1', 'pnpm test'), call('p2', 'pnpm lint')])}
+        onToolApproval={onToolApproval}
+        approvalProps={{ globalShortcut: true }}
+      />,
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onToolApproval.mock.calls.map(([r]) => r)).toEqual([{ id: 'approval_p2', approved: true }]);
   });
 });

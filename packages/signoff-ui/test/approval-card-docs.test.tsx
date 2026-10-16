@@ -241,10 +241,27 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     expect(onDecide).not.toHaveBeenCalled();
   });
 
-  it('with several pending cards, globalShortcut approves the one that mounted first', async () => {
-    // A limit the page states: when the shortcut goes to another card, the page changes with it.
+  it('a critical press stays armed until the second press, Escape, or focus leaving the card', async () => {
     expect(text()).toContain(
-      "It is meant for one pending approval: with several, as when `AgentMessage`'s `approvalProps` turns it on for parallel calls, the keys approve the card that mounted first, wherever the person is looking.",
+      'The first press on a `critical` action stays armed, with no time limit, until the second press, Escape, or focus leaving the card (or Approve all).',
+    );
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', onDecide }]} />);
+    const armed = () => screen.queryByRole('button', { name: /^Confirm approval/ });
+    await user.dblClick(screen.getByRole('button', { name: /^Approve/ }));
+    expect(armed()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    expect(armed()).not.toBeInTheDocument();
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('with several pending cards, globalShortcut approves the latest to ask', async () => {
+    expect(text()).toContain(
+      "With several pending, as when `AgentMessage`'s `approvalProps` turns it on for parallel calls, the keys answer one card: the one they're pressed in, or else the latest to ask.",
     );
     const first = vi.fn();
     const second = vi.fn();
@@ -261,7 +278,7 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     // Focus is in neither card, as when the person has scrolled to the second one.
     screen.getByRole('button', { name: 'Send' }).focus();
     await user.keyboard('{Control>}{Enter}{/Control}');
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).not.toHaveBeenCalled();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

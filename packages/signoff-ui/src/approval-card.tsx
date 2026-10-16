@@ -8,7 +8,9 @@ import {
   useState,
   type ComponentPropsWithoutRef,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import {
   getApprovalRequestReason,
@@ -135,7 +137,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   shortcuts?: boolean;
   /**
    * Also approve with ⌘/Ctrl+Enter from anywhere on the page while pending, except a text field,
-   * where the keys are the field's (a chat composer's send, say).
+   * where the keys are the field's (a chat composer's send, say). With several cards pending, one
+   * answers: the card the keys are pressed in, else the latest to ask.
    * @default false
    */
   globalShortcut?: boolean;
@@ -383,6 +386,47 @@ function editorInput(value: EditorValue): { ok: true; input: unknown } | { ok: f
 /** How long a decision stays in the live region: long enough to be read, then gone from the card. */
 const ANNOUNCEMENT_MS = 3000;
 
+/**
+ * The pending cards with `globalShortcut`, oldest first. ⌘/Ctrl+Enter outside them answers only
+ * the last, the latest to ask (the last of parallel calls), not each card or the first to mount.
+ */
+const globalCards: RefObject<HTMLElement | null>[] = [];
+
+/**
+ * What a critical action's first press armed. It holds until the second press, Escape, or focus
+ * leaving `ref`'s element, with no timer to beat: the person confirms at their own pace, after a
+ * screen reader has read the request (WCAG 2.2.1). It belongs to the `call` it was armed on, so
+ * new arguments, or new calls waiting, start disarmed.
+ */
+function useArmed<T>(ref: RefObject<HTMLElement | null>, call: unknown) {
+  const [armed, setArmed] = useState<{ value: T; call: unknown }>();
+  const stale = armed !== undefined && !sameValue(armed.call, call);
+  // Adjusting state during render, not in an effect, as for a stale edit.
+  if (stale) setArmed(undefined);
+  useEffect(() => {
+    if (armed === undefined) return;
+    const element = ref.current;
+    const disarm = () => setArmed(undefined);
+    // Anywhere on the page, as ⌘/Ctrl+Enter may have armed it from there; not an Escape a field or
+    // a menu took for itself, such as the one that closes the reason field.
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) disarm();
+    };
+    // Focus moving between the element's own controls keeps it.
+    const onFocusOut = (event: globalThis.FocusEvent) => {
+      if (!element?.contains(event.relatedTarget as Node | null)) disarm();
+    };
+    window.addEventListener('keydown', onKey);
+    element?.addEventListener('focusout', onFocusOut);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      element?.removeEventListener('focusout', onFocusOut);
+    };
+  }, [armed, ref]);
+  const arm = (value: T | undefined) => setArmed(value === undefined ? undefined : { value, call });
+  return [stale ? undefined : armed?.value, arm] as const;
+}
+
 /** The focused element, inside open shadow roots too: in a web component, the document sees only its host. */
 function focusedElement(): Element | null {
   let active = document.activeElement;
@@ -394,7 +438,8 @@ function focusedElement(): Element | null {
  * Human-in-the-loop approval for a pending agent action. Shows what will run,
  * how risky it is, and lets the user approve or deny by mouse or keyboard, once,
  * for the session or always, with the arguments edited first when `editable`.
- * Critical actions require a second confirming press.
+ * Critical actions require a second confirming press: the first stays armed, with no time limit,
+ * until Escape or focus leaves the card.
  *
  * The card is a group named by its title, not a landmark, so a run with many approvals doesn't
  * fill landmark navigation; pass `role="region"` to make it one.
@@ -440,7 +485,7 @@ export function ApprovalCard({
   const reasonId = `${ids}-reason`;
   const cardRef = useRef<HTMLElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const [confirming, setConfirming] = useState<ApprovalDecision>();
+  const [confirming, setConfirming] = useArmed<ApprovalDecision>(cardRef, input);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reasonText, setReasonText] = useState('');
   const [announcement, setAnnouncement] = useState('');
@@ -451,18 +496,19 @@ export function ApprovalCard({
   // An edit counts only for the arguments it was made against: new `input` is a new call.
   const stale = edit !== undefined && !sameValue(edit.base, input);
   // It also belongs to the pending period it was made in, so a card that asks again does not carry
-  // the last answer's edit. Either drops it, adjusting state during render, not in an effect.
+  // the last answer's edit, or a critical press it armed. Either drops it, adjusting state during
+  // render, not in an effect.
   const [period, setPeriod] = useState(status);
   if (period !== status) {
     setPeriod(status);
     setEdit(undefined);
     setEditing(false);
+    setConfirming(undefined);
   } else if (stale) {
     setEdit(undefined);
   }
   const edited = stale ? undefined : edit?.value;
   const editToggleRef = useRef<HTMLButtonElement>(null);
-  const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = status === 'pending';
   const r = risk ? RISK[risk] : UNRATED;
   const heading = title ?? humanizeToolName(toolName);
@@ -516,11 +562,8 @@ export function ApprovalCard({
     if (approving && risk === 'critical' && confirming !== decision) {
       setConfirming(decision);
       setAnnouncement(L.critical);
-      clearTimeout(confirmTimer.current);
-      confirmTimer.current = setTimeout(() => setConfirming(undefined), 4000);
       return;
     }
-    clearTimeout(confirmTimer.current);
     setConfirming(undefined);
     setAnnouncement(L.resolved[decision]);
     cardRef.current?.focus();
@@ -542,8 +585,6 @@ export function ApprovalCard({
     if (reasonOpen) reasonRef.current?.focus();
   }, [reasonOpen]);
 
-  useEffect(() => () => clearTimeout(confirmTimer.current), []);
-
   // Once read, clear the announcement: left in place, a decided card reads "Approved, Approved".
   useEffect(() => {
     if (!announcement) return;
@@ -564,18 +605,27 @@ export function ApprovalCard({
   });
   useEffect(() => {
     if (!globalShortcut || !pending) return;
+    globalCards.push(cardRef);
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.defaultPrevented) {
+        const path = event.composedPath();
         // In a text field, the card's own included, ⌘/Ctrl+Enter is the field's: a composer's send.
         // Out here a web component's field shows as its host, so ask the path where the key began.
-        if (isTypingTarget(event.composedPath()[0] ?? event.target)) return;
+        if (isTypingTarget(path[0] ?? event.target)) return;
+        // One card answers: the one the keys were pressed in (its custom preview, say), else the
+        // latest to ask, wherever focus is.
+        const owner = globalCards.find((card) => card.current && path.includes(card.current)) ?? globalCards.at(-1);
+        if (owner !== cardRef) return;
         event.preventDefault();
         // A held key repeats its keydown: one press, one decision.
         if (!event.repeat) approveRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      globalCards.splice(globalCards.indexOf(cardRef), 1);
+    };
   }, [globalShortcut, pending]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -669,7 +719,11 @@ export function ApprovalCard({
           : undefined
       }
       aria-disabled={decision.startsWith('allow') && invalid ? true : undefined}
-      onClick={() => choose(decision, decision.startsWith('deny') && reasonOpen ? reasonText : undefined)}
+      onClick={(event) => {
+        // The second click of a double click is the same press: it does not confirm a critical action.
+        if (event.detail > 1) return;
+        choose(decision, decision.startsWith('deny') && reasonOpen ? reasonText : undefined);
+      }}
       className={className}
     >
       {confirming === decision ? L.confirm : label}
@@ -1175,10 +1229,8 @@ export function ToolApprovalBatch({
   ...props
 }: ToolApprovalBatchProps) {
   const B = useLabels(LABELS, labels).approvalCard.batch;
-  const [confirming, setConfirming] = useState(false);
   const [announcement, setAnnouncement] = useState('');
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const groupRef = useRef<HTMLDivElement>(null);
   const waiting = parts.filter((part) => {
     const request = approvalRequestOf(part);
     return (
@@ -1188,6 +1240,11 @@ export function ToolApprovalBatch({
       !(policy && evaluateRules(policy.rules, request.toolName, request.input))
     );
   });
+  // Armed for these calls: one more arriving, or one answered on its card, needs a new first press.
+  const [confirming, setConfirming] = useArmed<true>(
+    groupRef,
+    waiting.map((part) => part.toolCallId),
+  );
   if (waiting.length < min) return null;
   // A held Enter clicks the focused button on every repeat: one press, one answer.
   const ignoreRepeat = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -1201,11 +1258,9 @@ export function ToolApprovalBatch({
     if (decision === 'allow-once' && critical && !confirming) {
       setConfirming(true);
       setAnnouncement(B.critical);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => setConfirming(false), 4000);
       return;
     }
-    setConfirming(false);
+    setConfirming(undefined);
     for (const part of waiting) {
       const request = approvalRequestOf(part)!;
       const outcome = policy?.decide(request, decision);
@@ -1213,8 +1268,13 @@ export function ToolApprovalBatch({
     }
     setAnnouncement(B.answered(waiting.length, decision === 'allow-once'));
   };
+  // The second click of a double click is the same press: it does not confirm Approve all.
+  const press = (decision: 'allow-once' | 'deny-once') => (event: MouseEvent) => {
+    if (event.detail <= 1) answerAll(decision);
+  };
   return (
     <div
+      ref={groupRef}
       data-signoff
       data-slot="signoff-approval-batch"
       role="group"
@@ -1232,7 +1292,7 @@ export function ToolApprovalBatch({
         <button
           type="button"
           onKeyDown={ignoreRepeat}
-          onClick={() => answerAll('deny-once')}
+          onClick={press('deny-once')}
           className="border-signoff-border-strong text-signoff-fg hover:bg-signoff-surface-2 focus-visible:outline-signoff-ring inline-flex h-7 cursor-pointer items-center rounded-lg border px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           {B.denyAll}
@@ -1240,7 +1300,7 @@ export function ToolApprovalBatch({
         <button
           type="button"
           onKeyDown={ignoreRepeat}
-          onClick={() => answerAll('allow-once')}
+          onClick={press('allow-once')}
           className={cn(
             'focus-visible:outline-signoff-ring inline-flex h-7 cursor-pointer items-center rounded-lg px-2.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2',
             confirming
