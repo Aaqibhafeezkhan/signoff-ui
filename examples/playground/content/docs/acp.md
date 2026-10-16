@@ -61,20 +61,32 @@ export function useAcpTurn() {
     waiting.current.delete(toolCallId);
   }
 
-  return { turn, client, prompt, decide };
+  // For a Stop button. After session/cancel, ACP has the client answer each open request with cancelled.
+  async function cancel(agent: Agent, sessionId: string) {
+    await agent.cancel({ sessionId });
+    for (const [toolCallId, resolve] of waiting.current) {
+      resolve({ outcome: { outcome: 'cancelled' } });
+      setTurn((t) => t && answerAcpPermission(t, toolCallId, 'cancelled'));
+    }
+    waiting.current.clear();
+  }
+
+  return { turn, client, prompt, decide, cancel };
 }
 ```
+
+`cancel` stops the turn. It sends `session/cancel`, then answers each permission request still open with `cancelled`, as ACP requires of a client that cancels: an agent that waits on that answer would otherwise never return from `session/prompt`, and the turn would stay `streaming`. The agent then ends the turn with `stopReason: 'cancelled'`, and a call whose request was canceled reads as denied.
 
 The connection itself, `ClientSideConnection` from `@agentclientprotocol/sdk` over the agent's stdio or a bridge, is up to your app: these functions only fold what it receives.
 
 ## Render it
 
-`AgentMessage` renders the turn. For a call waiting on its permission request, render an `ApprovalCard` that offers the agent's options, with the diff of an edit as its preview:
+`AgentMessage` renders the turn. For a call waiting on its permission request, render an `ApprovalCard` that offers the agent's options, with the diff of an edit as its preview. Once the call is decided, return `undefined`: the default row then shows how it ended, Done with its output, Failed with its error, or Denied.
 
 ```tsx title="components/acp-turn.tsx"
 'use client';
 
-import { AgentMessage, ApprovalCard, DiffReview, getApprovalStatus, type ApprovalDecision } from 'signoff-ui';
+import { AgentMessage, ApprovalCard, DiffReview, type ApprovalDecision } from 'signoff-ui';
 import { acpToolName, decisionsFromAcpOptions, fromAcpDiffs, toAcpMessage, type AcpTurn } from 'signoff-ui/acp';
 
 export function AcpTurnView({
@@ -94,7 +106,8 @@ export function AcpTurnView({
       active={active}
       renderTool={(part) => {
         const permission = turn.permissions[part.toolCallId];
-        if (!permission) return undefined;
+        // Only while the call waits: a decided one gets the default row, with its result.
+        if (!permission || part.state !== 'approval-requested') return undefined;
         const call = turn.toolCalls[part.toolCallId]!;
         const files = fromAcpDiffs(call.content, { root: cwd });
         const decisions = decisionsFromAcpOptions(permission.options).filter((d) => d !== 'allow-session');
@@ -108,10 +121,7 @@ export function AcpTurnView({
             title={call.title ?? undefined}
             input={call.rawInput}
             description={always ? `Always: ${always}` : undefined}
-            labels={{ approvalCard: { resolved: { 'allow-always': always } } }}
             preview={files.length > 0 ? <DiffReview files={files} readOnly /> : undefined}
-            status={getApprovalStatus(part)}
-            decision={permission.decision === 'cancelled' ? undefined : permission.decision}
             // The agent's options. It keeps what "always" means, so the card shows no argument patterns.
             ruleScope={false}
             decisions={decisions}
@@ -128,7 +138,7 @@ export function AcpTurnView({
 
 `toAcpPermissionResponse(decision, options)` selects the agent's one option of the same kind: `allow-once` is `allow_once`, `allow-always` is `allow_always`, `deny-once` is `reject_once` and `deny-always` is `reject_always`. With no option of that kind, or several, the request is canceled: options of one kind grant different things, so it never picks one for the person, and `decisionsFromAcpOptions` doesn't offer that kind. Claude Code's ExitPlanMode sends up to three `allow_always` options, so its card offers Approve and Deny. Deny is the exception: with several `reject_once` options it answers the first, since a "no" grants nothing. When `decisionsFromAcpOptions` offers nothing, answer `{ outcome: { outcome: 'cancelled' } }` right away instead of rendering a card.
 
-When the agent sends one `allow_always` option, Always answers it, whatever it grants, such as "Yes, allow all edits during this session". So the card above names it in its description and in the line it shows once decided, and the button keeps its short label: card buttons don't wrap, and a long name pushes Approve and Deny off a phone-width card. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
+When the agent sends one `allow_always` option, Always answers it, whatever it grants, such as "Yes, allow all edits during this session". So the card above names it in its description, and the button keeps its short label: card buttons don't wrap, and a long name pushes Approve and Deny off a phone-width card. `decisionsFromAcpOptions` also offers `allow-session`, which answers `allow_once` and leaves the session rule to your `useApprovalPolicy`; the example above leaves it out.
 
 ## How a turn maps
 
