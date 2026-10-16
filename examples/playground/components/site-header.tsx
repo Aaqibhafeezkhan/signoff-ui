@@ -103,7 +103,7 @@ export function SiteHeader({
           <button
             type="button"
             popoverTarget={MENU_ID}
-            className={`${iconButton} inline-flex size-9 cursor-pointer md:hidden`}
+            className={`${iconButton} tap-target relative inline-flex size-9 cursor-pointer md:hidden`}
             aria-label="Menu"
             aria-expanded={menuOpen}
             aria-controls={MENU_ID}

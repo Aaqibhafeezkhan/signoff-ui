@@ -5,7 +5,8 @@
   "scripts": {
     "index": "node --import ./scripts/ts-resolve.mjs scripts/ask-index.ts",
     "dev": "pnpm index && next dev --port 3100",
-    "build": "pnpm index && next build",
+    "unshallow": "node -e \"const git = (...args) => require('node:child_process').spawnSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 120000 }); if (process.env.VERCEL && git('rev-parse', '--is-shallow-repository').stdout?.trim() === 'true') git('fetch', '--unshallow', '--quiet')\"",
+    "build": "pnpm unshallow && pnpm index && next build",
     "start": "next start --port 3100",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/ts-resolve.mjs --test test/*.test.ts"

@@ -9,10 +9,14 @@ import {
   useApprovalPolicy,
   type ApprovalAuditEvent,
   type ToolApprovalResponse,
+  type ToolMeta,
   type ToolPart,
 } from 'signoff-ui';
 
 const CALLS = ['npm test', 'npm test -- --watch', 'npm ci', 'rm -rf build'];
+
+// Named apart from the ApprovalCard demo's "Run command", which shares the components page with it.
+const RUN: ToolMeta = { label: 'Run shell command' };
 
 let next = 0;
 
@@ -108,11 +112,11 @@ export function UseApprovalPolicyDemo() {
           .slice()
           .reverse()
           .map((part) => (
-            <ToolApprovalCard key={part.toolCallId} part={part} onRespond={respond} policy={policy} />
+            <ToolApprovalCard key={part.toolCallId} part={part} meta={RUN} onRespond={respond} policy={policy} />
           ))}
         {parts.length === 0 && <p className="text-fg-subtle text-xs">Pick a command above to see its approval.</p>}
       </div>
-      <aside className="flex flex-col gap-3 text-xs">
+      <div className="flex flex-col gap-3 text-xs">
         <div>
           <h3 className="text-fg mb-1.5 font-medium">Rules</h3>
           {policy.rules.length === 0 ? (
@@ -131,7 +135,7 @@ export function UseApprovalPolicyDemo() {
                   <button
                     type="button"
                     onClick={() => policy.removeRule(rule.id)}
-                    className="text-fg-muted hover:text-fg focus-visible:outline-cyan-soft cursor-pointer rounded px-1 focus-visible:outline-2"
+                    className="tap-target text-fg-muted hover:text-fg focus-visible:outline-cyan-soft relative cursor-pointer rounded px-1 focus-visible:outline-2"
                   >
                     Remove<span className="sr-only"> the rule {describeRule(rule)}</span>
                   </button>
@@ -154,7 +158,7 @@ export function UseApprovalPolicyDemo() {
             </ol>
           )}
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

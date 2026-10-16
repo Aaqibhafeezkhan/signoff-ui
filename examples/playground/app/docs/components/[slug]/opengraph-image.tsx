@@ -1,7 +1,9 @@
 import { COMPONENTS, getComponent } from '@/lib/components';
 import { OG_SIZE, ogImage } from '@/lib/og';
 
-export const alt = 'An signoff-ui component';
+// One alt for every page of the route, which Next.js reads as a constant; the preview has the page’s
+// title and summary as text.
+export const alt = 'signoff-ui: the component’s name and what it does';
 export const size = OG_SIZE;
 export const contentType = 'image/png';
 

@@ -1,7 +1,9 @@
 import { getGuide, GUIDES } from '@/lib/docs';
 import { OG_SIZE, ogImage } from '@/lib/og';
 
-export const alt = 'An signoff-ui docs page';
+// One alt for every page of the route, which Next.js reads as a constant; the preview has the page’s
+// title and summary as text.
+export const alt = 'signoff-ui docs: the page’s title and summary';
 export const size = OG_SIZE;
 export const contentType = 'image/png';
 

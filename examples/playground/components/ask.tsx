@@ -48,7 +48,7 @@ export function Ask({ className = '' }: { className?: string }) {
           type="button"
           data-ask-trigger
           aria-label="Ask the docs"
-          className={`border-line text-fg-muted hover:border-line-strong hover:text-fg focus-visible:outline-cyan-soft inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 md:h-8 ${className}`}
+          className={`tap-target border-line text-fg-muted hover:border-line-strong hover:text-fg focus-visible:outline-cyan-soft relative inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 md:h-8 ${className}`}
         >
           <SparkIcon className="size-4" />
           <span className="max-md:hidden" aria-hidden="true">
