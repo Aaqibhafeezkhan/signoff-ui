@@ -241,10 +241,81 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     expect(onDecide).not.toHaveBeenCalled();
   });
 
-  it('with several pending cards, globalShortcut approves the one that mounted first', async () => {
-    // A limit the page states: when the shortcut goes to another card, the page changes with it.
+  it('a critical press stays armed until the second press, Escape, or focus leaving the card', async () => {
     expect(text()).toContain(
-      "It is meant for one pending approval: with several, as when `AgentMessage`'s `approvalProps` turns it on for parallel calls, the keys approve the card that mounted first, wherever the person is looking.",
+      'The first press on a `critical` action stays armed, with no time limit, until the second press, Escape, or focus leaving the card (or Approve all);',
+    );
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', onDecide }]} />);
+    const armed = () => screen.queryByRole('button', { name: /^Confirm approval/ });
+    await user.dblClick(screen.getByRole('button', { name: /^Approve/ }));
+    expect(armed()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    expect(armed()).not.toBeInTheDocument();
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('the Escape that closes the reason field closes only the field', async () => {
+    expect(text()).toContain('the Escape that closes the reason field closes only the field.');
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', allowReason: true, onDecide }]} />);
+    const armed = () => screen.queryByRole('button', { name: /^Confirm approval/ });
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('button', { name: L.denyWithFeedback }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('textbox', { name: L.reasonLabel })).toBeNull();
+    expect(armed()).toBeInTheDocument();
+    // The next Escape is the card's.
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('an edit made after the first press needs a new one', async () => {
+    expect(text()).toContain(
+      'The press is for the arguments it would approve, so new ones from the agent, or an edit made after it, need a new first press.',
+    );
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', editable: true, onDecide }]} />);
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('button', { name: L.editArguments }));
+    await user.type(screen.getByRole('textbox', { name: 'command' }), ' origin');
+    await user.click(screen.getByRole('button', { name: L.doneEditing }));
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onDecide).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /^Confirm approval/ }));
+    expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once', input: { command: 'git push --force origin' } });
+  });
+
+  it('a press globalShortcut arms from outside a critical card ends when focus or a click goes elsewhere', async () => {
+    expect(text()).toContain(
+      'A press it arms on a `critical` card from outside the card ends when focus or a click goes anywhere but the card, so after typing in a composer and sending, the next ⌘/Ctrl+Enter is a first press again.',
+    );
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    render(<Page cards={[{ globalShortcut: true, risk: 'critical', input: { command: 'rm -rf ~' }, onDecide }]} />);
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(screen.getByRole('button', { name: /^Confirm approval/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('textbox', { name: 'Message' }));
+    await user.keyboard('wait, not that');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).not.toHaveBeenCalled();
+    // A first press again: the next one confirms.
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once' });
+  });
+
+  it('with several pending cards, globalShortcut approves the latest to ask', async () => {
+    expect(text()).toContain(
+      "With several pending, as when `AgentMessage`'s `approvalProps` turns it on for parallel calls, the keys answer one card: the one they're pressed in, or else the latest to ask.",
     );
     const first = vi.fn();
     const second = vi.fn();
@@ -261,7 +332,23 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     // Focus is in neither card, as when the person has scrolled to the second one.
     screen.getByRole('button', { name: 'Send' }).focus();
     await user.keyboard('{Control>}{Enter}{/Control}');
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).not.toHaveBeenCalled();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('a newer card taking the keys over drops a press they armed on a critical card', async () => {
+    expect(text()).toContain(
+      'When a newer card takes them over, a press they armed on a `critical` card from outside it is dropped.',
+    );
+    const first = vi.fn();
+    const user = userEvent.setup();
+    const critical = { globalShortcut: true, risk: 'critical' as const, onDecide: first };
+    const { rerender } = render(<Page cards={[critical]} />);
+    screen.getByRole('button', { name: 'Send' }).focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(screen.getByRole('button', { name: /^Confirm approval/ })).toBeInTheDocument();
+    rerender(<Page cards={[critical, { globalShortcut: true }]} />);
+    expect(screen.queryByRole('button', { name: /^Confirm approval/ })).not.toBeInTheDocument();
+    expect(first).not.toHaveBeenCalled();
   });
 });
