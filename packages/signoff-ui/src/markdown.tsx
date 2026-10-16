@@ -136,6 +136,11 @@ const BLOCK_CHARS = 1_000;
 /** A fence: three or more backticks (with none after them on the line) or tildes. */
 const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)/;
 /**
+ * A fence opened on the line of a list item (`1. ```bash`) or a quote. Under a list item its closing
+ * line is indented, as a fence at the margin may be, so the fences after it would be misread.
+ */
+const CONTAINER_FENCE = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)+(?:`{3,}(?=[^`]*$)|~{3})/;
+/**
  * What may be a link reference or footnote definition (its label may hold `\]`), also in a list item
  * or a quote, or indented under one: CommonMark applies those to the whole text.
  */
@@ -163,7 +168,8 @@ function splitBlocks(text: string): string[] {
     } else {
       // Definitions are used across blocks, and some HTML blocks go on past blank lines: text with
       // either, outside fenced code (where `[key: string]: T` and `<div>` are only code), is one block.
-      if (!marker && (DEFINITION.test(line) || HTML_START.test(line))) return [text];
+      // So is text with a fence in a list item or a quote, which is not followed line by line here.
+      if (!marker && (DEFINITION.test(line) || HTML_START.test(line) || CONTAINER_FENCE.test(line))) return [text];
       if (size >= BLOCK_CHARS && BLANK.test(lines[i - 1]!) && BLOCK_START.test(line)) {
         blocks.push(lines.slice(start, i).join('\n'));
         start = i;

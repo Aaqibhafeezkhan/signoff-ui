@@ -55,6 +55,12 @@ const markup = (text: string, streaming = false) =>
     </Markdown>,
   ).replace(/>\n</g, '><');
 
+/**
+ * The markup of one parse of the whole text: a link reference definition reaches across blocks, so
+ * text with one is parsed whole. It goes first, so that it is found however the rest would be cut.
+ */
+const wholeMarkup = (text: string) => markup(`[unused]: https://example.com\n\n${text}`);
+
 describe('Markdown, a block at a time', () => {
   // Every delta parsed the whole text again: 21 ms a delta at 20,000 characters, 56 ms at 50,000.
   it('parses only the last blocks again when a streamed answer grows', () => {
@@ -69,8 +75,7 @@ describe('Markdown, a block at a time', () => {
 
   it('renders a long answer as one parse of the whole text does', () => {
     const text = answer(12_000);
-    // A link reference definition reaches across blocks, so with one the text is parsed whole.
-    const whole = markup(`${text}\n\n[unused]: https://example.com`);
+    const whole = wholeMarkup(text);
     expect(parsed.lengths).toHaveLength(1);
     parsed.lengths = [];
     expect(markup(text)).toBe(whole);
@@ -125,10 +130,42 @@ describe('Markdown, a block at a time', () => {
   it('still cuts text whose fenced code holds what looks like a definition or HTML', () => {
     const code = '```ts\ninterface Scores {\n  [name: string]: number;\n}\n[key: string]: T\n<div>{x}</div>\n```';
     const text = `${answer(4_000)}\n\n${code}\n\n${answer(2_000)}`;
-    const whole = markup(`${text}\n\n[unused]: https://example.com`);
+    const whole = wholeMarkup(text);
     expect(parsed.lengths).toHaveLength(1);
     parsed.lengths = [];
     expect(markup(text)).toBe(whole);
     expect(parsed.lengths.length).toBeGreaterThan(5);
+  });
+
+  // Under a list item, the fence's closing line is indented, as a fence at the margin may be: cut,
+  // a later code block of terminal output would split into paragraphs and swallow the text after it.
+  it.each([
+    ['a numbered list item', '1. ```bash\n   pnpm install\n   pnpm test\n   ```'],
+    ['a list item', '- ```bash\n  pnpm install\n  pnpm test\n  ```'],
+  ])('renders a code fence opened on the line of %s as one whole parse does', (_, item) => {
+    const steps = Array.from({ length: 24 }, (_, i) => `Step ${i} checks package ${i} and says what it found.`);
+    const output = '```\nRUN  v4.1.0\n\nTest Files  12 passed (12)\n\nTests  140 passed (140)\n```';
+    const text = `To check:\n\n${item}\n\n${steps.join('\n\n')}\n\nThe output:\n\n${output}\n\nAll green.`;
+    const whole = wholeMarkup(text);
+    // Two code blocks, and the last line a paragraph after them.
+    expect(whole.split('<pre')).toHaveLength(3);
+    expect(whole).toMatch(/<p[^>]*>All green\.<\/p><\/div>$/);
+    parsed.lengths = [];
+    expect(markup(text)).toBe(whole);
+    expect(parsed.lengths).toHaveLength(1);
+  });
+
+  // A fence on a line of its own under a list item opens and closes at the same indent, so it is
+  // followed as one at the margin is.
+  it('still cuts text whose code fences are indented under list items', () => {
+    const steps =
+      '1. Install:\n\n   ```bash\n   pnpm install\n\n   pnpm build\n   ```\n\n' +
+      '2. Check:\n   ```bash\n   pnpm test\n   ```\n\n- Or with npm:\n\n  ```bash\n  npm test\n  ```';
+    const text = `${answer(2_000)}\n\n${steps}\n\n${answer(2_000)}\n\n${steps}`;
+    const whole = wholeMarkup(text);
+    expect(parsed.lengths).toHaveLength(1);
+    parsed.lengths = [];
+    expect(markup(text)).toBe(whole);
+    expect(parsed.lengths.length).toBeGreaterThan(3);
   });
 });
