@@ -12,9 +12,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# One run at a time. A run that is waiting is replaced by a newer push's run, so RELEASING.md asks
-# for nothing to merge right after the version pull request.
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# One release at a time. A push's run that is waiting is replaced by a newer push's run, so
+# RELEASING.md asks for nothing to merge right after the version pull request. A dry run only reads,
+# so it has a group of its own: started on main, it never replaces a push's waiting run, nor waits
+# for one.
+concurrency: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
 
 # Each job asks for what it needs: only the release job can write, or publish.
 permissions: {}
@@ -122,6 +124,18 @@ jobs:
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
 
+      # With pending changesets, the version in package.json is the last release: npm has it, or it
+      # was tagged moments ago. If neither, the run for the version pull request's merge was
+      # replaced by this one before it started, and that version was never published: this step
+      # fails and names it. Re-run that run (RELEASING.md). It comes right after changesets/action,
+      # so no other step's failure can skip it, and when it fails the steps after it don't run: the
+      # next version pull request never merges by itself over a version npm doesn't have.
+      - name: The version on main is on npm
+        if: steps.changesets.outputs.has-changesets == 'true'
+        run: node scripts/check-published.mjs npm
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+
       # Without the App only. Its checks show on the version commit, but GitHub doesn't count them for
       # the pull request: approve its waiting CI run, or push an empty commit (RELEASING.md).
       - name: Run CI on the version pull request
@@ -131,7 +145,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       # Off unless the repository variable RELEASE_AUTO_MERGE is 'true' and the App is set up: then
-      # each version pull request merges, and so publishes, as soon as its CI passes.
+      # each version pull request merges, and so publishes, as soon as its CI passes. Skipped when
+      # the check above fails.
       - name: Merge the version pull request once its CI passes
         if: steps.changesets.outputs.pr-number != '' && steps.app-token.outputs.token != '' && vars.RELEASE_AUTO_MERGE == 'true'
         run: gh pr merge "$PR" --auto --merge --repo "$GITHUB_REPOSITORY"
@@ -139,19 +154,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.changesets.outputs.pr-number }}
 
-      # With pending changesets, the version in package.json is the last release: npm has it, or it
-      # was tagged moments ago. If neither, the run for the version pull request's merge was
-      # replaced by this one before it started, and that version was never published: this step
-      # fails and names it. Re-run that run (RELEASING.md).
-      - name: The version on main is on npm
-        if: steps.changesets.outputs.has-changesets == 'true'
-        run: node scripts/check-published.mjs npm
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-
       # With no pending changesets, signoff-ui@<version in package.json> gets its tag and GitHub
       # release, with its CHANGELOG.md entry, if npm has it and they are missing: after a publish
       # whose tag or release failed, on a re-run (which publishes nothing new), or on the next push.
+      # The tag goes on the commit the version was published from: this run's, or the one npm's
+      # provenance for it names.
       - name: Create the tag and the GitHub release, if they are missing
         if: ${{ !cancelled() && steps.changesets.outputs.has-changesets == 'false' }}
         run: node scripts/check-published.mjs release

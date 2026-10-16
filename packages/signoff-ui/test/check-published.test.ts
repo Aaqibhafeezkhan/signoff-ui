@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { Buffer } from 'node:buffer';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 /* scripts/check-published.mjs, which the release workflow runs after changesets/action: with pending
    changesets, that npm has the version on main; with none, the tag and the GitHub release npm's
-   version is missing. npm and the GitHub API are stand-ins here. */
+   version is missing, the tag at the commit it was published from. npm and the GitHub API are
+   stand-ins here. */
 
 interface Options {
   env?: Record<string, string | undefined>;
@@ -18,12 +20,70 @@ interface Options {
 interface CheckPublished {
   run: (argv: string[], options?: Options) => Promise<number>;
   changelogEntry: (changelog: string, version: string) => string | undefined;
+  provenanceCommit: (attestations: unknown, repo: string) => string | undefined;
 }
 
 const repoRoot = join(import.meta.dirname, '../../..');
-const { run, changelogEntry } = (await import(
+const { run, changelogEntry, provenanceCommit } = (await import(
   pathToFileURL(join(repoRoot, 'scripts/check-published.mjs')).href
 )) as CheckPublished;
+
+/** The commit a version was published from, and a later push's (GITHUB_SHA in `check`). */
+const MERGE = '18df716064d271d54fb732c468669a788f7f2517';
+const LATER = 'abc123';
+
+const base64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64');
+
+/**
+ * npm's attestations for a version published by the release workflow from `commit`, in the shape
+ * of signoff-ui@0.8.0's (`/-/npm/v1/attestations/signoff-ui@0.8.0`): npm's publish attestation,
+ * then the SLSA provenance, each a DSSE envelope around a base64 in-toto statement. The sigstore
+ * certificates and signatures are left out.
+ */
+function attestations(commit: string, repo = 'dgesteves/signoff-ui', version = '0.9.0') {
+  const subject = [{ name: `pkg:npm/signoff-ui@${version}`, digest: { sha512: 'e135' } }];
+  return {
+    attestations: [
+      {
+        predicateType: 'https://github.com/npm/attestation/tree/main/specs/publish/v0.1',
+        bundle: {
+          dsseEnvelope: {
+            payload: base64({
+              predicateType: 'https://github.com/npm/attestation/tree/main/specs/publish/v0.1',
+              subject,
+              predicate: { name: 'signoff-ui', version, registry: 'https://registry.npmjs.org' },
+            }),
+          },
+        },
+      },
+      {
+        predicateType: 'https://slsa.dev/provenance/v1',
+        bundle: {
+          dsseEnvelope: {
+            payload: base64({
+              predicateType: 'https://slsa.dev/provenance/v1',
+              subject,
+              predicate: {
+                buildDefinition: {
+                  externalParameters: {
+                    workflow: {
+                      ref: 'refs/heads/main',
+                      repository: `https://github.com/${repo}`,
+                      path: '.github/workflows/release.yml',
+                    },
+                  },
+                  resolvedDependencies: [
+                    { uri: `git+https://github.com/${repo}@refs/heads/main`, digest: { gitCommit: commit } },
+                  ],
+                },
+              },
+            }),
+          },
+        },
+      },
+    ],
+  };
+}
 
 const CHANGELOG = `# signoff-ui
 
@@ -55,11 +115,13 @@ function checkout(version: string, changelog = CHANGELOG): string {
   return dir;
 }
 
-/** npm and the GitHub API, holding these versions, tags and releases. */
+/** npm and the GitHub API, holding these versions, tags and releases, and npm's attestations by version. */
 function services({
   npm = [] as string[],
   tags = [] as string[],
   releases = [] as string[],
+  provenance = {} as Record<string, unknown>,
+  attestationsStatus = 200,
   post = 201,
   down = false,
 }) {
@@ -76,13 +138,24 @@ function services({
         status: post,
       });
     }
+    const attested = /^https:\/\/registry\.npmjs\.org\/-\/npm\/v1\/attestations\/signoff-ui@(.+)$/.exec(url)?.[1];
+    if (attested !== undefined) {
+      if (attestationsStatus !== 200) return new Response('Bad Gateway', { status: attestationsStatus });
+      const found = provenance[attested];
+      return found ? new Response(JSON.stringify(found), { status: 200 }) : new Response('Not Found', { status: 404 });
+    }
     const there =
       found(npm, 'https://registry.npmjs.org/signoff-ui/') ||
       found(tags, 'https://api.github.com/repos/dgesteves/signoff-ui/git/ref/tags/') ||
       found(releases, 'https://api.github.com/repos/dgesteves/signoff-ui/releases/tags/');
     return new Response(there ? '{}' : 'Not Found', { status: there ? 200 : 404 });
   };
-  return { fetch, calls, posts: () => calls.filter((call) => call.method === 'POST') };
+  return {
+    fetch,
+    calls,
+    posts: () => calls.filter((call) => call.method === 'POST'),
+    attestationCalls: () => calls.filter((call) => call.url.includes('/-/npm/v1/attestations/')),
+  };
 }
 
 async function check(argv: string[], version: string, world: ReturnType<typeof services>, env: Options['env'] = {}) {
@@ -90,7 +163,7 @@ async function check(argv: string[], version: string, world: ReturnType<typeof s
   const code = await run(argv, {
     root: checkout(version),
     fetch: world.fetch,
-    env: { GH_TOKEN: 'token', GITHUB_REPOSITORY: 'dgesteves/signoff-ui', GITHUB_SHA: 'abc123', ...env },
+    env: { GH_TOKEN: 'token', GITHUB_REPOSITORY: 'dgesteves/signoff-ui', GITHUB_SHA: LATER, ...env },
     log: (line) => lines.push(line),
   });
   return { code, log: lines.join('\n') };
@@ -117,6 +190,25 @@ describe('changelogEntry', () => {
     const entry = changelogEntry(readFileSync(join(repoRoot, 'packages/signoff-ui/CHANGELOG.md'), 'utf8'), version);
     expect(entry).toMatch(/^### (Major|Minor|Patch) Changes\n/);
     expect(entry).not.toMatch(/^## /m);
+  });
+});
+
+describe('provenanceCommit', () => {
+  it('reads the commit the SLSA provenance names, for this repository', () => {
+    expect(provenanceCommit(attestations(MERGE), 'dgesteves/signoff-ui')).toBe(MERGE);
+  });
+
+  it('names no commit for another repository, a publish attestation alone, or a payload it can’t read', () => {
+    expect(provenanceCommit(attestations(MERGE, 'someone/signoff-ui'), 'dgesteves/signoff-ui')).toBeUndefined();
+    // A repository whose name starts with this one's.
+    expect(provenanceCommit(attestations(MERGE, 'dgesteves/signoff-ui-fork'), 'dgesteves/signoff-ui')).toBeUndefined();
+    const [publish, slsa] = attestations(MERGE).attestations;
+    expect(provenanceCommit({ attestations: [publish] }, 'dgesteves/signoff-ui')).toBeUndefined();
+    const unreadable = { ...slsa, bundle: { dsseEnvelope: { payload: 'not base64 json' } } };
+    expect(provenanceCommit({ attestations: [unreadable] }, 'dgesteves/signoff-ui')).toBeUndefined();
+    expect(provenanceCommit(attestations('main'), 'dgesteves/signoff-ui')).toBeUndefined();
+    expect(provenanceCommit({}, 'dgesteves/signoff-ui')).toBeUndefined();
+    expect(provenanceCommit(null, 'dgesteves/signoff-ui')).toBeUndefined();
   });
 });
 
@@ -164,13 +256,15 @@ describe('check-published release, with no pending changesets', () => {
   });
 
   // The publish worked and the tag and release failed: a re-run publishes nothing, and so
-  // changesets/action creates neither.
-  it('creates the release and its tag, at the run’s commit, for a version npm has', async () => {
-    const world = services({ npm: ['0.9.0'] });
+  // changesets/action creates neither. A re-run checks out the commit it published, but the next
+  // push's run checks out a later one, which npm never got: the tag goes where npm's provenance says.
+  it('creates the release and its tag, at the commit npm’s provenance names, for a version npm has', async () => {
+    const world = services({ npm: ['0.9.0'], provenance: { '0.9.0': attestations(MERGE) } });
     const { code, log } = await check(['release'], '0.9.0', world);
     expect(code).toBe(0);
     expect(log).toBe(
-      'Created the GitHub release signoff-ui@0.9.0, and its tag at abc123: https://github.com/dgesteves/signoff-ui/releases/tag/x',
+      `Created the GitHub release signoff-ui@0.9.0, and its tag at ${MERGE}, the commit npm's provenance says it ` +
+        'was published from: https://github.com/dgesteves/signoff-ui/releases/tag/x',
     );
     expect(world.posts()).toEqual([
       {
@@ -183,10 +277,39 @@ describe('check-published release, with no pending changesets', () => {
           body: '### Minor Changes\n\n- [#160](https://github.com/dgesteves/signoff-ui/pull/160) A new prop.',
           prerelease: false,
           make_latest: 'true',
-          target_commitish: 'abc123',
+          target_commitish: MERGE,
         },
       },
     ]);
+    // npm gets no GitHub token.
+    expect(world.attestationCalls()).toEqual([
+      expect.objectContaining({
+        url: 'https://registry.npmjs.org/-/npm/v1/attestations/signoff-ui@0.9.0',
+        headers: { accept: 'application/json' },
+      }),
+    ]);
+  });
+
+  it('warns, and creates neither, when no provenance names the commit npm’s version came from', async () => {
+    for (const provenance of [{}, { '0.9.0': attestations(MERGE, 'someone/signoff-ui') }]) {
+      const world = services({ npm: ['0.9.0'], provenance });
+      const { code, log } = await check(['release'], '0.9.0', world);
+      expect(code).toBe(0);
+      expect(log).toMatch(
+        /^::warning::npm has signoff-ui@0\.9\.0, and it has no tag or GitHub release, but no provenance names the commit/,
+      );
+      expect(log).toContain('this run creates neither');
+      expect(world.posts()).toEqual([]);
+    }
+  });
+
+  // A re-run tries again.
+  it('throws when npm’s attestations can’t be read, so the step fails', async () => {
+    const world = services({ npm: ['0.9.0'], attestationsStatus: 502 });
+    await expect(check(['release'], '0.9.0', world)).rejects.toThrow(
+      /^https:\/\/registry\.npmjs\.org\/-\/npm\/v1\/attestations\/signoff-ui@0\.9\.0 answered 502/,
+    );
+    expect(world.posts()).toEqual([]);
   });
 
   it('keeps a tag that exists, and creates only the release', async () => {
@@ -196,15 +319,22 @@ describe('check-published release, with no pending changesets', () => {
       'Created the GitHub release signoff-ui@0.9.0: https://github.com/dgesteves/signoff-ui/releases/tag/x',
     );
     expect(world.posts()[0]?.body).not.toHaveProperty('target_commitish');
+    expect(world.attestationCalls()).toEqual([]);
   });
 
-  // changesets/action lists what it published; npm can take minutes to serve it.
-  it('creates the release for a version this run published, before npm serves it', async () => {
+  // changesets/action lists what it published; npm can take minutes to serve it, and its
+  // provenance too. This run checked out the commit it published.
+  it('creates the release for a version this run published, with the tag at the run’s commit', async () => {
     const world = services({});
     const published = JSON.stringify([{ name: 'signoff-ui', version: '0.9.0' }]);
-    const { code } = await check(['release'], '0.9.0', world, { PUBLISHED_PACKAGES: published });
+    const { code, log } = await check(['release'], '0.9.0', world, { PUBLISHED_PACKAGES: published });
     expect(code).toBe(0);
+    expect(log).toBe(
+      `Created the GitHub release signoff-ui@0.9.0, and its tag at ${LATER}: https://github.com/dgesteves/signoff-ui/releases/tag/x`,
+    );
     expect(world.posts()).toHaveLength(1);
+    expect(world.posts()[0]?.body).toMatchObject({ target_commitish: LATER });
+    expect(world.attestationCalls()).toEqual([]);
   });
 
   it('creates nothing for a version npm doesn’t have', async () => {
@@ -218,7 +348,10 @@ describe('check-published release, with no pending changesets', () => {
   });
 
   it('marks a prerelease as one, and not as the latest', async () => {
-    const world = services({ npm: ['1.0.0-next.0'] });
+    const world = services({
+      npm: ['1.0.0-next.0'],
+      provenance: { '1.0.0-next.0': attestations(MERGE, 'dgesteves/signoff-ui', '1.0.0-next.0') },
+    });
     const changelog = '## 1.0.0-next.0\n\n- Early.\n';
     const lines: string[] = [];
     await run(['release'], {
@@ -234,28 +367,41 @@ describe('check-published release, with no pending changesets', () => {
     const noEntry = await check(['release'], '0.9.1', services({ npm: ['0.9.1'] }));
     expect(noEntry.code).toBe(1);
     expect(noEntry.log).toMatch(/^::error::packages\/signoff-ui\/CHANGELOG\.md has no entry for 0\.9\.1/);
-    const noSha = await check(['release'], '0.9.0', services({ npm: ['0.9.0'] }), { GITHUB_SHA: undefined });
+    const published = JSON.stringify([{ name: 'signoff-ui', version: '0.9.0' }]);
+    const noSha = await check(['release'], '0.9.0', services({}), {
+      GITHUB_SHA: undefined,
+      PUBLISHED_PACKAGES: published,
+    });
     expect(noSha.code).toBe(1);
     expect(noSha.log).toMatch(/^::error::signoff-ui@0\.9\.0 has no tag, and GITHUB_SHA/);
   });
 
   it('throws when GitHub refuses the release, so the step fails', async () => {
-    await expect(check(['release'], '0.9.0', services({ npm: ['0.9.0'], post: 403 }))).rejects.toThrow(
-      /^Creating the GitHub release signoff-ui@0\.9\.0, and its tag at abc123 failed: 403/,
+    const world = services({ npm: ['0.9.0'], provenance: { '0.9.0': attestations(MERGE) }, post: 403 });
+    await expect(check(['release'], '0.9.0', world)).rejects.toThrow(
+      new RegExp(`^Creating the GitHub release signoff-ui@0\\.9\\.0, and its tag at ${MERGE}, .* failed: 403`),
     );
   });
 });
 
 describe('check-published release --dry-run', () => {
   it('says what it would create, and creates nothing', async () => {
-    const world = services({ npm: ['0.9.0'] });
+    const world = services({ npm: ['0.9.0'], provenance: { '0.9.0': attestations(MERGE) } });
     const { code, log } = await check(['release', '--dry-run'], '0.9.0', world);
     expect(code).toBe(0);
     expect(log).toBe(
       'npm has signoff-ui@0.9.0, and it has no GitHub release. Would create the GitHub release signoff-ui@0.9.0, ' +
-        'and its tag at abc123, with these notes:\n\n' +
+        `and its tag at ${MERGE}, the commit npm's provenance says it was published from, with these notes:\n\n` +
         '### Minor Changes\n\n- [#160](https://github.com/dgesteves/signoff-ui/pull/160) A new prop.',
     );
+    expect(world.posts()).toEqual([]);
+  });
+
+  it('says it would create neither without provenance', async () => {
+    const world = services({ npm: ['0.9.0'] });
+    const { code, log } = await check(['release', '--dry-run'], '0.9.0', world);
+    expect(code).toBe(0);
+    expect(log).toMatch(/^::warning::npm has signoff-ui@0\.9\.0, .* so a run would create neither\./);
     expect(world.posts()).toEqual([]);
   });
 
@@ -279,9 +425,9 @@ describe('check-published release --dry-run', () => {
   });
 
   it('only reads, with or without a token', async () => {
-    const world = services({ npm: ['0.9.0'] });
+    const world = services({ npm: ['0.9.0'], provenance: { '0.9.0': attestations(MERGE) } });
     await check(['release', '--dry-run'], '0.9.0', world, { GH_TOKEN: undefined });
-    expect(world.calls.map((call) => call.method)).toEqual(['GET', 'GET', 'GET']);
+    expect(world.calls.map((call) => call.method)).toEqual(['GET', 'GET', 'GET', 'GET']);
     for (const call of world.calls) expect(call.headers).not.toHaveProperty('authorization');
   });
 });

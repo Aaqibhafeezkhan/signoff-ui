@@ -52,18 +52,22 @@ const changesets = release?.steps.find((step) => step.uses?.startsWith('changese
 
 /**
  * Whether GitHub runs a step or job with this `if`, given the values of the contexts it reads
- * (`github.event_name`, `steps.changesets.outputs.has-changesets`...). A context with no value is ''.
- * A condition with no status function runs when everything before it succeeded, as here.
+ * (`github.event_name`, `steps.changesets.outputs.has-changesets`...) and whether a step before it
+ * failed. A context with no value is ''. A condition with no status function runs only when
+ * everything before it succeeded, as on GitHub (`success() && ...`); the run is never cancelled.
  */
-function runs(condition: string | undefined, values: Record<string, string>): boolean {
-  if (condition === undefined) return true;
-  const expression = condition
-    .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
-    .replace(/\b(?:cancelled|failure)\(\)/g, 'false')
-    .replace(/\b(?:always|success)\(\)/g, 'true')
+function runs(condition: string | undefined, values: Record<string, string>, failed = false): boolean {
+  if (condition === undefined) return !failed;
+  const body = condition.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  const expression = body
+    .replace(/\bcancelled\(\)/g, 'false')
+    .replace(/\bfailure\(\)/g, String(failed))
+    .replace(/\bsuccess\(\)/g, String(!failed))
+    .replace(/\balways\(\)/g, 'true')
     .replace(/\b(?:github|steps|env|vars|needs|secrets)(?:\.[\w-]+)+/g, (path) => JSON.stringify(values[path] ?? ''))
     .replace(/==/g, '===');
-  return Boolean(runInNewContext(expression));
+  const result = Boolean(runInNewContext(expression));
+  return /\b(?:success|failure|always|cancelled)\(\)/.test(body) ? result : !failed && result;
 }
 
 /** An env value such as `${{ secrets.A != '' }}`, as the string GitHub gives a step. */
@@ -71,24 +75,30 @@ function envValue(value: string, values: Record<string, string>): string {
   return /^\$\{\{.*\}\}$/.test(value) ? String(runs(value, values)) : value;
 }
 
+const label = (step: Step) => step.name ?? step.run ?? step.uses ?? '';
+
 /**
  * The steps of `job` that run, in order: a step's outputs (from `outputs`, by step id) exist only
- * when it runs, as on GitHub.
+ * when it runs, as on GitHub. The steps named in `fails` fail when they run, and the steps after
+ * them run only if their `if` says so.
  */
 function simulate(
   job: Job | undefined,
   values: Record<string, string>,
   outputs: Record<string, Record<string, string>> = {},
+  fails: string[] = [],
 ): Step[] {
   const context = { ...values };
   for (const [name, value] of Object.entries(job?.env ?? {})) context[`env.${name}`] = envValue(value, context);
   const ran: Step[] = [];
+  let failed = false;
   for (const step of job?.steps ?? []) {
-    if (!runs(step.if, context)) continue;
+    if (!runs(step.if, context, failed)) continue;
     ran.push(step);
     for (const [name, value] of Object.entries((step.id && outputs[step.id]) || {})) {
       context[`steps.${step.id ?? ''}.outputs.${name}`] = value;
     }
+    if (fails.includes(label(step))) failed = true;
   }
   return ran;
 }
@@ -107,7 +117,6 @@ function writes(step: Step): boolean {
   return /check-published\.mjs release(?! --dry-run)/.test(run);
 }
 
-const label = (step: Step) => step.name ?? step.run ?? step.uses ?? '';
 const app = (job: Job | undefined) =>
   job?.steps.find((step) => step.uses?.startsWith('actions/create-github-app-token@'));
 const secrets = (hasApp: boolean) => ({
@@ -142,7 +151,18 @@ describe('release workflow', () => {
 
   // A queued run is replaced by a newer one, but a running publish is never cancelled midway.
   it('runs one release at a time and never cancels one in progress', () => {
-    expect(workflow.concurrency).toBe('${{ github.workflow }}-${{ github.ref }}');
+    expect(workflow.concurrency).toBe('${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}');
+  });
+
+  // A dry run only reads. In the pushes' group, one started on main could replace the waiting run
+  // of the version pull request's merge, which would then publish nothing, or hold up a release.
+  it('keeps a dry run out of the group the pushes to main share', () => {
+    const group = (values: Record<string, string>) =>
+      String(workflow.concurrency).replace(/\$\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => values[path] ?? '');
+    const main = { 'github.workflow': 'Release', 'github.ref': 'refs/heads/main' };
+    const push = group({ ...main, 'github.event_name': 'push' });
+    expect(push).toBe('Release-push-refs/heads/main');
+    expect(group({ ...main, 'github.event_name': 'workflow_dispatch' })).not.toBe(push);
   });
 });
 
@@ -268,6 +288,42 @@ describe('a version run', () => {
     expect(ran.map((step) => step.run)).toContain('node scripts/check-published.mjs npm');
     expect(ran.map((step) => step.run)).not.toContain('node scripts/check-published.mjs release');
   });
+
+  const check = 'The version on main is on npm';
+  const merge = 'Merge the version pull request once its CI passes';
+  const autoMergeRun = (fails: string[] = []) =>
+    simulate(
+      release,
+      { ...on('push'), ...secrets(true), 'vars.RELEASE_AUTO_MERGE': 'true' },
+      {
+        'app-token': { token: 'app token' },
+        changesets: { 'has-changesets': 'true', 'pr-number': '160', published: 'false' },
+      },
+      fails,
+    ).map(label);
+
+  // Had the merge step run first, the next version pull request would merge by itself once its CI
+  // passed, and the version npm never got would be skipped for good.
+  it('turns on no auto-merge when npm doesn’t have the version on main', () => {
+    expect(autoMergeRun()).toEqual(expect.arrayContaining([check, merge]));
+    const ran = autoMergeRun([check]);
+    expect(ran).toContain(check);
+    expect(ran).not.toContain(merge);
+    // Right after changesets/action, so no step between them can fail and skip it.
+    const order = release?.steps.map(label) ?? [];
+    expect(order.indexOf(check)).toBe(order.indexOf(label(changesets!)) + 1);
+    expect(order.indexOf(check)).toBeLessThan(order.indexOf(merge));
+  });
+
+  // With RELEASE_AUTO_MERGE set and auto-merge not allowed in Settings, the merge step fails on
+  // every version run.
+  it('checks npm even when the merge step, or starting CI without the App, would fail', () => {
+    expect(autoMergeRun([merge])).toContain(check);
+    const withoutApp = simulate(release, on('push'), { changesets: { 'has-changesets': 'true', 'pr-number': '160' } }, [
+      'Run CI on the version pull request',
+    ]).map(label);
+    expect(withoutApp).toEqual(expect.arrayContaining(['Run CI on the version pull request', check]));
+  });
 });
 
 describe('a publish', () => {
@@ -299,9 +355,13 @@ describe('a publish', () => {
   it('runs after a failed changesets/action step too', () => {
     const step = release?.steps.find((s) => s.run === repair);
     expect(step?.if).toMatch(/^\$\{\{ !cancelled\(\) && /);
-    expect(runs(step?.if, { 'steps.changesets.outputs.has-changesets': 'false' })).toBe(true);
+    expect(runs(step?.if, { 'steps.changesets.outputs.has-changesets': 'false' }, true)).toBe(true);
+    const ran = simulate(release, on('push'), { changesets: { 'has-changesets': 'false', published: 'true' } }, [
+      label(changesets!),
+    ]);
+    expect(ran.map((s) => s.run)).toContain(repair);
     // changesets/action never ran (the install failed): no outputs, nothing to repair.
-    expect(runs(step?.if, {})).toBe(false);
+    expect(runs(step?.if, {}, true)).toBe(false);
   });
 
   it('starts no CI and merges nothing after a publish', () => {

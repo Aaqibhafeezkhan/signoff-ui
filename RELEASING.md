@@ -12,8 +12,8 @@ On a push to `main`, the workflow runs two jobs, one after the other:
 
 - **Validate the package**, with read permissions: `pnpm build:lib`, `pnpm size`, the library's typecheck, `pnpm test` and `pnpm --filter signoff-ui lint:package` (publint and attw), on the commit the next job versions or publishes. The browser checks run in CI, on the version pull request, before it merges.
 - **Version or publish**, the only job that can write or publish (its `id-token` is for npm trusted publishing): `changesets/action`, which opens the version pull request or runs `pnpm release` (`build:lib`, then `changeset publish`). It runs no tests, and installs without the pnpm store cache, which the jobs that run the dependencies' code save. Then:
-  - with changesets pending, `node scripts/check-published.mjs npm` checks that npm has the version on `main`, or that the version has its tag, since npm can take a few minutes to serve a new version (see [release day](#release-day));
-  - with none, `node scripts/check-published.mjs release` creates the tag and the GitHub release of the version on `main` when npm has it and they are missing.
+  - with changesets pending, `node scripts/check-published.mjs npm` checks that npm has the version on `main`, or that the version has its tag, since npm can take a few minutes to serve a new version (see [release day](#release-day)). It runs right after `changesets/action`, and when it fails, the steps after it, the merge step included, don't run;
+  - with none, `node scripts/check-published.mjs release` creates the tag and the GitHub release of the version on `main` when npm has it and they are missing. The tag goes on the commit the version was published from: the run's own commit when the run published it, or else the commit npm's provenance for the version names.
 
 Every action is pinned to a commit, with its version in a comment, and Dependabot moves both.
 
@@ -29,7 +29,7 @@ Without the secrets, the workflow uses its own token, as before. It starts CI on
 
 ### Merging the version pull request by itself
 
-To have each version pull request merge by itself once its CI passes, allow auto-merge (Settings, General) and add a repository variable `RELEASE_AUTO_MERGE` set to `true`. A merged changeset then reaches npm as soon as the version pull request's CI passes, so leave it off while releases are timed by hand. With the variable set and auto-merge not allowed, the merge step fails, after the version pull request is updated.
+To have each version pull request merge by itself once its CI passes, allow auto-merge (Settings, General) and add a repository variable `RELEASE_AUTO_MERGE` set to `true`. A merged changeset then reaches npm as soon as the version pull request's CI passes, so leave it off while releases are timed by hand. The merge step runs after the check that npm has the version on `main`, and only when that check passes: a version pull request never merges by itself over a version that never reached npm. With the variable set and auto-merge not allowed, the merge step fails, after the version pull request is updated and npm is checked.
 
 ## A dry run
 
@@ -47,6 +47,8 @@ It publishes, pushes and creates nothing:
   - runs `pnpm version-packages` and prints the diff the version pull request would have, changelog entries included;
   - builds and packs the package in the runner, and prints its name, its version and how many files it has.
 
+A dry run only reads, so it doesn't queue with the releases: one started on `main` neither replaces nor waits for the run of a push to `main`. Dry runs of the same branch run one at a time.
+
 Do one after any change to the release workflow, before the next release.
 
 ## Release day
@@ -60,7 +62,7 @@ So, before merging the version pull request, wait for any Release run in progres
 Re-running a Release run is safe: `changeset publish` publishes only the versions npm doesn't have, and the tag and release step creates only what is missing.
 
 - **The Release run for the version pull request's merge was cancelled**, or a later run's "The version on main is on npm" step fails. Open the run for the merge commit (Actions, Release) and re-run all its jobs. It checks out that commit, publishes its version, and creates the tag and the GitHub release.
-- **npm has the version, but its tag or GitHub release is missing.** Re-run the run: it publishes nothing, and creates them, with the tag at the run's commit. The next push to `main` creates them too, with the tag at that push's commit. Or create them by hand: `gh release create signoff-ui@X.Y.Z --target <merge commit> --title signoff-ui@X.Y.Z --notes-file <the version's CHANGELOG.md entry>`.
+- **npm has the version, but its tag or GitHub release is missing.** Re-run the run: it publishes nothing, and creates them. The next push to `main` creates them too. Either way, the tag goes on the commit npm's provenance for the version names, the one it was published from (`https://registry.npmjs.org/-/npm/v1/attestations/signoff-ui@X.Y.Z`), not on the commit of the run. Without provenance, the step warns and creates neither: create them by hand, `gh release create signoff-ui@X.Y.Z --target <merge commit> --title signoff-ui@X.Y.Z --notes-file <the version's CHANGELOG.md entry>`.
 - **Validate the package fails on `main`.** Nothing was versioned or published. Fix `main`, and the next push runs the release again.
 - **A broken version reached npm.** npm never takes the same version twice, and unpublishing breaks the installs that have it. Deprecate it, logged in to npm as an owner of the package: `npm deprecate signoff-ui@X.Y.Z "<what is broken, and the version to use>"`. Then release the fix as a patch changeset, as usual.
 - **"Get a token from the release GitHub App" fails.** The App isn't installed on this repository, or a secret is wrong. Fix it and re-run, or delete both secrets to release with the workflow's own token.
