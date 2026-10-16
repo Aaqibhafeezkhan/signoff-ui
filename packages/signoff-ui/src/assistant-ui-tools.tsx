@@ -1,12 +1,12 @@
 'use client';
 
 import type { ToolCallMessagePartComponent, ToolCallMessagePartProps } from '@assistant-ui/react';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { ToolApprovalCard, type ToolApprovalCardProps } from './approval-card';
 import { DiffReview, type DiffReviewProps } from './diff-review';
 import type { ToolPart } from './lib/ai';
 import type { FileChange } from './lib/diff';
-import { reviewToolOutput, type DiffReviewToolOutputOptions } from './lib/review';
+import { decisionsFromToolOutput, reviewToolOutput, type DiffReviewToolOutputOptions } from './lib/review';
 import type { ToolMeta } from './tool-call-timeline';
 import type { ApprovalPolicy } from './use-approval-policy';
 
@@ -44,10 +44,12 @@ export function SignoffToolsProvider({ children, ...options }: SignoffToolsProvi
 /**
  * A call whose arguments carry `files` (`FileChange[]`), reviewed in a `DiffReview` once its
  * arguments are in. The review goes back as the call's result, `reviewToolOutput(review)`, and the
- * review stays on the page, read-only.
+ * review stays on the page, read-only, with the decisions that result records: a thread loaded
+ * again shows each hunk as it was decided. Its viewed marks and comments are not shown again.
  */
 export function ReviewToolUI({ args, result, status, addResult }: ToolCallMessagePartProps) {
   const { review, output } = useContext(Options);
+  const decided = useMemo(() => (result === undefined ? undefined : decisionsFromToolOutput(result)), [result]);
   const files = (args as { files?: FileChange[] } | undefined)?.files;
   // Still streaming: the files may be cut short.
   if (!Array.isArray(files) || (result === undefined && status.type === 'running')) return null;
@@ -57,6 +59,7 @@ export function ReviewToolUI({ args, result, status, addResult }: ToolCallMessag
     <DiffReview
       {...review}
       files={named}
+      decisions={decided ?? review?.decisions}
       readOnly={result !== undefined}
       onSubmit={(done) => addResult(reviewToolOutput(done, output))}
     />
