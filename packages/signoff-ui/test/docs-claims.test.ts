@@ -61,14 +61,20 @@ describe('Performance and limits: rules', () => {
       toolCall: { toolName: 'run_command', input: { command } },
     });
 
+  const chained = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'];
+  const missed = ['git -C . push', 'git --git-dir=.git push'];
+
   it('says patterns are a convenience, not a sandbox, with commands a deny pattern misses that it really misses', () => {
     const bullet = item(limitations, 'Patterns are a convenience, not a sandbox.');
     expect(bullet).toContain('`git push*`');
     expect(deny('git push origin main')).toMatchObject({ type: 'denied' });
-    const missed = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'];
+    for (const command of chained) {
+      expect(bullet, command).toContain(`\`${command}\``);
+      expect(deny(command), command).toMatchObject({ type: 'denied' });
+    }
     for (const command of missed) {
       expect(bullet, command).toContain(`\`${command}\``);
-      // When deny rules learn to read each command of a line, this fails: update the bullet then.
+      // When deny rules learn to read these too, this fails: update the bullet then.
       expect(deny(command), command).toBe('not-applicable');
     }
   });
@@ -82,8 +88,7 @@ describe('Performance and limits: rules', () => {
     const server = toToolApproval(allowed, { otherwise: 'denied' });
     const run = (command: string) => server({ toolCall: { toolName: 'run_command', input: { command } } });
     expect(run('git status --short')).toMatchObject({ type: 'approved' });
-    for (const command of ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'])
-      expect(run(command), command).toBe('denied');
+    for (const command of [...chained, ...missed]) expect(run(command), command).toBe('denied');
   });
 });
 

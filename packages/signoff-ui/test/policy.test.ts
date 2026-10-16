@@ -8,6 +8,7 @@ import {
   fromAcpPermissionRequest,
   fromAcpPermissionResponse,
   matchesGlob,
+  parseApprovalRules,
   ruleFromDecision,
   ruleMatches,
   setToolInput,
@@ -142,6 +143,215 @@ describe('evaluateRules', () => {
     expect(evaluateRules([anyTool, allow], 'run_command', { command: 'npm ci' })?.rule).toBe(allow);
     expect(evaluateRules([allow], 'run_command', { command: 'pnpm i' })).toBeUndefined();
     expect(evaluateRules([], 'run_command', {})).toBeUndefined();
+  });
+
+  it('reports the most specific deny, the first of equals, whatever allow rules match', () => {
+    const denyAll = rule({ id: 'deny-all', effect: 'deny' });
+    const denyNpm = rule({ id: 'deny-npm', effect: 'deny', args: { command: 'npm *' } });
+    const again = rule({ id: 'deny-npm-2', effect: 'deny', args: { command: 'npm*' } });
+    expect(evaluateRules([allow, denyAll, denyNpm, again], 'run_command', { command: 'npm ci' })?.rule).toBe(denyNpm);
+    expect(evaluateRules([allow, denyAll], 'run_command', { command: 'npm ci' })?.rule).toBe(denyAll);
+  });
+});
+
+describe('deny rules read each command of a line', () => {
+  // "The server's rules win": the server's deny rule first, then a person's rule that allows every command.
+  const server = toToolApproval([rule({ id: 'server:no-push', effect: 'deny', args: { command: 'git push*' } })], {
+    otherwise: 'not-applicable',
+  });
+  const yours = toToolApproval(
+    parseApprovalRules([{ id: 'p', tool: 'run_command', effect: 'allow', scope: 'always' }]),
+  );
+  const both = (command: unknown) => {
+    const options = { toolCall: { toolName: 'run_command', input: { command } } };
+    const decided = server(options);
+    return decided === 'not-applicable' ? yours(options) : decided;
+  };
+  const denies = (pattern: string, command: unknown) =>
+    evaluateRules([rule({ id: 'all' }), rule({ id: 'd', effect: 'deny', args: { command: pattern } })], 'run_command', {
+      command,
+    })?.effect === 'deny';
+
+  it.each([
+    'git push origin main',
+    'git status && git push origin main',
+    'git push --force; true',
+    'git push -f | cat',
+    'git push $(echo x)',
+    'git push `echo x`',
+    'git push > log.txt',
+    'git fetch || git push',
+    'true\ngit push',
+    '(git push)',
+    '{ git push; }',
+    'if git push; then echo ok; fi',
+    ' git push',
+    'git  push origin main',
+    '\tgit push',
+    '/usr/bin/git push',
+    'GIT_TRACE=1 git push',
+    'FOO="a b" GIT_TRACE=1 git push',
+    "'git' push",
+    'g\\it push',
+    'env git push',
+    'env -i PATH=/bin git push',
+    'command git push',
+    'nohup git push &',
+    'time -p git push',
+    'sudo -u root git push',
+    'bash -c "git push"',
+    "sh -c 'git status; git push'",
+    'xargs -n1 git push < remotes',
+  ])("a server rule denying git push* denies %j, past a person's rule allowing every command", (command) => {
+    expect(both(command)).toMatchObject({ type: 'denied' });
+  });
+
+  it.each(['rm -rf ~', 'rm -rf ~; true', 'rm -rf ~ && echo ok', ' rm -rf ~', '/bin/rm -rf ~', 'echo hi; rm -rf ~'])(
+    'a deny rule for rm* wins over an allow-every-command rule on %j',
+    (command) => {
+      expect(denies('rm*', command)).toBe(true);
+    },
+  );
+
+  it('denies an array of words when an item, or the items joined by spaces, match', () => {
+    expect(denies('rm*', ['rm', '-rf', '~'])).toBe(true);
+    expect(denies('git push*', ['git', 'push', 'origin'])).toBe(true);
+    expect(denies('git push*', ['sh', '-c', 'git status && git push'])).toBe(true);
+    expect(both(['git', 'push'])).toMatchObject({ type: 'denied' });
+    expect(denies('git push*', ['git', 'status'])).toBe(false);
+  });
+
+  it.each([
+    'git status',
+    'git pull --rebase',
+    'gitpush',
+    'echo git push',
+    'git log --grep push',
+    'npm run format',
+    'ls ./rm',
+    'cp rm.txt b',
+  ])('denies no command that only names git push or rm as an argument: %j', (command) => {
+    expect(denies('git push*', command)).toBe(false);
+    expect(denies('rm*', command)).toBe(false);
+    expect(both(command)).toMatchObject({ type: 'approved' });
+  });
+
+  it('keeps allow rules matching from the first character', () => {
+    const allows = (pattern: string, command: unknown) =>
+      evaluateRules([rule({ args: { command: pattern } })], 'run_command', { command })?.effect === 'allow';
+    expect(allows('npm test*', 'npm test -- --watch')).toBe(true);
+    expect(allows('npm test*', 'npm test && rm -rf ~')).toBe(false);
+    expect(allows('npm test*', ' npm test')).toBe(false);
+    expect(allows('npm test*', 'FOO=1 npm test')).toBe(false);
+    expect(allows('npm test*', 'echo x; npm test')).toBe(false);
+    expect(allows('npm test*', ['npm', 'test'])).toBe(false);
+  });
+
+  it('still matches the whole line as written, operators included', () => {
+    expect(denies('npm run a && npm run b', 'npm run a && npm run b')).toBe(true);
+    expect(denies('**git*push**', 'git -C . push')).toBe(true);
+    // A pattern is no shell parser: these are other ways to write a push.
+    expect(denies('git push*', 'git -C . push')).toBe(false);
+    expect(denies('git push*', 'git --git-dir=.git push')).toBe(false);
+  });
+});
+
+describe('deny rules fail closed', () => {
+  const allowAll = rule({ id: 'all', tool: '*' });
+  const effect = (deny: Partial<ApprovalRule>, input: unknown, tool = 'run_command') =>
+    evaluateRules([allowAll, rule({ id: 'd', effect: 'deny', ...deny })], tool, input)?.effect;
+
+  it('holds on an argument it cannot read as text', () => {
+    expect(effect({ args: { command: 'rm*' } }, { command: { program: 'rm' } })).toBe('deny');
+    expect(effect({ args: { command: 'rm*' } }, { command: [['rm'], '-rf'] })).toBe('deny');
+    expect(effect({ args: { path: '/etc/**' } }, { path: ['/tmp/a', '/etc/passwd'] })).toBe('deny');
+    // A missing argument is not there to run: the deny rule doesn't cover the call.
+    expect(effect({ args: { command: 'rm*' } }, {})).toBe('allow');
+    expect(effect({ args: { command: 'rm*' } }, { command: null })).toBe('allow');
+    // An allow rule still matches no array or object.
+    expect(ruleMatches(rule({ args: { command: '**' } }), 'run_command', { command: ['ls'] })).toBe(false);
+    expect(ruleMatches(rule({ args: { command: '**' } }), 'run_command', { command: {} })).toBe(false);
+  });
+
+  it('holds when its own test throws, where an allow rule allows nothing', () => {
+    const etc = (input: unknown) => (input as { path: string }).path.startsWith('/etc');
+    expect(effect({ tool: 'read_file', when: etc }, { path: ['/etc/passwd'] }, 'read_file')).toBe('deny');
+    expect(effect({ tool: 'read_file', when: etc }, { file: '/etc/passwd' }, 'read_file')).toBe('deny');
+    expect(effect({ tool: 'read_file', when: etc }, { path: '/repo/a.ts' }, 'read_file')).toBe('allow');
+    expect(ruleMatches(rule({ tool: 'read_file', when: etc }), 'read_file', { file: '/etc/passwd' })).toBe(false);
+  });
+
+  it('reads a dotted name both ways: an allow rule needs both to match, a deny rule either', () => {
+    const input = { 'options.cwd': '/repo', options: { cwd: '/etc' } };
+    expect(ruleMatches(rule({ args: { 'options.cwd': '/repo*' } }), 'run_command', input)).toBe(false);
+    expect(ruleMatches(rule({ effect: 'deny', args: { 'options.cwd': '/etc*' } }), 'run_command', input)).toBe(true);
+    expect(ruleMatches(rule({ effect: 'deny', args: { 'options.cwd': '/repo*' } }), 'run_command', input)).toBe(true);
+    const same = { 'options.cwd': '/repo/a', options: { cwd: '/repo/b' } };
+    expect(ruleMatches(rule({ args: { 'options.cwd': '/repo/*' } }), 'run_command', same)).toBe(true);
+  });
+});
+
+describe('tool patterns', () => {
+  it('match any character with * and ?, since a tool name is no shell command', () => {
+    // ACP's title, when an agent sends no name or kind: "`*` for every tool" covers it.
+    expect(evaluateRules([rule({ tool: '*', effect: 'deny' })], 'Run `ls > out.txt`', {})?.effect).toBe('deny');
+    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'mcp_a;b', {})).toBe(true);
+    expect(ruleMatches(rule({ tool: 'mcp_?' }), 'mcp_|', {})).toBe(true);
+    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'other_a', {})).toBe(false);
+  });
+});
+
+describe('matching work', () => {
+  // 100 rules of 500 characters with one `*` each: within what parseApprovalRules accepts by default.
+  const pattern = `*${'a'.repeat(498)}b`;
+  const clientRules = (effect: 'allow' | 'deny') =>
+    parseApprovalRules(
+      Array.from({ length: 100 }, (_, i) => ({
+        id: `r${i}`,
+        tool: 'write_file',
+        args: { content: pattern },
+        effect,
+        scope: 'always',
+      })),
+    );
+  const call = { toolCall: { toolName: 'write_file', input: { content: 'a'.repeat(20_000) } } };
+
+  it('is bounded for a call, and what it leaves undecided counts against the call', () => {
+    expect(clientRules('allow')).toHaveLength(100);
+    let start = performance.now();
+    // The allow rules allow nothing they didn't finish: a person decides.
+    expect(toToolApproval(clientRules('allow'))(call)).toBe('user-approval');
+    expect(performance.now() - start).toBeLessThan(1000);
+    start = performance.now();
+    // A deny rule it didn't finish denies.
+    expect(toToolApproval(clientRules('deny'))(call)).toMatchObject({ type: 'denied' });
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it('still decides long arguments that common rules cover', () => {
+    const long = `npm test ${'a'.repeat(200_000)}`;
+    const rules = [
+      rule({ id: 'test', args: { command: 'npm test*' } }),
+      rule({ id: 'push', effect: 'deny', args: { command: 'git push*' } }),
+      rule({ id: 'key', effect: 'deny', tool: 'write_file', args: { content: '**PRIVATE KEY**' } }),
+    ];
+    expect(evaluateRules(rules, 'run_command', { command: long })?.rule.id).toBe('test');
+    expect(evaluateRules(rules, 'run_command', { command: `${long}; git push` })?.rule.id).toBe('push');
+    const file = `${'const a = 1;\n'.repeat(20_000)}`;
+    expect(evaluateRules(rules, 'write_file', { content: file })).toBeUndefined();
+    expect(evaluateRules(rules, 'write_file', { content: `${file}-----BEGIN PRIVATE KEY-----` })?.rule.id).toBe('key');
+    // A lockfile of 2.4 MB: the more there is to read, the more time matching gets.
+    const lock = Array.from(
+      { length: 30_000 },
+      (_, i) => `  /pkg-${i}@1.0.${i}:\n    resolution: {integrity: sha512-${'x'.repeat(20)}}\n`,
+    ).join('');
+    const write = [
+      rule({ id: 'write', tool: 'write_file', args: { path: '**' } }),
+      rule({ id: 'key', effect: 'deny', tool: 'write_file', args: { content: '**API_KEY**' } }),
+      rule({ id: 'pem', effect: 'deny', tool: 'write_file', args: { content: '**PRIVATE KEY**' } }),
+    ];
+    expect(evaluateRules(write, 'write_file', { path: 'pnpm-lock.yaml', content: lock })?.rule.id).toBe('write');
+    expect(evaluateRules(write, 'write_file', { path: '.env', content: `${lock}API_KEY=1` })?.rule.id).toBe('key');
   });
 });
 
@@ -590,6 +800,17 @@ describe('rule storage', () => {
     expect((await storage.load()).map((r) => r.id)).toEqual(['ok']);
     items.set('rules', '{not json');
     expect(await storage.load()).toEqual([]);
+    // Saved by another app, an older version or a hand edit: left out, without throwing.
+    items.set(
+      'rules',
+      JSON.stringify([
+        { ...rule({ id: 'null' }), args: null },
+        { ...rule({ id: 'list' }), args: ['git push*'] },
+        null,
+        rule({ id: 'ok' }),
+      ]),
+    );
+    expect((await storage.load()).map((r) => r.id)).toEqual(['ok']);
     items.set('rules', '{"a":1}');
     expect(await storage.load()).toEqual([]);
   });

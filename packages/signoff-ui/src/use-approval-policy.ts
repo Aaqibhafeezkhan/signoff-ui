@@ -107,7 +107,10 @@ function isRule(value: unknown): value is ApprovalRule {
     (rule.effect === 'allow' || rule.effect === 'deny') &&
     (rule.scope === 'session' || rule.scope === 'always') &&
     (rule.args === undefined ||
-      (typeof rule.args === 'object' && Object.values(rule.args).every((v) => typeof v === 'string')))
+      (!!rule.args &&
+        typeof rule.args === 'object' &&
+        !Array.isArray(rule.args) &&
+        Object.values(rule.args).every((v) => typeof v === 'string')))
   );
 }
 
@@ -213,7 +216,11 @@ export interface ApprovalPolicy {
     decision: ApprovalDecision,
     options?: { reason?: string | undefined; input?: unknown; args?: Record<string, string> | undefined },
   ): ApprovalOutcome;
-  /** Answer a request from the rules, if one matches, recorded as decided by that rule. */
+  /**
+   * Answer a request from the rules, if one matches, recorded as decided by that rule. A request it
+   * answered before, or a person decided, gets the same outcome while its tool and input are the
+   * ones answered (or the edit the person approved); another call with that id is decided again.
+   */
   answer(request: ApprovalRequest): ApprovalOutcome | undefined;
   /** How an answered request was decided, by its id: by a person or by which rule. */
   outcomeOf(id: string): ApprovalOutcome | undefined;
@@ -259,39 +266,17 @@ export function useApprovalPolicy({
     latest.current = rules;
   }, [rules]);
   const outcomes = useRef(new Map<string, ApprovalOutcome>());
+  // The calls each outcome answers, by id: the request's own, and the arguments the person approved.
+  const calls = useRef(new Map<string, Array<string | undefined>>());
   // The ids of `always` defaults the person removed, as last loaded or saved.
   const removedDefaults = useRef<readonly string[]>([]);
+  // Until the storage has loaded, the rules changed meanwhile, by id (`undefined`: removed). Saving
+  // them then would replace the rules it holds, so they go over the rules it loads, and are saved
+  // with them.
+  const early = useRef<Map<string, ApprovalRule | undefined> | undefined>(new Map());
+  const flush = useRef(false);
 
-  // Loaded once, from the storage the policy started with: an inline storage object (a new one on
-  // every render) does not reload it. Saves go to the current one.
-  const [loadFrom] = useState(storage);
-  useEffect(() => {
-    let live = true;
-    const apply = ([loaded, removed]: readonly [readonly ApprovalRule[], readonly string[]]) => {
-      if (!live) return;
-      removedDefaults.current = removed;
-      // The defaults, less the ones the person removed, then the saved rules, which win.
-      const gone = new Set(removed);
-      setOwn((current) => merge(gone.size ? current.filter((r) => !gone.has(r.id)) : current, loaded));
-      setReady(true);
-    };
-    const loaded = loadFrom.load();
-    const removed = loadFrom.loadRemovedDefaults?.() ?? [];
-    if (isThenable(loaded) || isThenable(removed)) {
-      // Removed defaults that fail to load leave the defaults as they are; the saved rules still load.
-      const removedOrNone = Promise.resolve(removed).then(undefined, () => []);
-      Promise.all([loaded, removedOrNone]).then(apply, () => live && setReady(true));
-    } else apply([loaded, removed]);
-    return () => {
-      live = false;
-    };
-  }, [loadFrom]);
-
-  const audit = (event: ApprovalAuditEvent) => onAudit?.(event);
-  const setRules = (next: ApprovalRule[]) => {
-    latest.current = next;
-    if (rulesProp === undefined) setOwn(next);
-    onRulesChange?.(next);
+  const save = (next: readonly ApprovalRule[]) => {
     // A rule with a `when` stays in memory: saved, it would load without it.
     void storage.save(next.filter((r) => r.scope === 'always' && !r.when));
     if (storage.saveRemovedDefaults) {
@@ -306,10 +291,62 @@ export function useApprovalPolicy({
     }
   };
 
+  // Loaded once, from the storage the policy started with: an inline storage object (a new one on
+  // every render) does not reload it. Saves go to the current one.
+  const [loadFrom] = useState(storage);
+  useEffect(() => {
+    let live = true;
+    const apply = ([loaded, removed]: readonly [readonly ApprovalRule[], readonly string[]]) => {
+      if (!live) return;
+      removedDefaults.current = removed;
+      const changes = early.current ?? new Map<string, ApprovalRule | undefined>();
+      early.current = undefined;
+      flush.current = changes.size > 0;
+      // The defaults, less the ones the person removed, then the saved rules, which win, then the
+      // changes made before they loaded.
+      const gone = new Set(removed);
+      setOwn((current) => over(merge(gone.size ? current.filter((r) => !gone.has(r.id)) : current, loaded), changes));
+      setReady(true);
+    };
+    const loaded = loadFrom.load();
+    const removed = loadFrom.loadRemovedDefaults?.() ?? [];
+    if (isThenable(loaded) || isThenable(removed)) {
+      // Removed defaults that fail to load leave the defaults as they are; the saved rules still load.
+      const removedOrNone = Promise.resolve(removed).then(undefined, () => []);
+      Promise.all([loaded, removedOrNone]).then(apply, () => apply([[], []]));
+    } else apply([loaded, removed]);
+    return () => {
+      live = false;
+    };
+  }, [loadFrom]);
+  // The changes made before the storage loaded, saved once the rules it loaded have rendered (and
+  // are in `latest`), not in the effects of the render that loaded them.
+  useEffect(() => {
+    if (!flush.current || !ready) return;
+    flush.current = false;
+    save(latest.current);
+  });
+
+  const audit = (event: ApprovalAuditEvent) => onAudit?.(event);
+  const setRules = (next: ApprovalRule[]) => {
+    const changes = early.current;
+    if (changes) {
+      const kept = new Set(next.map((r) => r.id));
+      for (const rule of latest.current) if (!kept.has(rule.id)) changes.set(rule.id, undefined);
+      for (const rule of next) if (!latest.current.includes(rule)) changes.set(rule.id, rule);
+    }
+    latest.current = next;
+    if (rulesProp === undefined) setOwn(next);
+    onRulesChange?.(next);
+    if (!changes) save(next);
+  };
+
   const record = (outcome: ApprovalOutcome) => {
     outcomes.current.set(outcome.id, outcome);
     return outcome;
   };
+  const answers = ({ id, toolName, input }: ApprovalRequest, edited?: unknown) =>
+    calls.current.set(id, [callKey(toolName, input), ...(edited === undefined ? [] : [callKey(toolName, edited)])]);
   const getRules = useCallback(() => toPlainRules(latest.current), []);
 
   return {
@@ -334,6 +371,7 @@ export function useApprovalPolicy({
         ...(reason ? { reason } : {}),
         ...(input !== undefined ? { input } : {}),
       });
+      answers(request, input);
       return record({
         id: request.id,
         approved,
@@ -346,13 +384,16 @@ export function useApprovalPolicy({
     },
     answer(request) {
       const known = outcomes.current.get(request.id);
-      if (known) return known;
+      const call = callKey(request.toolName, request.input);
+      // The outcome it gave, for the call it answered: another call with the same id is decided again.
+      if (known && call !== undefined && calls.current.get(request.id)?.includes(call)) return known;
       const match = evaluateRules(latest.current, request.toolName, request.input);
       if (!match) return undefined;
       const decision: ApprovalDecision =
         match.effect === 'allow' ? (match.rule.scope === 'session' ? 'allow-session' : 'allow-always') : 'deny-always';
       const reason = match.effect === 'deny' ? (match.rule.reason ?? ruleDenial) : undefined;
       audit({ type: 'decision', at: Date.now(), request, decision, by: 'rule', rule: match.rule, reason });
+      answers(request);
       return record({
         id: request.id,
         approved: match.effect === 'allow',
@@ -384,6 +425,26 @@ export function useApprovalPolicy({
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return !!value && typeof (value as { then?: unknown }).then === 'function';
+}
+
+/** A call as text, to tell it from another with the same id; `undefined` for input JSON can't write. */
+function callKey(toolName: string, input: unknown): string | undefined {
+  try {
+    return JSON.stringify([toolName, input]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Rules with changes by id over them: a rule in place of the one with its id, or after them; `undefined` removes it. */
+function over(rules: ApprovalRule[], changes: ReadonlyMap<string, ApprovalRule | undefined>): ApprovalRule[] {
+  if (!changes.size) return rules;
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  for (const [id, rule] of changes) {
+    if (rule) byId.set(id, rule);
+    else byId.delete(id);
+  }
+  return [...byId.values()];
 }
 
 /**
