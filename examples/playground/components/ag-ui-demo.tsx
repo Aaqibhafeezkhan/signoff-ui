@@ -214,6 +214,7 @@ function Run({ onReset }: { onReset: () => void }) {
           message={last}
           streaming={status === 'streaming'}
           active={state !== 'done' && state !== 'stopped' && state !== 'error'}
+          failed={status === 'error'}
           tools={toolMeta}
           onToolApproval={respond}
         />

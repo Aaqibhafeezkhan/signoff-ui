@@ -323,17 +323,18 @@ export function deriveAgentState({
   if (status === 'streaming') {
     let last = parts.at(-1);
     if (!last || last.type === 'step-start' || last.type === 'reasoning') return { state: 'thinking' };
-    // A settled call (done, failed or denied) is not work: the model is answering it. Parallel calls
-    // settle in any order, so a call or sub-agent still running before it is.
-    if (isToolPart(last) && isSettledPhase(getToolPhase(last))) {
-      last = parts.findLast((p) =>
-        isToolPart(p) ? !isSettledPhase(getToolPhase(p)) : isSubagentPart(p) && p.data.status === 'running',
-      );
+    // A settled call (done, failed or denied) or a sub-agent that has finished is not work: the model
+    // is answering it. Parallel calls settle in any order, so a call or sub-agent of this step still
+    // running before it is. Calls of earlier steps had all settled when this one started.
+    if (isSettledWork(last)) {
+      const step = parts.slice(parts.findLastIndex((p) => p.type === 'step-start') + 1);
+      last = step.findLast((p) => (isToolPart(p) || isSubagentPart(p)) && !isSettledWork(p));
       if (!last) return { state: 'thinking' };
     }
     if (isToolPart(last)) return { state: 'working', detail: getToolPartName(last) };
     if (isSubagentPart(last)) {
-      const call = getAllToolParts([last]).at(-1);
+      // Its call still going, or the sub-agent itself while it thinks between calls.
+      const call = getAllToolParts([last]).findLast((t) => !isSettledPhase(getToolPhase(t)));
       return { state: 'working', detail: call ? getToolPartName(call) : last.data.name };
     }
     if (last.type === 'text') return { state: 'working', detail: writingResponse };
@@ -345,6 +346,12 @@ export function deriveAgentState({
     if (parts.some(isUnfinishedPart)) return { state: 'stopped' };
   }
   return parts.length > 0 ? { state: 'done' } : { state: 'idle' };
+}
+
+/** A call that has settled (done, failed or denied), or a sub-agent no longer running. */
+function isSettledWork(part: AnyUIPart): boolean {
+  if (isToolPart(part)) return isSettledPhase(getToolPhase(part));
+  return isSubagentPart(part) && part.data.status !== 'running';
 }
 
 /** A part the run left unfinished: text or reasoning still streaming, or an interrupted tool call. */

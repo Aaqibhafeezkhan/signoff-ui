@@ -48,8 +48,9 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
    */
   active?: boolean;
   /**
-   * The run ended in an error (`useChat`'s `status === 'error'`). Default `false`. With `active={false}`,
-   * approved calls whose result never came back then read "Stopped" too. See `ToolCallTimeline`'s `failed`.
+   * The run ended in an error (`useChat`'s `status === 'error'`, or a run restored from history that
+   * ended in one). Default `false`. With `active={false}`, approved calls whose result never came back
+   * then read "Stopped" too. See `ToolCallTimeline`'s `failed`.
    */
   failed?: boolean;
   tools?: Record<string, ToolMeta> | undefined;

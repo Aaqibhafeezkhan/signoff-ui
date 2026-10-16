@@ -95,7 +95,7 @@ export interface ToolCallTimelineProps extends Omit<ComponentPropsWithoutRef<'di
   /**
    * The run ended in an error (`useChat`'s `status === 'error'`). Default `false`. With `active={false}`,
    * approved calls whose result never came back then read "Stopped" too: the request that would
-   * have run them failed.
+   * have run them failed. Pass it as well for a run restored from history that ended in an error.
    */
   failed?: boolean;
   /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */

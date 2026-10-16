@@ -437,6 +437,7 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
               message={lastAssistant}
               streaming={running}
               active={derived.state !== 'done' && derived.state !== 'stopped' && derived.state !== 'error'}
+              failed={status === 'error'}
               tools={toolMeta}
               onToolApproval={addToolApprovalResponse}
               approvalProps={{ autoFocus: !autopilot && following }}

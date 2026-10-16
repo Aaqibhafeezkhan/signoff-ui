@@ -250,6 +250,8 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
                   streaming={running && message === last}
                   // Once the run has ended, calls that never settled read "Stopped".
                   active={message === last && !ended}
+                  // And once the run failed, approved calls whose result never came back.
+                  failed={status === 'error'}
                   tools={TOOL_META}
                   renderTool={renderTool}
                   onToolApproval={addToolApprovalResponse}
