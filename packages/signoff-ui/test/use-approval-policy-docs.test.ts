@@ -67,6 +67,17 @@ describe('the useApprovalPolicy page: patterns', () => {
       'any word after `sudo` or `timeout` may start the command, `sudo grep -rn "git push" docs` too.',
     );
     expect(denies('git push*', 'sudo grep -rn "git push" docs')).toBe(true);
+    expect(reads).toContain('so `2>/dev/null git push` and `git >out push` read as `git push`');
+    for (const command of ['2>/dev/null git push', 'git >out push']) expect(denies('git push*', command)).toBe(true);
+    expect(reads).toContain('a line that ends in `\\` is joined to the next');
+    expect(denies('git push*', 'git \\\npush')).toBe(true);
+    expect(reads).toContain("`find`'s `-exec`");
+    expect(denies('rm*', 'find . -name x -exec rm {} +')).toBe(true);
+    expect(reads).toContain('any word can start the command, a quoted one read as a line of its own');
+    expect(denies('git push*', 'bash -c "FOO=1 git push"')).toBe(true);
+    expect(reads).toContain('`git push*` denies `FOO="a;b" git push`, and `rm*` denies `sed -i "s/a;b/c/" rm.txt`.');
+    expect(denies('git push*', 'FOO="a;b" git push')).toBe(true);
+    expect(denies('rm*', 'sed -i "s/a;b/c/" rm.txt')).toBe(true);
     expect(reads).toContain("`rm*` denies `['rm', '-rf', '~']`");
     expect(denies('rm*', ['rm', '-rf', '~'])).toBe(true);
     expect(reads).toContain('`npm test*` allows neither ` npm test` nor `FOO=1 npm test`');

@@ -72,7 +72,7 @@ describe('Performance and limits: rules', () => {
       toolCall: { toolName: 'run_command', input: { command } },
     });
 
-  const chained = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'];
+  const chained = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push', '2>/dev/null git push'];
   const missed = ['git -C . push', 'git --git-dir=.git push'];
 
   it('says patterns are a convenience, not a sandbox, with commands a deny pattern misses that it really misses', () => {

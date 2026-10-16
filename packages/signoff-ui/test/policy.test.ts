@@ -202,16 +202,56 @@ describe('deny rules read each command of a line', () => {
     'bash -c "git push"',
     "sh -c 'git status; git push'",
     'xargs -n1 git push < remotes',
+    // A redirect goes with the word it names, before the command or inside it.
+    '>out git push',
+    '2>/dev/null git push',
+    '</dev/null git push origin main',
+    '>&2 git push',
+    '&>out git push',
+    '<<<"x" FOO=1 git push',
+    'git >out push',
+    'git 2>/dev/null push origin main',
+    'git <>rw >|out <&3 push',
+    '<<-EOF git push',
+    'git <<EOF push',
+    'bash -c "git push\\>log"',
+    'git push \\',
+    // A command a redirect or a process substitution runs.
+    'echo >$(git push)',
+    'diff <(ls) >(git push)',
+    // A `\` at a line's end joins it to the next.
+    'git \\\npush',
+    'gi\\\nt push',
+    // A quote that holds an operator, before the command.
+    'FOO="a;b" git push',
+    'FOO="a;b" git push "origin"',
+    'sudo -u "a;b" git push',
+    // A quoted line a shell runs, read as a shell reads it.
+    'bash -c " git push"',
+    'bash -c "FOO=1 git push"',
+    'sh -c "env git push"',
+    'bash -c "cd x; A=\\"x y\\" git push"',
+    'bash -c "x; \'git\' push"',
   ])("a server rule denying git push* denies %j, past a person's rule allowing every command", (command) => {
     expect(both(command)).toMatchObject({ type: 'denied' });
   });
 
-  it.each(['rm -rf ~', 'rm -rf ~; true', 'rm -rf ~ && echo ok', ' rm -rf ~', '/bin/rm -rf ~', 'echo hi; rm -rf ~'])(
-    'a deny rule for rm* wins over an allow-every-command rule on %j',
-    (command) => {
-      expect(denies('rm*', command)).toBe(true);
-    },
-  );
+  it.each([
+    'rm -rf ~',
+    'rm -rf ~; true',
+    'rm -rf ~ && echo ok',
+    ' rm -rf ~',
+    '/bin/rm -rf ~',
+    'echo hi; rm -rf ~',
+    'find . -name x -exec rm {} \\;',
+    'find . -execdir rm -f {} +',
+    'bash -c "find . -exec rm {} +"',
+    // `\\` then a line break is a `\`, and the break splits the line; so does one after a quoted `\`.
+    'echo a\\\\\nrm -rf ~',
+    "echo 'a\\'\nrm -rf ~",
+  ])('a deny rule for rm* wins over an allow-every-command rule on %j', (command) => {
+    expect(denies('rm*', command)).toBe(true);
+  });
 
   it('denies an array of words when an item, or the items joined by spaces, match', () => {
     expect(denies('rm*', ['rm', '-rf', '~'])).toBe(true);
@@ -230,6 +270,12 @@ describe('deny rules read each command of a line', () => {
     'npm run format',
     'ls ./rm',
     'cp rm.txt b',
+    // A redirect's word is a file, not a command; and `find` runs nothing without `-exec`.
+    'ls > rm.txt',
+    'sort < rm.txt',
+    'echo x > git push',
+    'find . -name rm',
+    'FOO="a b" npm test rm',
   ])('denies no command that only names git push or rm as an argument: %j', (command) => {
     expect(denies('git push*', command)).toBe(false);
     expect(denies('rm*', command)).toBe(false);
@@ -241,6 +287,7 @@ describe('deny rules read each command of a line', () => {
     ['git push*', 'sudo grep -rn "git push" docs'],
     ['git push*', 'timeout 60 echo git push'],
     ['rm*', 'timeout 300 npm test -- --grep rm'],
+    ['rm*', 'sed -i "s/a;b/c/" rm.txt'],
   ])('over-denies, as the changeset says: %s denies %j', (pattern, command) => {
     expect(denies(pattern, command)).toBe(true);
   });

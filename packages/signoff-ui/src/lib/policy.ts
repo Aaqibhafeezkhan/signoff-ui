@@ -228,43 +228,185 @@ export function matchesGlob(value: string, pattern: string): boolean {
   return globMatch([[value, FROM_START]], globParts(pattern), false, { left: Infinity }) === true;
 }
 
-/** Where a shell line splits into commands: its operators, `$(`, and the parentheses of a subshell. */
-const COMMAND_BREAK = /[;&|`<>\r\n()]/;
+/** Where a shell line splits into commands, inside quotes too: its operators, `$(`, and a subshell's parentheses. */
+const COMMAND_BREAK = ';&|`\r\n()';
+/** Space between words; line breaks are in `COMMAND_BREAK`. */
+const SPACE = /\s/;
+/** A stretch of a line with nothing in it for `pieces` to do: no space, quote, `\`, redirect or break. */
+const PLAIN = /[^\s"'\\<>;&|`()]+/y;
 /** Words that run the next one, past options of their own: `nohup git push`, `if git push; then`. */
 const RUNS_NEXT = /^(?:[!{]|if|then|else|elif|do|while|until|time|command|exec|builtin|nohup)$/;
 /** Programs that run a command among their arguments: `sudo -u root git push`, `sh -c "git push"`. */
 const RUNS_LATER = /^(?:sudo|doas|env|nice|xargs|timeout|watch|eval|(?:ba|da|k|z)?sh)$/;
+/** `find`'s options that run the words after them: `find . -exec rm {} \;`. */
+const RUNS_AFTER = /^-(?:exec|execdir|ok|okdir)$/;
+
+/** A command of a shell line: its words, each as its runs of non-space characters. */
+interface Piece {
+  words: string[][];
+  /** It starts inside a quote, so its first word began in the piece before. */
+  continued: boolean;
+}
 
 /**
- * Each command of a shell line, split at operators even inside quotes, as the words a shell would run
- * (quotes and `\` taken off, one space between them), with where in it the command may start: its
- * first word past `NAME=value` settings, that word without its path (`/usr/bin/git` as `git`), the
- * word after one in `RUNS_NEXT`, and every word after one in `RUNS_LATER`.
+ * A shell line in pieces, split at each character of `COMMAND_BREAK`, inside quotes too, and inside
+ * quotes at `<` and `>` as well, since a quoted line may be one a shell runs (`sh -c "git push 2>&1"`).
+ * Each piece holds its words as a shell splits them, quotes and `\` taken off. Outside quotes, a
+ * redirect goes with the word it names (`>out`, `2>/dev/null`, `>&2`, `<<'EOF'`), so the words on
+ * either side of it are one command, as a shell runs them, and a `\` before a line break joins the
+ * lines. It reads the line once.
+ */
+function pieces(line: string): Piece[] {
+  const out: Piece[] = [];
+  let words: string[][] = [];
+  // The word being read, as its runs so far, and the run being read.
+  let word: string[] | undefined;
+  let run = '';
+  // The quote the line is in, a quote inside it, and whether the word being read is the one a
+  // redirect names.
+  let quote = '';
+  let inner = '';
+  let target = false;
+  let continued = false;
+  const endRun = () => {
+    if (run) (word ??= []).push(run);
+    run = '';
+  };
+  const endWord = () => {
+    endRun();
+    if (word?.length && !target) words.push(word);
+    word = undefined;
+    target = false;
+  };
+  const endPiece = () => {
+    endWord();
+    out.push({ words, continued });
+    words = [];
+    inner = '';
+    continued = quote !== '';
+    if (continued) word = [];
+  };
+  // A plain stretch from `i`, added to the run at once, and where it ends.
+  const plain = (i: number) => {
+    PLAIN.lastIndex = i;
+    PLAIN.test(line);
+    run += line.slice(i, PLAIN.lastIndex);
+    return PLAIN.lastIndex - 1;
+  };
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    const next = line[i + 1];
+    if (c === '\\' && quote !== "'") {
+      // Before a line break, `\` joins the lines. Before a break, it leaves the break to split the
+      // line, as a quote does. In double quotes, `\"` is a quote to the shell the line is given to.
+      // Any other character it makes literal.
+      if (next === '\n') i++;
+      else if (quote && next === '"') {
+        inner = inner ? '' : next;
+        i++;
+      } else if (next !== undefined && !COMMAND_BREAK.includes(next) && !(quote && (next === '<' || next === '>'))) {
+        run += next;
+        i++;
+      }
+    } else if (quote) {
+      // A quoted line may be one a shell runs, which reads its quotes in turn: `inner`, the other
+      // quote, keeps its spaces in the run, from where it opens in the piece.
+      if (c === quote) quote = inner = '';
+      else if (c === '"' || c === "'") inner = inner ? '' : c;
+      else if (COMMAND_BREAK.includes(c) || c === '<' || c === '>') endPiece();
+      else if (SPACE.test(c)) {
+        if (inner) run += c;
+        else endRun();
+      } else if (c === '\\') run += c;
+      else i = plain(i);
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      word ??= [];
+    } else if (COMMAND_BREAK.includes(c) || ((c === '<' || c === '>') && next === '(')) {
+      // `<(` and `>(` run a command of their own: the next piece.
+      endPiece();
+    } else if (c === '<' || c === '>') {
+      // A redirect. A number written against it is the descriptor it redirects, not a word.
+      if (!word && /^\d+$/.test(run)) run = '';
+      endWord();
+      // `>>`, `<>`, `>&`, `<&`, `>|`, then `<<`, `<<<` and `<<-`.
+      if (next === '&' || next === '>' || (c === '>' && next === '|')) i++;
+      else if (c === '<' && next === '<') {
+        i++;
+        if (line[i + 1] === '<' || line[i + 1] === '-') i++;
+      }
+      while (line[i + 1] === ' ' || line[i + 1] === '\t') i++;
+      target = true;
+    } else if (SPACE.test(c)) endWord();
+    else i = plain(i);
+  }
+  endPiece();
+  return out;
+}
+
+/**
+ * Each command of a shell line (`pieces`), as its words joined by one space, with where in it the
+ * command may start: its first word past `NAME=value` settings, that word without its path
+ * (`/usr/bin/git` as `git`), the word after one in `RUNS_NEXT` or `RUNS_AFTER`, and every word after
+ * one in `RUNS_LATER`. A quoted word a command may start at is a line a shell may run, read the same
+ * way (`sh -c "FOO=1 git push"`), and so is the first word of a piece that starts inside a quote,
+ * where the words after it may start a command too (`FOO="a;b" git push`).
  */
 function commands(line: string): Candidate[] {
-  return line.split(COMMAND_BREAK).map((segment) => {
-    // Runs of plain characters, `\` escapes and quoted strings (closed or not), then unquoted.
-    const words = (segment.match(/(?:[^\s"'\\]|\\[\s\S]?|"(?:[^"\\]|\\[\s\S]?)*"?|'[^']*'?)+/g) ?? []).map((word) =>
-      word.replace(/\\([\s\S])|["']/g, '$1'),
-    );
-    // Each word's offset in the words joined by spaces.
+  return pieces(line).map(({ words, continued }) => {
+    const runs = words.flat();
+    // Each run's offset in the runs joined by spaces, and each word's first run.
     const at: number[] = [];
-    for (let k = 0, offset = 0; k < words.length; offset += words[k++]!.length + 1) at.push(offset);
-    // Ascending: the word's offset, and the offset past its path, the program as a shell finds it.
+    for (let k = 0, offset = 0; k < runs.length; offset += runs[k++]!.length + 1) at.push(offset);
+    const first: number[] = [];
+    for (let k = 0, run = 0; k < words.length; run += words[k++]!.length) first.push(run);
+    const texts = words.map((word) => word.join(' '));
     const starts: number[] = [];
-    const start = (k: number) => {
-      const path = words[k]!.lastIndexOf('/') + 1;
-      starts.push(at[k]!, at[k]! + path);
-      return words[k]!.slice(path);
+    /**
+     * Where a command may start among items `k` to `end` (words, or a quoted word's runs), in one
+     * pass: the offset of each, and past its path, the program as a shell finds it.
+     */
+    const read = (
+      items: readonly string[],
+      offset: (k: number) => number,
+      nest: (k: number) => void,
+      k: number,
+      end: number,
+    ) => {
+      // Looking for the command, among its arguments, or past a program that runs any of them.
+      let state: 'command' | 'arguments' | 'any' = 'command';
+      let options = false;
+      for (; k < end; k++) {
+        const item = items[k]!;
+        if (state === 'arguments') {
+          if (RUNS_AFTER.test(item)) {
+            state = 'command';
+            options = false;
+          }
+          continue;
+        }
+        if (state === 'command' && (/^[A-Za-z_]\w*=/.test(item) || (options && item.startsWith('-')))) continue;
+        const path = item.lastIndexOf('/') + 1;
+        starts.push(offset(k), offset(k) + path);
+        nest(k);
+        if (state === 'any') continue;
+        const name = item.slice(path);
+        if (RUNS_LATER.test(name)) state = 'any';
+        else if (RUNS_NEXT.test(name)) options = true;
+        else state = 'arguments';
+      }
     };
-    for (let k = 0, options = false; k < words.length; k++) {
-      if (/^[A-Za-z_]\w*=/.test(words[k]!) || (options && words[k]!.startsWith('-'))) continue;
-      const name = start(k);
-      if (RUNS_LATER.test(name)) while (++k < words.length) start(k);
-      if (!RUNS_NEXT.test(name)) break;
-      options = true;
-    }
-    return [words.join(' '), starts] as const;
+    const none = () => {};
+    const inRuns = (k: number) => read(runs, (j) => at[j]!, none, first[k]!, first[k]! + words[k]!.length);
+    const nest = (j: number) => {
+      if (words[j]!.length > 1) inRuns(j);
+    };
+    const inWords = (k: number) => read(texts, (j) => at[first[j]!]!, nest, k, words.length);
+    if (continued && words.length) {
+      inRuns(0);
+      inWords(1);
+    } else inWords(0);
+    return [runs.join(' '), starts.sort((a, b) => a - b)] as const;
   });
 }
 
@@ -398,8 +540,8 @@ function covers(
 /**
  * Whether a rule applies to a call: its tool, every argument pattern, and its own test. A deny rule
  * reads more than an allow rule, to hold when a command is written another way: each command of a
- * shell line, from its first word past `NAME=value` settings and a path, or after `sudo`, `env`,
- * `sh -c`…; an array by its items; and an object, or a `when` that throws, as covered. Matching
+ * shell line, from its first word past `NAME=value` settings, a path and a redirect, or after `sudo`,
+ * `env`, `sh -c`, `find -exec`… (see `commands`); an array by its items; and an object, or a `when` that throws, as covered. Matching
  * takes a bounded amount of work (see `evaluateRules`), and what it can't finish counts against the
  * call: an allow rule doesn't apply, a deny rule does.
  */
@@ -418,7 +560,8 @@ const specificity = (rule: ApprovalRule) =>
  * order; among rules of the same effect the most specific is the one reported. Each rule's matching
  * takes a bounded amount of work, in proportion to the arguments it reads: far more than common
  * patterns need, however long the arguments. The bound is each rule's, so a call's work grows with
- * the number of rules times the arguments' length: cap the arguments where a client sends rules. A
+ * the number of rules times the arguments' length, and a deny rule reads a string up to twice (whole,
+ * then by command) and an array up to four times: cap the arguments where a client sends rules. A
  * rule that runs out before it can tell counts against the call: an allow rule allows nothing, and a
  * deny rule denies, reported as `unchecked` when no other deny rule covers the call.
  */
