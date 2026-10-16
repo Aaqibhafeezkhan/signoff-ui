@@ -90,6 +90,32 @@ describe('the useApprovalPolicy page: patterns', () => {
     for (const command of missed) expect(denies('**git*push**', command), command).toBe(true);
   });
 
+  it("says a deny rule's `*` covers every tool name, and an allow rule's leaves an ACP title to a person", () => {
+    expect(patterns).toContain(
+      "so `*` denies every tool, even one named after an ACP title such as ``Run `ls > out.txt` ``, which an allow rule's `*` leaves to a person.",
+    );
+    const title = 'Run `ls > out.txt`';
+    const any = (effect: 'allow' | 'deny') =>
+      evaluateRules([{ id: 'any', tool: '*', effect, scope: 'always' }], title, {})?.effect;
+    expect([any('deny'), any('allow')]).toEqual(['deny', undefined]);
+  });
+
+  it('says what happens to a rule that stops before it can tell, with the reason it gives', () => {
+    const bound = paragraph(patterns, 'Each rule gets a number of matching steps');
+    expect(bound).toContain('a rule such as `**PRIVATE KEY**` is decided on an argument of any length');
+    const reason = /`toToolApproval`'s is "([^"]*)…"/.exec(bound)?.[1];
+    expect(reason).toBe('Denied: the arguments are too long to check against a rule: ');
+    const slow = `*${'a'.repeat(498)}b`;
+    const status = toToolApproval([
+      { id: 'slow', tool: 'write_file', args: { content: slow }, effect: 'deny', scope: 'always', reason: 'No keys' },
+    ])({ toolCall: { toolName: 'write_file', input: { content: 'a'.repeat(20_000) } } });
+    expect(status).toEqual({ type: 'denied', reason: `${reason}write_file with content ${slow}` });
+    const key = [
+      { id: 'key', tool: 'write_file', args: { content: '**PRIVATE KEY**' }, effect: 'deny', scope: 'always' },
+    ] as const satisfies ApprovalRule[];
+    expect(evaluateRules(key, 'write_file', { content: 'x'.repeat(1_000_000) })).toBeUndefined();
+  });
+
   it("protects other people with a server allowlist (`otherwise: 'denied'`) or a real shell parser", () => {
     expect(caveat).toContain("toToolApproval(allowed, { otherwise: 'denied' })");
     expect(caveat).toContain('a real shell parser');

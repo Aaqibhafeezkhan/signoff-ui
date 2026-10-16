@@ -260,14 +260,18 @@ export function useApprovalPolicy({
   const [own, setOwn] = useState<readonly ApprovalRule[]>(defaultRules);
   const [ready, setReady] = useState(false);
   const rules = rulesProp ?? own;
-  // The latest rules for handlers that run before a re-render, such as two answers in one tick.
+  // The latest rules for handlers that run before a re-render, such as two answers in one tick, or
+  // effects that run before this hook's own, as a child's do. Each change sets them as it happens, so
+  // a render never sets them back; rules passed in replace them when they change.
   const latest = useRef(rules);
+  const controlled = useRef(rulesProp !== undefined);
   useEffect(() => {
-    latest.current = rules;
-  }, [rules]);
+    controlled.current = rulesProp !== undefined;
+    if (rulesProp !== undefined) latest.current = rulesProp;
+  }, [rulesProp]);
   const outcomes = useRef(new Map<string, ApprovalOutcome>());
-  // The calls each outcome answers, by id: the request's own, and the arguments the person approved.
-  const calls = useRef(new Map<string, Array<string | undefined>>());
+  // The call each outcome answers, by id: its tool, and the input asked about and the one approved.
+  const calls = useRef(new Map<string, { toolName: string; inputs: unknown[] }>());
   // The ids of `always` defaults the person removed, as last loaded or saved.
   const removedDefaults = useRef<readonly string[]>([]);
   // Until the storage has loaded, the rules changed meanwhile, by id (`undefined`: removed). Saving
@@ -303,9 +307,13 @@ export function useApprovalPolicy({
       early.current = undefined;
       flush.current = changes.size > 0;
       // The defaults, less the ones the person removed, then the saved rules, which win, then the
-      // changes made before they loaded.
+      // changes made before they loaded. In `latest` now: a change made in the effects of the render
+      // this causes, such as a child's waiting for `ready`, builds on them.
       const gone = new Set(removed);
-      setOwn((current) => over(merge(gone.size ? current.filter((r) => !gone.has(r.id)) : current, loaded), changes));
+      const current = latest.current;
+      const next = over(merge(gone.size ? current.filter((r) => !gone.has(r.id)) : current, loaded), changes);
+      if (!controlled.current) latest.current = next;
+      setOwn(next);
       setReady(true);
     };
     const loaded = loadFrom.load();
@@ -319,8 +327,8 @@ export function useApprovalPolicy({
       live = false;
     };
   }, [loadFrom]);
-  // The changes made before the storage loaded, saved once the rules it loaded have rendered (and
-  // are in `latest`), not in the effects of the render that loaded them.
+  // The changes made before the storage loaded, saved with the rules it loaded once they have
+  // rendered, to the storage of that render.
   useEffect(() => {
     if (!flush.current || !ready) return;
     flush.current = false;
@@ -346,7 +354,7 @@ export function useApprovalPolicy({
     return outcome;
   };
   const answers = ({ id, toolName, input }: ApprovalRequest, edited?: unknown) =>
-    calls.current.set(id, [callKey(toolName, input), ...(edited === undefined ? [] : [callKey(toolName, edited)])]);
+    calls.current.set(id, { toolName, inputs: edited === undefined ? [input] : [input, edited] });
   const getRules = useCallback(() => toPlainRules(latest.current), []);
 
   return {
@@ -384,14 +392,17 @@ export function useApprovalPolicy({
     },
     answer(request) {
       const known = outcomes.current.get(request.id);
-      const call = callKey(request.toolName, request.input);
+      const call = calls.current.get(request.id);
       // The outcome it gave, for the call it answered: another call with the same id is decided again.
-      if (known && call !== undefined && calls.current.get(request.id)?.includes(call)) return known;
+      if (known && call?.toolName === request.toolName && call.inputs.some((input) => sameInput(input, request.input)))
+        return known;
       const match = evaluateRules(latest.current, request.toolName, request.input);
       if (!match) return undefined;
       const decision: ApprovalDecision =
         match.effect === 'allow' ? (match.rule.scope === 'session' ? 'allow-session' : 'allow-always') : 'deny-always';
-      const reason = match.effect === 'deny' ? (match.rule.reason ?? ruleDenial) : undefined;
+      // A rule that ran out before it could tell (`unchecked`) didn't find what its reason is about.
+      const reason =
+        match.effect === 'deny' ? ((match.unchecked ? undefined : match.rule.reason) ?? ruleDenial) : undefined;
       audit({ type: 'decision', at: Date.now(), request, decision, by: 'rule', rule: match.rule, reason });
       answers(request);
       return record({
@@ -427,12 +438,18 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   return !!value && typeof (value as { then?: unknown }).then === 'function';
 }
 
-/** A call as text, to tell it from another with the same id; `undefined` for input JSON can't write. */
-function callKey(toolName: string, input: unknown): string | undefined {
+/**
+ * Whether two inputs are one call's: the same value, or the same as JSON. The policy keeps the
+ * inputs it answered, not a copy of each as text. Input JSON can't write, such as a cycle, is the
+ * same only as itself.
+ */
+function sameInput(answered: unknown, input: unknown): boolean {
+  if (answered === input) return true;
   try {
-    return JSON.stringify([toolName, input]);
+    const text = JSON.stringify(answered);
+    return text !== undefined && text === JSON.stringify(input);
   } catch {
-    return undefined;
+    return false;
   }
 }
 

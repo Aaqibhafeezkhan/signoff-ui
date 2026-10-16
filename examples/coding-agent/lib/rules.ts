@@ -15,8 +15,9 @@ export const SERVER_RULES: readonly ApprovalRule[] = [
     tool: 'run_command',
     // `**` matches anything and `*` stops at a shell operator: `git`, then `push` in the same command,
     // anywhere in the line. So `git status && git push`, `/usr/bin/git push` and `GIT_TRACE=1 git push`
-    // too, which `git push*` misses, and `git stash push` as well. A pattern is no sandbox, though:
-    // there are other ways to write a push, and here every command is simulated (lib/shell.ts).
+    // too, which `git push*` misses up to signoff-ui 0.8 (later, a deny rule reads each command of a
+    // line), and `git -C . push` and `git stash push` as well. A pattern is no sandbox, though: there
+    // are other ways to write a push, and here every command is simulated (lib/shell.ts).
     args: { command: '**git*push**' },
     effect: 'deny',
     scope: 'always',

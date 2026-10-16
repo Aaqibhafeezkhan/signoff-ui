@@ -359,6 +359,88 @@ describe('useApprovalPolicy', () => {
     expect((saved.load() as ApprovalRule[]).map((r) => r.id)).toEqual(['mine', 'no-push']);
   });
 
+  /** A storage holding a saved deny rule, sync or async: `release` lets an async one load. */
+  function savedDeny(async: boolean) {
+    const saved = memoryRuleStorage([{ id: 'no-push', tool: 'run_command', effect: 'deny', scope: 'always' }]);
+    let release = () => {};
+    const storage: ApprovalRuleStorage = {
+      load: () => (async ? new Promise((resolve) => (release = () => resolve(saved.load()))) : saved.load()),
+      save: (rules) => saved.save(rules),
+    };
+    const stored = () => (saved.load() as ApprovalRule[]).map((r) => r.id);
+    return { storage, stored, release: () => release() };
+  }
+
+  it.each([false, true])(
+    'keeps the saved rules when a child adds a rule once the policy is ready (async storage: %s)',
+    async (async) => {
+      const { storage, stored, release } = savedDeny(async);
+      let policy!: ApprovalPolicy;
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        useEffect(() => {
+          if (policy.ready) policy.addRule({ id: 'mine', tool: 'read_file', effect: 'allow', scope: 'always' });
+          // Once, when it is ready: as the docs' `ready` asks.
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage });
+        return <Child policy={policy} />;
+      }
+      render(<Page />);
+      await act(async () => release());
+      await waitFor(() => expect(policy.rules.map((r) => r.id)).toEqual(['no-push', 'mine']));
+      expect(stored()).toEqual(['no-push', 'mine']);
+      expect(policy.match('run_command', { command: 'git push' })?.rule.id).toBe('no-push');
+    },
+  );
+
+  it.each([false, true])(
+    'keeps both rules when a child and the page add one in the effects of one render (async storage: %s)',
+    async (async) => {
+      const { storage, stored, release } = savedDeny(async);
+      let policy!: ApprovalPolicy;
+      const rule = (id: string): ApprovalRule => ({ id, tool: id, effect: 'allow', scope: 'always' });
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        useEffect(() => {
+          if (policy.ready) policy.addRule(rule('child'));
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage });
+        // The page's effect runs after the child's and the hook's, in the same commit.
+        useEffect(() => {
+          if (policy.ready) policy.addRule(rule('page'));
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return <Child policy={policy} />;
+      }
+      render(<Page />);
+      await act(async () => release());
+      await waitFor(() => expect(policy.rules.map((r) => r.id)).toEqual(['no-push', 'child', 'page']));
+      expect(stored()).toEqual(['no-push', 'child', 'page']);
+    },
+  );
+
+  it("answers a deny rule that ran out of steps with the policy's reason, not the rule's", async () => {
+    const slow: ApprovalRule = {
+      id: 'no-keys',
+      tool: 'write_file',
+      args: { content: `*${'a'.repeat(498)}b` },
+      effect: 'deny',
+      scope: 'always',
+      reason: 'No AWS keys in files.',
+    };
+    const { result } = renderHook(() => useApprovalPolicy({ defaultRules: [slow] }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const write = { id: 'w', toolName: 'write_file', input: { content: 'a'.repeat(20_000) } };
+    expect(result.current.match(write.toolName, write.input)).toEqual({ effect: 'deny', rule: slow, unchecked: true });
+    expect(result.current.answer(write)).toMatchObject({ approved: false, reason: 'Denied by a rule', rule: slow });
+  });
+
   it('saves a decision made before a storage that fails to load', async () => {
     let fail!: () => void;
     const save = vi.fn();
@@ -412,11 +494,32 @@ describe('useApprovalPolicy', () => {
     expect(result.current.answer(asked)).toBe(outcome);
     expect(result.current.answer(request('rm -rf build/cache', 'c1'))).toBe(outcome);
     expect(result.current.answer(request('rm -rf ~', 'c1'))).toBeUndefined();
-    // Input that can't be compared, such as a cycle, is decided again.
+    // Input JSON can't write, such as a cycle, is the same call only as the same value.
     const cycle: { self?: unknown } = {};
     cycle.self = cycle;
-    result.current.decide({ id: 'c2', toolName: 'x', input: cycle }, 'allow-once');
-    expect(result.current.answer({ id: 'c2', toolName: 'x', input: cycle })).toBeUndefined();
+    const again = result.current.decide({ id: 'c2', toolName: 'x', input: cycle }, 'allow-once');
+    expect(result.current.answer({ id: 'c2', toolName: 'x', input: cycle })).toBe(again);
+    const other: { self?: unknown } = {};
+    other.self = other;
+    expect(result.current.answer({ id: 'c2', toolName: 'x', input: other })).toBeUndefined();
+  });
+
+  it('keeps the inputs it answered, not a copy of each as text', async () => {
+    const { result } = renderHook(() => useApprovalPolicy());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const write = { id: 'w1', toolName: 'write_file', input: { path: 'pnpm-lock.yaml', content: 'x'.repeat(100_000) } };
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const outcome = result.current.decide(write, 'allow-once');
+      // The same call again, as the same value: no text made of it.
+      expect(result.current.answer(write)).toBe(outcome);
+      expect(stringify).not.toHaveBeenCalled();
+      // The same call as another value, as a message parsed again gives: the same as JSON.
+      expect(result.current.answer({ ...write, input: { ...write.input } })).toBe(outcome);
+      expect(result.current.answer({ ...write, input: { ...write.input, path: '.env' } })).toBeUndefined();
+    } finally {
+      stringify.mockRestore();
+    }
   });
 
   it('is ready after a storage that fails to load', async () => {

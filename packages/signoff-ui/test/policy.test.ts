@@ -292,12 +292,21 @@ describe('deny rules fail closed', () => {
 });
 
 describe('tool patterns', () => {
-  it('match any character with * and ?, since a tool name is no shell command', () => {
+  it('match any character with * and ? in a deny rule, since a tool name is no shell command', () => {
     // ACP's title, when an agent sends no name or kind: "`*` for every tool" covers it.
     expect(evaluateRules([rule({ tool: '*', effect: 'deny' })], 'Run `ls > out.txt`', {})?.effect).toBe('deny');
-    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'mcp_a;b', {})).toBe(true);
-    expect(ruleMatches(rule({ tool: 'mcp_?' }), 'mcp_|', {})).toBe(true);
-    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'other_a', {})).toBe(false);
+    expect(ruleMatches(rule({ tool: 'mcp_*', effect: 'deny' }), 'mcp_a;b', {})).toBe(true);
+    expect(ruleMatches(rule({ tool: 'mcp_?', effect: 'deny' }), 'mcp_|', {})).toBe(true);
+    expect(ruleMatches(rule({ tool: 'mcp_*', effect: 'deny' }), 'other_a', {})).toBe(false);
+  });
+
+  it('match in an allow rule as before: a single * or ? stops at a shell operator', () => {
+    // So an allow-everything rule still leaves an ACP title like this one to a person.
+    expect(evaluateRules([rule({ tool: '*' })], 'Run `rm -rf ~`', {})).toBeUndefined();
+    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'mcp_a;b', {})).toBe(false);
+    expect(ruleMatches(rule({ tool: 'mcp_?' }), 'mcp_|', {})).toBe(false);
+    expect(ruleMatches(rule({ tool: '**' }), 'Run `rm -rf ~`', {})).toBe(true);
+    expect(ruleMatches(rule({ tool: 'mcp_*' }), 'mcp_github_search', {})).toBe(true);
   });
 });
 
@@ -315,18 +324,85 @@ describe('matching work', () => {
       })),
     );
   const call = { toolCall: { toolName: 'write_file', input: { content: 'a'.repeat(20_000) } } };
+  // Secret-scanning deny rules, as a server might keep for every write.
+  const SECRETS = [
+    '**AKIA**',
+    '**ghp_**',
+    '**PRIVATE KEY**',
+    '**AIza**',
+    '**xoxb-**',
+    '**sk_live_**',
+    '**SECRET_KEY**',
+    '**API_KEY**',
+    '**password=**',
+    '**BEGIN OPENSSH**',
+    '**glpat-**',
+    '**npm_**',
+  ];
 
-  it('is bounded for a call, and what it leaves undecided counts against the call', () => {
+  it('is bounded for each rule, and what a rule leaves undecided counts against the call', () => {
     expect(clientRules('allow')).toHaveLength(100);
     let start = performance.now();
     // The allow rules allow nothing they didn't finish: a person decides.
     expect(toToolApproval(clientRules('allow'))(call)).toBe('user-approval');
     expect(performance.now() - start).toBeLessThan(1000);
     start = performance.now();
-    // A deny rule it didn't finish denies.
-    expect(toToolApproval(clientRules('deny'))(call)).toMatchObject({ type: 'denied' });
+    // A deny rule it didn't finish denies, and the reason says why.
+    expect(toToolApproval(clientRules('deny'))(call)).toEqual({
+      type: 'denied',
+      reason: `Denied: the arguments are too long to check against a rule: write_file with content ${pattern}`,
+    });
     expect(performance.now() - start).toBeLessThan(1000);
   });
+
+  it('gives each rule steps of its own: one that runs out leaves the others to decide', () => {
+    const slow = rule({ id: 'slow', tool: 'write_file', args: { content: pattern } });
+    const content = 'a'.repeat(20_000);
+    const writes = rule({ id: 'writes', tool: 'write_file' });
+    expect(evaluateRules([slow, writes], 'write_file', { content })?.rule.id).toBe('writes');
+    const slowDeny = { ...slow, id: 'slow-deny', effect: 'deny' } as const;
+    const key = rule({ id: 'key', tool: 'write_file', effect: 'deny', args: { content: '**PRIVATE KEY**' } });
+    // A deny rule that covers the call is the one reported, not one that ran out.
+    expect(evaluateRules([slowDeny, key, writes], 'write_file', { content: `${content}PRIVATE KEY` })).toEqual({
+      effect: 'deny',
+      rule: key,
+    });
+    expect(evaluateRules([slowDeny, key, writes], 'write_file', { content })).toEqual({
+      effect: 'deny',
+      rule: slowDeny,
+      unchecked: true,
+    });
+    // An array, by its items, the same way.
+    expect(evaluateRules([slowDeny, writes], 'write_file', { content: [content] })?.unchecked).toBe(true);
+    // ruleMatches counts it against the call too.
+    expect(ruleMatches(slowDeny, 'write_file', { content })).toBe(true);
+    expect(ruleMatches(slow, 'write_file', { content })).toBe(false);
+  });
+
+  // This test and the 1 MB one below aren't timing tests: steps are counted, not timed. Their
+  // timeouts are for coverage on a slow runner.
+  it(
+    'never reports a rule on another tool, or one that did not run out, for a rule that ran out',
+    { timeout: 60_000 },
+    () => {
+      const content = 'a'.repeat(100_000);
+      const rules = [
+        rule({ id: 'write', tool: 'write_file' }),
+        ...SECRETS.map((secret, i) =>
+          rule({ id: `secret-${i}`, tool: 'write_file', effect: 'deny', args: { content: secret } }),
+        ),
+        rule({ id: 'other-tool', tool: 'delete_repo', effect: 'deny' }),
+      ];
+      expect(evaluateRules(rules, 'write_file', { content })?.rule.id).toBe('write');
+      const slow = rule({ id: 'slow', tool: 'write_file', effect: 'deny', args: { content: pattern } });
+      expect(evaluateRules([...rules, slow], 'write_file', { content })).toEqual({
+        effect: 'deny',
+        rule: slow,
+        unchecked: true,
+      });
+      expect(evaluateRules([...rules, slow], 'delete_repo', {})?.rule.id).toBe('other-tool');
+    },
+  );
 
   it('still decides long arguments that common rules cover', () => {
     const long = `npm test ${'a'.repeat(200_000)}`;
@@ -340,18 +416,24 @@ describe('matching work', () => {
     const file = `${'const a = 1;\n'.repeat(20_000)}`;
     expect(evaluateRules(rules, 'write_file', { content: file })).toBeUndefined();
     expect(evaluateRules(rules, 'write_file', { content: `${file}-----BEGIN PRIVATE KEY-----` })?.rule.id).toBe('key');
-    // A lockfile of 2.4 MB: the more there is to read, the more time matching gets.
-    const lock = Array.from(
-      { length: 30_000 },
-      (_, i) => `  /pkg-${i}@1.0.${i}:\n    resolution: {integrity: sha512-${'x'.repeat(20)}}\n`,
-    ).join('');
-    const write = [
+  });
+
+  it('decides a 1 MB write against a dozen secret-scanning deny rules', { timeout: 60_000 }, () => {
+    const rules = [
       rule({ id: 'write', tool: 'write_file', args: { path: '**' } }),
-      rule({ id: 'key', effect: 'deny', tool: 'write_file', args: { content: '**API_KEY**' } }),
-      rule({ id: 'pem', effect: 'deny', tool: 'write_file', args: { content: '**PRIVATE KEY**' } }),
+      ...SECRETS.map((secret, i) =>
+        rule({ id: `secret-${i}`, tool: 'write_file', effect: 'deny', args: { content: secret } }),
+      ),
     ];
-    expect(evaluateRules(write, 'write_file', { path: 'pnpm-lock.yaml', content: lock })?.rule.id).toBe('write');
-    expect(evaluateRules(write, 'write_file', { path: '.env', content: `${lock}API_KEY=1` })?.rule.id).toBe('key');
+    // A package-lock.json of 1 MB, which none of them match.
+    const lock = Array.from(
+      { length: 4_400 },
+      (_, i) =>
+        `    "node_modules/pkg-${i}": {\n      "version": "1.0.${i}",\n      "resolved": "https://registry.npmjs.org/pkg-${i}/-/pkg-${i}-1.0.${i}.tgz",\n      "integrity": "sha512-${'x'.repeat(88)}"\n    },\n`,
+    ).join('');
+    expect(lock.length).toBeGreaterThan(1_000_000);
+    expect(evaluateRules(rules, 'write_file', { path: 'package-lock.json', content: lock })?.rule.id).toBe('write');
+    expect(evaluateRules(rules, 'write_file', { path: '.npmrc', content: `${lock}ghp_x` })?.rule.id).toBe('secret-1');
   });
 });
 
