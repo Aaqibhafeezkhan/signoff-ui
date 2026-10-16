@@ -219,12 +219,12 @@ describe('the README’s claims', () => {
     // DiffReview's size up front, as the docs' size table has it (`pnpm size` keeps that table
     // measured). The table leaves out the diff worker DiffReview starts for a large file, so the
     // bullet adds it, as Pierre's figure leaves out what it loads later: dist/lib/diff-worker.js
-    // bundled as its own entry with scripts/size.mjs's settings is 6.6 kB gzipped (6,795 bytes).
+    // bundled as its own entry with scripts/size.mjs's settings is 6.7 kB gzipped (6,853 bytes).
     const limits = read('examples/playground/content/docs/limits.md');
     const size = /^\| `DiffReview` +\| +([\d.]+ kB) \|$/m.exec(limits)?.[1];
     expect(size).toBeDefined();
     expect(bullet).toContain(
-      `\`DiffReview\` is ${size ?? ''} up front, plus a 6.6 kB worker it starts for large files.`,
+      `\`DiffReview\` is ${size ?? ''} up front, plus a 6.7 kB worker it starts for large files.`,
     );
     expect(bullet).not.toContain('all of `DiffReview`');
   });

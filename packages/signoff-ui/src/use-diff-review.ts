@@ -12,6 +12,7 @@ import {
 import { defaultDiffWorker, parseInBackground, type DiffWorkerFactory } from './lib/diff-async';
 import {
   changedSpan,
+  commentRange,
   computeReviewResult,
   contextGaps,
   fileDecision,
@@ -19,11 +20,11 @@ import {
   linesRange,
   reviewItems,
   toPatch,
+  type CommentRange,
   type ContextGap,
   type DiffReviewComment,
   type DiffReviewResult,
   type FileDecision,
-  type LineRange,
   type ReviewItem,
 } from './lib/review';
 import { useIsMac } from './lib/hooks';
@@ -36,6 +37,7 @@ const LABELS = { diffReview: diffReviewLabels };
 
 export type { DiffWorkerFactory } from './lib/diff-async';
 export type {
+  CommentRange,
   ContextGap,
   DiffReviewComment,
   DiffReviewResult,
@@ -51,6 +53,13 @@ interface ParsedFiles {
   ids: string[];
   /** One per file; `undefined` while the file is diffed in the background. */
   parsed: (ParsedFileDiff | undefined)[];
+  /**
+   * Each file's change by id as last seen, files since left out included: what the decisions,
+   * viewed marks and comments on it were made on.
+   */
+  seen: ReadonlyMap<string, FileChange>;
+  /** The files, by id, this parse found changed since they were last seen: revised by the agent. */
+  revised: ReadonlySet<string>;
 }
 
 /**
@@ -62,14 +71,16 @@ const SYNC_EDIT_LENGTH = 300;
 /** How many unchanged lines `E` and the gap buttons show at a time. */
 export const CONTEXT_STEP = 20;
 
-const sameChange = (a: FileChange, b: FileChange) =>
+/** The same edit to review: `language` aside, which only changes its colors. */
+const sameEdit = (a: FileChange, b: FileChange) =>
   a.path === b.path &&
   a.oldPath === b.oldPath &&
   a.oldContent === b.oldContent &&
   a.newContent === b.newContent &&
   a.patch === b.patch &&
-  a.language === b.language &&
   a.binary === b.binary;
+
+const sameChange = (a: FileChange, b: FileChange) => sameEdit(a, b) && a.language === b.language;
 
 /** Equal when every key has the same value, counting a missing one as `fallback`. */
 function sameRecord<T>(a: Readonly<Record<string, T>>, b: Readonly<Record<string, T>>, fallback: T) {
@@ -93,9 +104,150 @@ const sameComments = (a: readonly DiffReviewComment[], b: readonly DiffReviewCom
         c.target === d.target &&
         c.side === d.side &&
         c.startLine === d.startLine &&
-        c.endLine === d.endLine
+        c.endLine === d.endLine &&
+        c.oldStartLine === d.oldStartLine &&
+        c.oldEndLine === d.oldEndLine
       );
     }));
+
+/** `record` without the keys `drop` picks: the same object when it picks none. */
+function omitKeys<T>(record: Readonly<Record<string, T>>, drop: (key: string) => boolean): Readonly<Record<string, T>> {
+  const keys = Object.keys(record).filter(drop);
+  if (keys.length === 0) return record;
+  const rest = { ...record };
+  for (const key of keys) delete rest[key];
+  return rest;
+}
+
+/** The file id in an item id (`${fileId}:${index}`, `${fileId}:file`) or a gap's key (`${fileId}:${before}`). */
+function fileIdOf(key: string) {
+  const at = key.lastIndexOf(':');
+  const rest = key.slice(at + 1);
+  return at !== -1 && (rest === 'file' || /^\d+$/.test(rest)) ? key.slice(0, at) : undefined;
+}
+
+/** `record` with only the keys `keep` picks. */
+function pickKeys<T>(record: Readonly<Record<string, T>>, keep: (key: string) => boolean): Readonly<Record<string, T>> {
+  const picked: Record<string, T> = {};
+  for (const key of Object.keys(record)) if (keep(key)) picked[key] = record[key]!;
+  return picked;
+}
+
+/** How one of the review's values (decisions, viewed marks or comments) holds each file's entries. */
+interface FileEntries<T> {
+  /** No entries. */
+  none: T;
+  /** `value`'s entries for the file `id`. */
+  of: (value: T, id: string) => T;
+  /** The same entries, by value. */
+  same: (a: T, b: T) => boolean;
+  /** `value` without the entries of the files `ids` has: the same value when it has none of them. */
+  without: (value: T, ids: { has: (id: string) => boolean }) => T;
+  /** A copy for the caller to keep. */
+  copy: (value: T) => T;
+}
+
+const DECISION_ENTRIES: FileEntries<Readonly<Record<string, HunkDecision>>> = {
+  none: {},
+  of: (value, id) => pickKeys(value, (key) => fileIdOf(key) === id),
+  same: (a, b) => sameRecord(a, b, 'pending'),
+  without: (value, ids) =>
+    omitKeys(value, (key) => {
+      const id = fileIdOf(key);
+      return id !== undefined && ids.has(id);
+    }),
+  copy: (value) => ({ ...value }),
+};
+
+const VIEWED_ENTRIES: FileEntries<Readonly<Record<string, boolean>>> = {
+  none: {},
+  of: (value, id) => pickKeys(value, (key) => key === id),
+  same: (a, b) => sameRecord(a, b, false),
+  without: (value, ids) => omitKeys(value, (id) => ids.has(id)),
+  copy: (value) => ({ ...value }),
+};
+
+const COMMENT_ENTRIES: FileEntries<readonly DiffReviewComment[]> = {
+  none: [],
+  of: (value, id) => value.filter((c) => c.fileId === id),
+  same: sameComments,
+  without: (value, ids) => (value.some((c) => ids.has(c.fileId)) ? value.filter((c) => !ids.has(c.fileId)) : value),
+  copy: (value) => [...value],
+};
+
+/** Entries a revision left over in one of the review's values: about the old edit, so read without. */
+interface LeftOver<T> {
+  /** The value they were left over in. The hook's own value is read without them while it is this one. */
+  value: T;
+  /** By file id, the file's entries then. A controlled value is read without a file's while it has the same ones. */
+  files: ReadonlyMap<string, T>;
+  /** New with each revision that leaves entries over, so the owner is told once. */
+  revision: object;
+}
+
+/** `left` without the files whose entries `value` no longer has as they were: `undefined` when none are left. */
+function stillLeftOver<T>(
+  kind: FileEntries<T>,
+  left: LeftOver<T>,
+  value: T,
+  controlled: boolean,
+): LeftOver<T> | undefined {
+  if (value === left.value) return left;
+  // The hook's own value only changes when the reviewer acts on the review as it reads.
+  if (!controlled) return undefined;
+  let files: Map<string, T> | undefined;
+  for (const [id, entries] of left.files) {
+    if (kind.same(kind.of(value, id), entries)) continue;
+    (files ??= new Map(left.files)).delete(id);
+  }
+  if (!files) return left;
+  return files.size > 0 ? { ...left, files } : undefined;
+}
+
+/**
+ * One of the review's values (decisions, viewed marks or comments) as the review reads it: without
+ * a revised file's entries, which were about the edit before. The hook's own value is read without
+ * them until the reviewer changes it. A controlled one is read without them while it has the same
+ * entries for that file, as the same object or one built on every render, and `onChange` is called
+ * once with it without them. Entries for the file that change in the render the file does are the
+ * caller's say about the new edit, and are kept.
+ */
+function useWithoutRevised<T>(
+  kind: FileEntries<T>,
+  value: T,
+  controlled: T | undefined,
+  revised: ReadonlySet<string> | undefined,
+  onChange: ((next: T) => void) | undefined,
+): T {
+  // The controlled value as of the last render, for a revision to compare with. Set only when its
+  // contents change, so a value built anew on every render settles.
+  const [previous, setPrevious] = useState(controlled);
+  const same =
+    previous === controlled || (previous !== undefined && controlled !== undefined && kind.same(previous, controlled));
+  if (!same) setPrevious(controlled);
+  const [leftOver, setLeftOver] = useState<LeftOver<T>>();
+  let left = leftOver && stillLeftOver(kind, leftOver, value, controlled !== undefined);
+  if (revised) {
+    let files: Map<string, T> | undefined;
+    for (const id of revised) {
+      const entries = kind.of(value, id);
+      if (kind.same(entries, kind.none)) continue;
+      const theirs = controlled !== undefined && (previous === undefined || !kind.same(kind.of(previous, id), entries));
+      if (theirs) continue;
+      (files ??= new Map(left?.files)).set(id, entries);
+    }
+    if (files) left = { value, files, revision: {} };
+  }
+  if (left !== leftOver) setLeftOver(left);
+  const read = useMemo(() => (left ? kind.without(value, left.files) : value), [kind, value, left]);
+  const told = useRef<object | undefined>(undefined);
+  useEffect(() => {
+    if (!leftOver || leftOver.revision === told.current) return;
+    told.current = leftOver.revision;
+    onChange?.(kind.copy(read));
+  });
+  return read;
+}
 
 /** A change's path, as a string: '' when model-written input left it out, as in `parseFileChange`. */
 const pathOf = (change: FileChange) => String(change.path ?? '');
@@ -139,7 +291,14 @@ function parseFiles(
   });
   // Keep the previous array when nothing changed, so memoized work downstream is kept too.
   const same = previous && parsed.length === previous.parsed.length && parsed.every((p, i) => p === previous.parsed[i]);
-  return { files, context, maxEditLength, ids, parsed: same ? previous.parsed : parsed };
+  const seen = new Map(previous?.seen);
+  const revised = new Set<string>();
+  files.forEach((f, i) => {
+    const before = seen.get(ids[i]!);
+    if (before && !sameEdit(before, f)) revised.add(ids[i]!);
+    seen.set(ids[i]!, f);
+  });
+  return { files, context, maxEditLength, ids, parsed: same ? previous.parsed : parsed, seen, revised };
 }
 
 /** State that is either the caller's (controlled) or the hook's own. */
@@ -157,7 +316,8 @@ export interface UseDiffReviewOptions {
   /**
    * The edits to review, one per file, with full contents (`oldContent` and `newContent`) or a
    * unified `patch`. Compared by content: a new array of the same edits, such as one written
-   * inline, is not diffed again.
+   * inline, is not diffed again. A file whose contents change starts its review over: its
+   * decisions, viewed mark and comments are dropped, and controlled ones are reported without them.
    */
   files: readonly FileChange[];
   /**
@@ -276,10 +436,11 @@ export interface DiffReviewSelection {
   /** The last selected index. */
   to: number;
   /**
-   * The selected lines' numbers, in the proposed file or, for removed lines only, in the original:
-   * what a comment on them records.
+   * The selected lines' numbers, in the proposed file or, for removed lines only, in the original,
+   * and with removed lines among lines in the proposed file, in the original too: what a comment on
+   * them records.
    */
-  range: LineRange;
+  range: CommentRange;
 }
 
 /** A comment being written: a new one, or an edit of `commentId`. */
@@ -293,7 +454,7 @@ export interface DiffReviewDraft {
   /** The hunk it is on, for `lines` and `hunk`. */
   hunkId?: string | undefined;
   /** The lines it is on, for `lines` and `hunk`: the selected lines, or the hunk's changed lines. */
-  range?: LineRange | undefined;
+  range?: CommentRange | undefined;
   /** What has been written so far. */
   text: string;
 }
@@ -494,6 +655,8 @@ export function useDiffReview({
     current = parseFiles(changes, context, maxEditLength, parsedFiles);
     setParsedFiles(current);
   }
+  // Files whose contents changed in this render: a revision, not the edit the reviewer saw.
+  const revised = current !== parsedFiles && current.revised.size > 0 ? current.revised : undefined;
 
   // Files too large to diff while rendering, diffed in the background; a newer change replaces an older one.
   const [failure, setFailure] = useState<{ error: unknown }>();
@@ -543,17 +706,17 @@ export function useDiffReview({
   // A file that failed to diff in the background fails the render, as one diffed while rendering does.
   if (failure) throw failure.error;
 
-  const [decisions, setDecisions] = useControllable(
+  const [givenDecisions, setDecisions] = useControllable(
     decisionsProp,
     () => ({ ...defaultDecisions }) as Readonly<Record<string, HunkDecision>>,
     onDecisionsChange as ((next: Readonly<Record<string, HunkDecision>>) => void) | undefined,
   );
-  const [comments, setComments] = useControllable(
+  const [givenComments, setComments] = useControllable(
     commentsProp,
     () => [...(defaultComments ?? [])] as readonly DiffReviewComment[],
     onCommentsChange as ((next: readonly DiffReviewComment[]) => void) | undefined,
   );
-  const [viewed, setViewedMap] = useControllable(
+  const [givenViewed, setViewedMap] = useControllable(
     viewedProp,
     () => ({ ...defaultViewed }) as Readonly<Record<string, boolean>>,
     onViewedChange as ((next: Readonly<Record<string, boolean>>) => void) | undefined,
@@ -562,6 +725,42 @@ export function useDiffReview({
   const [shown, setShown] = useState<Readonly<Record<string, ShownContext>>>({});
   const [selectionState, setSelection] = useState<{ itemId: string; anchor: number; head: number }>();
   const [draft, setDraft] = useState<DiffReviewDraft>();
+
+  // A revised file starts its review over: what the reviewer decided, marked viewed and wrote on
+  // the old edit is not about the new one, and would otherwise apply to it by position.
+  const decisions = useWithoutRevised(
+    DECISION_ENTRIES,
+    givenDecisions,
+    decisionsProp,
+    revised,
+    onDecisionsChange as ((next: Readonly<Record<string, HunkDecision>>) => void) | undefined,
+  );
+  const viewed = useWithoutRevised(
+    VIEWED_ENTRIES,
+    givenViewed,
+    viewedProp,
+    revised,
+    onViewedChange as ((next: Readonly<Record<string, boolean>>) => void) | undefined,
+  );
+  const comments = useWithoutRevised(
+    COMMENT_ENTRIES,
+    givenComments,
+    commentsProp,
+    revised,
+    onCommentsChange as ((next: readonly DiffReviewComment[]) => void) | undefined,
+  );
+  if (revised) {
+    const onRevised = (key: string) => {
+      const id = fileIdOf(key);
+      return id !== undefined && revised.has(id);
+    };
+    const unfolded = omitKeys(folded, (id) => revised.has(id));
+    if (unfolded !== folded) setFolded(unfolded);
+    const hidden = omitKeys(shown, onRevised);
+    if (hidden !== shown) setShown(hidden);
+    if (selectionState && onRevised(selectionState.itemId)) setSelection(undefined);
+    if (draft && revised.has(draft.fileId)) setDraft(undefined);
+  }
   const [announcement, setAnnouncement] = useState('');
   const [activeState, setActive] = useState(0);
   const [navActive, setNavActive] = useState<string>();
@@ -647,7 +846,7 @@ export function useDiffReview({
     const head = Math.min(selectionState.head, last);
     const from = Math.min(anchor, head);
     const to = Math.max(anchor, head);
-    return { item, hunk, anchor, head, from, to, range: linesRange(hunk, from, to) };
+    return { item, hunk, anchor, head, from, to, range: commentRange(hunk, from, to) };
   }, [selectionState, items, indexOf]);
 
   const result = () => computeReviewResult(parsed, decisions, { comments, viewed });
