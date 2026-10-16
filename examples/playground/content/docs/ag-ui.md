@@ -2,6 +2,8 @@
 
 Want to see it first? The [components page](/components#ag-ui) runs a real `@ag-ui/client` agent replaying a LangGraph-style run, with an interrupt you can approve or deny.
 
+Building with CopilotKit? You don't need `useAgUiAgent`: see [Using CopilotKit?](/docs/ag-ui#using-copilotkit).
+
 ## Install
 
 ```package-install
@@ -138,6 +140,55 @@ Interrupts without a tool call are in `interrupts`, for `resolve`.
 ## Other frameworks
 
 CrewAI, Mastra, Pydantic AI and the protocol's other integrations each serve or wrap an AG-UI agent. Point an `HttpAgent` at the endpoint, or pass the integration's own `AbstractAgent` to `useAgUiAgent`; the components don't change. An interrupt becomes an approval card when it carries the `toolCallId` of the call it guards; how each framework sets that varies, so check its docs if you want approval cards rather than `interrupts`.
+
+## Using CopilotKit?
+
+[CopilotKit](https://docs.copilotkit.ai) is an AG-UI client of its own, so keep its hooks and render the components in their render props. `useAgUiAgent` is for apps without CopilotKit. Here `useHumanInTheLoop` gives the agent a `run_command` tool, and `CopilotChat` shows an approval card for each call:
+
+```tsx title="app/run-command-approval.tsx"
+'use client';
+
+import { ToolCallStatus, useHumanInTheLoop } from '@copilotkit/react-core/v2';
+import { ApprovalCard } from 'signoff-ui';
+import { z } from 'zod';
+
+/** The answer respond sent, or undefined when the result is something else, such as an error. */
+function readAnswer(result: string) {
+  try {
+    return JSON.parse(result) as { approved: boolean; reason?: string };
+  } catch {
+    return undefined;
+  }
+}
+
+export function RunCommandApproval() {
+  useHumanInTheLoop({
+    name: 'run_command',
+    description: 'Run a shell command, once the user approves it',
+    parameters: z.object({ command: z.string() }),
+    render: ({ args, status, respond, result }) => {
+      // The arguments are still streaming in, and there is no respond to answer with yet.
+      if (status === ToolCallStatus.InProgress) return null;
+      // Complete means the call has a result and respond is gone: an answer, or an error to show.
+      const answer = status === ToolCallStatus.Complete ? readAnswer(result) : undefined;
+      return (
+        <ApprovalCard
+          toolName="run_command"
+          input={args}
+          status={status === ToolCallStatus.Complete ? (answer?.approved ? 'approved' : 'denied') : 'pending'}
+          reason={answer ? answer.reason : result}
+          onDecide={({ decision, reason }) => respond?.({ approved: decision.startsWith('allow'), reason })}
+        />
+      );
+    },
+  });
+  return null;
+}
+```
+
+Render `<RunCommandApproval />` inside `CopilotKitProvider`. The agent gets `{ approved, reason }` as the call's result, so have it run the command only when `approved` is true. A call can also end without an answer: if the run is stopped while the card waits, or the model sends arguments that don't parse, CopilotKit sets the result to an `Error: ...` string. Parsing that in `render` would throw, and CopilotKit has no error boundary, so it would take the page down; `readAnswer` returns nothing instead, and the card reads Denied with the error. Tested with `@copilotkit/react-core` and `@copilotkit/runtime` 1.79.0 (the v2 hooks), under `next dev` and in a production build, including a run stopped while the card waits.
+
+CopilotKit registers the tool and its `render` once, when the component mounts, so `render` should take what it shows from its props. A value it closes over stays as it was on the first render: the policy `useApprovalPolicy` returns would keep the rules it had before the storage loaded, so a rule added with Always would never answer a call. List such values in `useHumanInTheLoop`'s second argument, its deps, so the tool registers again when they change. CopilotKit compares the deps as JSON, so list data (`[policy.rules, policy.ready]` for a policy) and read a callback that changes through a ref: a function turns into `null` in JSON, so a new one never registers the tool again.
 
 ## Without the hook
 
