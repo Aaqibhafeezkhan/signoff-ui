@@ -60,6 +60,7 @@ it('re-renders when the host list changes by value', () => {
   expect(parses.count).toBe(1);
   expect(container.querySelector('img')).toBeNull();
   rerender(<Markdown allowedImageHosts={['a.test', 'b.test']}>{'![x](https://b.test/x.png)'}</Markdown>);
-  expect(parses.count).toBe(2);
+  // The new policy reaches the image through context, without parsing the text again.
   expect(container.querySelector('img')).toHaveAttribute('src', 'https://b.test/x.png');
+  expect(parses.count).toBe(1);
 });

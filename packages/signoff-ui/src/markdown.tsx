@@ -125,6 +125,89 @@ function rehypeImagesInLinks() {
 const REHYPE_PLUGINS = [rehypeImagesInLinks];
 const REHYPE_PLUGINS_STREAMING = [rehypeImagesInLinks, rehypeCaret];
 
+const BLANK = /^[ \t\r]*$/;
+/**
+ * A line that can start a block: at the left margin, and not what may be a list item (`-`, `+`, `*`
+ * or a number), since a list goes on past blank lines.
+ */
+const BLOCK_START = /^[^\s\d*+-]/;
+/** Blocks are parsed together up to about this many characters: each parse has a fixed cost too. */
+const BLOCK_CHARS = 1_000;
+/** A fence, at any indent: three or more backticks (with none after them on the line) or tildes. */
+const FENCE = /^([ \t]*)(`{3,}(?=[^`]*$)|~{3,})(.*)/;
+/**
+ * A fence opened on the line of a list item (`1. ```bash`) or a quote. Under a list item its closing
+ * line is indented, as a fence at the margin may be, so the fences after it would be misread.
+ */
+const CONTAINER_FENCE = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)+(?:`{3,}(?=[^`]*$)|~{3})/;
+/**
+ * What may be a link reference or footnote definition (its label may hold `\]`, or go on to the next
+ * line), also in a list item or a quote, or indented under one: CommonMark applies those to the whole
+ * text.
+ */
+const DEFINITION = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)*\[(?:[^\\\]\n]|\\.)*(?:\]:|\\?$)/;
+/** What may start an HTML block, some of which go on past blank lines. */
+const HTML_START = /^ {0,3}</;
+
+/** The columns a line's leading spaces and tabs take, with a tab stop every 4. */
+function indentOf(line: string) {
+  let column = 0;
+  for (const char of line) {
+    if (char === ' ') column++;
+    else if (char === '\t') column += 4 - (column % 4);
+    else break;
+  }
+  return column;
+}
+
+/**
+ * The text cut into top-level blocks, each parsed on its own, so that a streamed delta parses only
+ * the last one again. A block starts after a blank line, outside fenced code, where CommonMark ends
+ * what came before: indented lines and list items stay with what they follow.
+ */
+function splitBlocks(text: string): string[] {
+  const lines = text.split('\n');
+  const blocks: string[] = [];
+  let start = 0;
+  let size = 0;
+  let fence = '';
+  /** The open fence's indent. */
+  let indent = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const marker = FENCE.exec(line);
+    if (fence) {
+      // Closed by the same character, at least as many times, with nothing after it. A fence at the
+      // margin closes at up to 3 spaces. An indented one may be in a list item, which this does not
+      // follow: it is followed while its lines keep at least its indent and it closes at that indent,
+      // and otherwise the text is one block.
+      if (marker?.[2]!.startsWith(fence) && BLANK.test(marker[3]!)) {
+        const at = indentOf(line);
+        if (indent === 0 ? at <= 3 : at === indent) fence = '';
+        else if (indent > 0) return [text];
+      } else if (indent > 0 && !BLANK.test(line) && indentOf(line) < indent) return [text];
+    } else {
+      // Definitions are used across blocks, and some HTML blocks go on past blank lines: text with
+      // either, outside fenced code (where `[key: string]: T` and `<div>` are only code), is one block.
+      // So is text with a fence in a list item or a quote, which is not followed line by line here.
+      if (!marker && (DEFINITION.test(line) || HTML_START.test(line) || CONTAINER_FENCE.test(line))) return [text];
+      if (size >= BLOCK_CHARS && BLANK.test(lines[i - 1]!) && BLOCK_START.test(line)) {
+        blocks.push(lines.slice(start, i).join('\n'));
+        start = i;
+        size = 0;
+      }
+      fence = marker?.[2] ?? '';
+      indent = marker ? indentOf(line) : 0;
+    }
+    size += line.length + 1;
+  }
+  blocks.push(lines.slice(start).join('\n'));
+  return blocks;
+}
+
+/** One top-level block: memoized, so the blocks before a streamed delta are not parsed again. */
+const Block = memo(ReactMarkdown);
+
 function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(textOf).join('');
@@ -452,10 +535,8 @@ export const Markdown = memo(function Markdown({
   className,
   labels,
 }: MarkdownProps) {
-  const text = useMemo(
-    () => (streaming ? remend(children, { linkMode: 'text-only' }) : children),
-    [children, streaming],
-  );
+  const blocks = useMemo(() => splitBlocks(children), [children]);
+  const last = blocks.length - 1;
   const remarkPlugins = useMemo(
     () =>
       citations > 0
@@ -463,8 +544,8 @@ export const Markdown = memo(function Markdown({
         : [remarkGfm],
     [citations, citationPrefix],
   );
-  const merged = useMemo(() => (overrides ? { ...components, ...overrides } : components), [overrides]);
   const imagePolicy = useMemo(() => getImagePolicy(allowedImageHosts), [allowedImageHosts]);
+  const merged = useMemo(() => (overrides ? { ...components, ...overrides } : components), [overrides]);
   return (
     <div
       data-signoff
@@ -477,14 +558,18 @@ export const Markdown = memo(function Markdown({
       {/* .Provider rather than React 19's <Context value>, so that React 18 renders it too. */}
       <ImagePolicyContext.Provider value={imagePolicy}>
         <WithLabels labels={labels}>
-          <ReactMarkdown
-            // Plugin tuples are typed loosely by unified; the shapes above are correct.
-            remarkPlugins={remarkPlugins as never}
-            rehypePlugins={(streaming ? REHYPE_PLUGINS_STREAMING : REHYPE_PLUGINS) as never}
-            components={merged}
-          >
-            {text}
-          </ReactMarkdown>
+          {blocks.map((block, i) => (
+            <Block
+              key={i}
+              // Plugin tuples are typed loosely by unified; the shapes above are correct.
+              remarkPlugins={remarkPlugins as never}
+              rehypePlugins={(i === last && streaming ? REHYPE_PLUGINS_STREAMING : REHYPE_PLUGINS) as never}
+              components={merged}
+            >
+              {/* Only the last block can be unterminated: each one before it ended at a blank line. */}
+              {i === last && streaming ? remend(block, { linkMode: 'text-only' }) : block}
+            </Block>
+          ))}
         </WithLabels>
       </ImagePolicyContext.Provider>
     </div>

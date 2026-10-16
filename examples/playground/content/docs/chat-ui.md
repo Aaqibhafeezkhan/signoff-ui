@@ -64,7 +64,7 @@ AI Elements apps run Tailwind v4, so import `signoff-ui/tailwind.css` after Tail
 
 ## assistant-ui
 
-`signoff-ui/assistant-ui` renders the kit for assistant-ui's tool calls, with whatever runtime draws the thread. `signoffTools()` goes in `MessagePrimitive.Parts`' `components.tools`. A call to one of its `review` tools gets a `DiffReview`, and the review goes back as the call's result through `addResult`. Any other call at an approval gate gets the approval card, answered through `respondToApproval`. `SignoffToolsProvider`, optional, passes approval rules from `useApprovalPolicy`, risk levels by tool, and props for the reviews and the cards.
+`signoff-ui/assistant-ui` renders the kit for assistant-ui's tool calls, with whatever runtime draws the thread. `signoffTools()` goes in `MessagePrimitive.Parts`' `components.tools`. The app `npx assistant-ui create` makes has no `components.tools`, so register the kit there as [In the assistant-ui starter](/docs/chat-ui#in-the-assistant-ui-starter) shows. A call to one of its `review` tools gets a `DiffReview`, and the review goes back as the call's result through `addResult`. Any other call at an approval gate gets the approval card, answered through `respondToApproval`. `SignoffToolsProvider`, optional, passes approval rules from `useApprovalPolicy`, risk levels by tool, and props for the reviews and the cards.
 
 ```package-install
 npm i signoff-ui @assistant-ui/react @assistant-ui/react-ai-sdk
@@ -134,6 +134,56 @@ This ran end to end against the quickstart's scripted model, the review, an appr
 - **Your own components for some tools:** pass `Fallback` to `signoffTools` for calls with no approval gate, or render `ReviewToolUI` and `ApprovalToolUI` inside your own tool components. They take the tool-call props assistant-ui passes.
 - **Approval rules:** with a `policy`, the card offers once, this session and always, and a call a rule already decides is answered without a card once the run has paused for it.
 - **What the cards answer:** plain approve-or-deny gates. A request that asks a question or offers options to select (`display` other than `"decision"`) renders nothing here, so you can render your own for it.
+
+### In the assistant-ui starter
+
+The app `npx assistant-ui@latest create` makes draws its thread with the `@assistant-ui/thread` registry item, which renders an assistant message's parts with `MessagePrimitive.GroupedParts`, not `MessagePrimitive.Parts`. Tool calls go into a group ("1 tool call", "2 tool calls") that starts closed, unless their tool UI is registered as standalone. A review or an approval card rendered there, through the thread's `ToolFallback` for example, stays out of sight, and the run waits for an answer nobody sees.
+
+So register the kit's tool UIs as a toolkit with `display: 'standalone'`: one entry for each review tool, with `ReviewToolUI`, and one for each tool with an approval gate, with `ApprovalToolUI`. A call to a tool left out still goes in the closed group. The starter's `Thread` needs no change. In `app/assistant.tsx`:
+
+```tsx title="app/assistant.tsx"
+'use client';
+
+import { AssistantRuntimeProvider, AuiConfig, Tools, type Toolkit } from '@assistant-ui/react';
+import { AssistantChatTransport, useChatRuntime } from '@assistant-ui/ai-sdk';
+import { lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls } from 'ai';
+import { useApprovalPolicy } from 'signoff-ui';
+import { ApprovalToolUI, ReviewToolUI, SignoffToolsProvider } from 'signoff-ui/assistant-ui';
+// …and the starter's other imports.
+
+// Standalone: the thread renders these calls on their own, outside its tool group.
+const toolkit = {
+  review_changes: { type: 'backend', display: 'standalone', render: ReviewToolUI },
+  run_command: { type: 'backend', display: 'standalone', render: ApprovalToolUI },
+} satisfies Toolkit;
+const config = AuiConfig({ tools: Tools({ toolkit }) });
+
+export const Assistant = () => {
+  const runtime = useChatRuntime({
+    // Continue the run once the review is in and every approval has an answer.
+    sendAutomaticallyWhen: (chat) =>
+      lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
+    transport: new AssistantChatTransport({ api: '/api/chat' }),
+  });
+  const policy = useApprovalPolicy();
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime} config={config}>
+      <SignoffToolsProvider policy={policy} tools={{ run_command: { risk: 'high' } }}>
+        {/* The starter's SidebarProvider, with its header and <Thread />, unchanged. */}
+      </SignoffToolsProvider>
+    </AssistantRuntimeProvider>
+  );
+};
+```
+
+- **`sendAutomaticallyWhen`:** the starter's is `lastAssistantMessageIsCompleteWithToolCalls` alone, which waits until every call has a result. An approved call has none until the run goes on, so with it the card reads Approved and nothing follows, with no error. Add `lastAssistantMessageIsCompleteWithApprovalResponses`, as above.
+- **The route:** the starter's `app/api/chat/route.ts` gives the model only the tools the page runs in the browser. Use the route from [Getting started](/docs/getting-started#render-a-run), or add its `review_changes` and `run_command` tools and its `toolApproval` to yours. A `backend` entry in the toolkit only adds the UI: assistant-ui doesn't send it to the route.
+- **Styles:** import `signoff-ui/tailwind.css` after Tailwind in `app/globals.css`, as [Add the styles](/docs/getting-started#add-the-styles) shows. The starter runs Tailwind v4 with shadcn/ui's tokens, so [Theming](/docs/getting-started#theming) applies too.
+- **`@assistant-ui/ai-sdk`:** new starters import `useChatRuntime` from it, where the thread above uses `@assistant-ui/react-ai-sdk`. Both export it, so keep the one your app has.
+- **`useAssistantToolUI`:** with `display: 'standalone'` it does the same, but assistant-ui marks it deprecated in favour of toolkit entries.
+
+This ran end to end in the starter `assistant-ui` 0.0.124 creates (`@assistant-ui/react` 0.15.29, `@assistant-ui/ai-sdk` 0.0.13, AI SDK 7), against the quickstart's scripted model: the review and the approval card in sight with no group opened, then the resumed answer.
 
 ## AG-UI agents
 

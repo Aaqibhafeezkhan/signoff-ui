@@ -2,11 +2,18 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { DiffReview, type DiffReviewResult } from '../src/diff-review';
 import { resetDiffWorkers } from '../src/lib/diff-async';
 import { answerDiffRequest, type DiffWorkerRequest } from '../src/lib/diff-worker';
+import { gapLines } from '../src/lib/review';
 import { axe } from './utils';
+
+// Counts the unchanged lines the review makes to show: a render that skips a gap makes none.
+vi.mock('../src/lib/review', async (importOriginal) => {
+  const actual = await importOriginal<{ gapLines: typeof gapLines }>();
+  return { ...actual, gapLines: vi.fn(actual.gapLines) };
+});
 
 const lines = (count: number, prefix: string) =>
   Array.from({ length: count }, (_, i) => `export const ${prefix}${i} = compute(${i});`);
@@ -20,6 +27,30 @@ const localEdit = () => {
     oldContent: text(rows),
     newContent: text(rows.map((l, i) => (i % 50 === 0 ? l.replace('compute', 'measure') : l))),
   };
+};
+/** One line changed in the middle of `n`: two gaps of about `n / 2` unchanged lines. */
+const oneChange = (n: number) => {
+  const rows = lines(n, 'a');
+  return {
+    path: 'src/huge.ts',
+    oldContent: text(rows),
+    newContent: text(rows.map((l, i) => (i === n / 2 ? l.replace('compute', 'measure') : l))),
+  };
+};
+/** Every tenth line of `n` changed: `n / 10` hunks. Up to 150 of them, the file is diffed while rendering. */
+const dense = (n: number, path = 'src/dense.ts') => {
+  const rows = lines(n, 'a');
+  return {
+    path,
+    oldContent: text(rows),
+    newContent: text(rows.map((l, i) => (i % 10 === 0 ? l.replace('compute', 'measure') : l))),
+  };
+};
+/** A minified bundle's line, about `chars` long, changed at its end. */
+const minified = (chars: number) => {
+  let line = '';
+  for (let i = 0; line.length < chars; i++) line += `var a${i}=f(${i},"s${i}");`;
+  return { path: 'dist/bundle.min.js', oldContent: `${line}\n`, newContent: `${line}x\n` };
 };
 /** 800 lines changed: more than a render may diff, so it is diffed in the background. */
 const rewrite = (n = 400) => ({
@@ -142,6 +173,177 @@ describe('DiffReview at scale', () => {
       const { container } = render(<DiffReview files={[localEdit()]} onSubmit={() => {}} />);
       expect(await axe(container)).toHaveNoViolations();
     });
+
+    // 'Show all' on a 20,000-line file with one change rendered all 20,000 lines: 80,000 elements.
+    it(
+      "renders the lines 'Show all' shows near the screen, and keeps the rest as text",
+      { timeout: 30_000 },
+      async () => {
+        const user = userEvent.setup();
+        const { container } = render(<DiffReview files={[oneChange(20_000)]} />);
+        for (const button of screen.getAllByRole('button', { name: /^Show all/ })) await user.click(button);
+        const gaps = [...container.querySelectorAll<HTMLElement>('[data-slot="signoff-diff-gap"]')];
+        const rows = () => container.querySelectorAll('[data-slot="signoff-diff-gap"] [data-line]').length;
+        // The first hundred of each gap render; the others are chunks of text with their height.
+        expect(rows()).toBe(200);
+        const far = chunks(gaps[1]!).at(-1)!;
+        expect(far.querySelector('[data-line]')).toBeNull();
+        expect(far.style.height).toBe(`${far.textContent!.split('\n').length * 20}px`);
+        // A screen reader and find-in-page still have every line.
+        expect(gaps[0]!.textContent).toContain('export const a0 = compute(0);');
+        expect(far.textContent).toContain('export const a19999 = compute(19999);');
+        FakeObserver.report(far, true);
+        expect(far.querySelectorAll('[data-line]').length).toBeGreaterThan(0);
+        expect(rows()).toBeLessThan(300);
+        expect(await axe(gaps[0]!)).toHaveNoViolations();
+      },
+    );
+
+    it('shows split view’s unchanged lines in chunks too, reading each line once', async () => {
+      const user = userEvent.setup();
+      const { container } = render(<DiffReview files={[oneChange(2_000)]} view="split" />);
+      await user.click(screen.getAllByRole('button', { name: /^Show all/ })[0]!);
+      const gap = container.querySelector<HTMLElement>('[data-slot="signoff-diff-gap"]')!;
+      const far = chunks(gap).at(-1)!;
+      expect(far.querySelector('[data-line]')).toBeNull();
+      // A row a line, read once.
+      const read = far.textContent!.split('\n');
+      expect(far.style.height).toBe(`${read.length * 20}px`);
+      FakeObserver.report(far, true);
+      // Each line on both sides, the right one hidden from a screen reader.
+      expect(far.querySelectorAll('[data-line]')).toHaveLength(read.length * 2);
+      expect(far.querySelectorAll('[data-line][aria-hidden="true"]')).toHaveLength(read.length);
+    });
+  });
+
+  it("renders every line 'Show all' shows once mounted where there is no IntersectionObserver", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<DiffReview files={[oneChange(1_000)]} />);
+    await user.click(screen.getAllByRole('button', { name: /^Show all/ })[0]!);
+    const gap = container.querySelector('[data-slot="signoff-diff-gap"]')!;
+    await waitFor(() => expect(chunks(gap as HTMLElement).every((c) => c.hasAttribute('data-rendered'))).toBe(true));
+    // Lines 1 to 497: the gap up to the hunk's three lines of context.
+    expect(gap.querySelectorAll('[data-line]')).toHaveLength(497);
+  });
+
+  // A 1.3 MB minified line rendered 750,000 spans, one per token, and froze the page for seconds.
+  it('shows a very long line as plain text, not an element per token', () => {
+    const { container } = render(<DiffReview files={[minified(100_000)]} />);
+    const removed = container.querySelector('[data-line="del"]')!;
+    // What a screen reader hears first, and the line.
+    expect(removed.querySelectorAll('span span')).toHaveLength(2);
+    expect(removed.textContent).toContain('var a0=f(0,"s0");');
+  });
+
+  it('keeps word highlights on a long line, without syntax colors', () => {
+    const line = 'x'.repeat(3_000);
+    const { container } = render(
+      <DiffReview
+        files={[{ path: 'a.js', oldContent: `const a = "${line}";\n`, newContent: `const b = "${line}";\n` }]}
+      />,
+    );
+    const added = container.querySelector('[data-line="add"]')!;
+    expect(added.querySelector('.bg-signoff-add-strong')).toHaveTextContent('b');
+    expect(added.querySelector('[class*="text-signoff-code-"]')).toBeNull();
+  });
+
+  // A thousand hunks rendered in one task, which blocked the page for a quarter of a second.
+  it('renders a hundred hunks, then the rest in the tasks after', async () => {
+    const { container } = render(<DiffReview files={[dense(1_400)]} />);
+    expect(hunks()).toHaveLength(100);
+    // Named and counted as the whole review meanwhile.
+    expect(hunks()[0]).toHaveAccessibleName(/^Hunk 1 of 140,/);
+    expect(container).toHaveTextContent('1 file · 140 hunks');
+    await waitFor(() => expect(hunks()).toHaveLength(140));
+  });
+
+  it('renders the hunk J moves to before its batch, and focus follows', () => {
+    render(<DiffReview files={[dense(1_400), dense(100, 'src/next.ts')]} autoAdvance={false} />);
+    const all = hunks();
+    expect(all).toHaveLength(100);
+    all[99]!.focus();
+    fireEvent.keyDown(all[99]!, { key: 'j' });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 101 of 150,/);
+    // Shift+J, to the next file's first hunk, further on.
+    fireEvent.keyDown(document.activeElement!, { key: 'J', shiftKey: true });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 141 of 150, src\/next\.ts,/);
+  });
+
+  // 380 hunks in jsdom: slow on shared CI runners, so these get time.
+  const threeFiles = () => [dense(1_400, 'src/a.ts'), dense(1_400, 'src/b.ts'), dense(1_000, 'src/c.ts')];
+  const allHunks = (container: HTMLElement) => container.querySelectorAll('[data-slot="signoff-diff-hunk"]');
+
+  // The active item starts past folded files, ahead of the batches: they stopped there, at its hunk.
+  it('renders every hunk after files that start folded', { timeout: 30_000 }, async () => {
+    const { container } = render(
+      <DiffReview files={threeFiles()} defaultViewed={{ 'src/a.ts': true, 'src/b.ts': true }} />,
+    );
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+    // The folded files' hunks are there, hidden; the third file shows all of its own.
+    expect(hunks()).toHaveLength(100);
+    expect(hunks()[0]).toHaveAccessibleName(/^Hunk 281 of 380, src\/c\.ts,/);
+  });
+
+  it('hydrates folded files and the batch the active item is in, then the rest', { timeout: 30_000 }, async () => {
+    const files = threeFiles();
+    const viewed = { 'src/a.ts': true, 'src/b.ts': true };
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<DiffReview files={files} defaultViewed={viewed} />);
+    document.body.append(container);
+    onTestFinished(() => container.remove());
+    expect(allHunks(container)).toHaveLength(300);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => errors.mockRestore());
+    const root = await act(async () => hydrateRoot(container, <DiffReview files={files} defaultViewed={viewed} />));
+    onTestFinished(() => act(() => root.unmount()));
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  // Shift+J twice ahead of the batches stopped them, and K unmounted the hunk it left.
+  it('renders every hunk after J jumps far ahead, and keeps the one it left', { timeout: 30_000 }, async () => {
+    const { container } = render(<DiffReview files={threeFiles()} autoAdvance={false} />);
+    expect(allHunks(container)).toHaveLength(100);
+    hunks()[0]!.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'J', shiftKey: true });
+    fireEvent.keyDown(document.activeElement!, { key: 'J', shiftKey: true });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 281 of 380, src\/c\.ts,/);
+    fireEvent.keyDown(document.activeElement!, { key: 'k' });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 280 of 380, src\/b\.ts,/);
+    expect(screen.getByRole('group', { name: /^Hunk 281 of 380,/ })).toBeInTheDocument();
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+  });
+
+  it('renders on the server what the client hydrates, then the rest of the hunks', async () => {
+    const files = [dense(1_400)];
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<DiffReview files={files} />);
+    document.body.append(container);
+    onTestFinished(() => container.remove());
+    expect(container.querySelectorAll('[data-slot="signoff-diff-hunk"]')).toHaveLength(100);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => errors.mockRestore());
+    const root = await act(async () => hydrateRoot(container, <DiffReview files={files} />));
+    onTestFinished(() => act(() => root.unmount()));
+    await waitFor(() => expect(container.querySelectorAll('[data-slot="signoff-diff-hunk"]')).toHaveLength(140));
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  // Every render of the review, a decision or a streamed message around it, made each gap's lines again.
+  it('does not render its gaps again when the review renders for something else', async () => {
+    const user = userEvent.setup();
+    const file = oneChange(200);
+    // A new array and change on every render, as a tool's renderer passes them.
+    const ui = (title: string) => <DiffReview files={[{ ...file }]} title={title} />;
+    const { container, rerender } = render(ui('Review'));
+    await user.click(screen.getAllByRole('button', { name: /^Show all/ })[0]!);
+    expect(container.querySelector('[data-slot="signoff-diff-gap"]')).toHaveTextContent(
+      'export const a10 = compute(10);',
+    );
+    const made = vi.mocked(gapLines).mock.calls.length;
+    rerender(ui('Review the change'));
+    await user.click(screen.getByRole('button', { name: 'Accept hunk 1' }));
+    expect(vi.mocked(gapLines).mock.calls.length).toBe(made);
   });
 
   it('renders every row once mounted where there is no IntersectionObserver', async () => {

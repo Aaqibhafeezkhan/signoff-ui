@@ -27,7 +27,7 @@ function table(markdown: string, heading: string) {
 }
 
 export interface ProofFigures {
-  /** The smallest and largest import, gzipped: "0.4 kB" and "88.2 kB". */
+  /** The smallest and largest import, gzipped: "0.4 kB" and "88.6 kB". */
   sizes: { min: string; max: string };
   /** A 5,000-line rewrite, from the request to every file compared and on screen: "265 ms". */
   rewriteReady: string;
