@@ -126,8 +126,10 @@ const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayout
 /*
  * Long reviews render only what is near the screen. Each hunk's rows are cut into chunks; a chunk
  * far from the viewport keeps its height and its lines as visually hidden text, so the page does not
- * jump, find-in-page and screen readers still have every line, and the DOM stays small. Hunks
- * themselves always render: focus, J/K and their names never depend on what is on screen.
+ * jump, find-in-page and screen readers still have every line, and the DOM stays small. Unchanged
+ * lines shown between hunks are cut into chunks the same way. Hunks themselves always render: focus,
+ * J/K and their names never depend on what is on screen. Past the first hundred, they render a
+ * hundred per task, so the page keeps responding while they arrive.
  */
 /** Reviews with more rows than this are virtualized; smaller ones render every row. */
 const VIRTUALIZE_ROWS = 400;
@@ -138,12 +140,22 @@ const INITIAL_ROWS = 100;
 const NEAR_MARGIN = '800px 0px';
 /** One row of 12.5px text at line-height 1.6, until a rendered row is measured. */
 const ROW_HEIGHT = 20;
+/** Hunks (and whole-file items) in the first render, and in each task after it. */
+const ITEMS_BATCH = 100;
+/**
+ * Past this many characters a line is plain text: no syntax colors, so one element rather than one
+ * per token. A minified bundle's line has hundreds of thousands of tokens.
+ */
+const HIGHLIGHT_MAX_LINE = 2_000;
 
 interface Virtualizer {
   /** Calls `listener` whenever the element comes near the viewport or leaves; returns an unsubscribe. */
   observe(el: Element, listener: (near: boolean, height: number) => void): () => void;
-  /** Measured heights of a hunk's chunks that have rendered, by chunk key; a new parse starts afresh. */
-  heights: WeakMap<DiffHunk, Map<string, number>>;
+  /**
+   * Measured heights of a hunk's chunks that have rendered (or of unchanged lines shown), by chunk key;
+   * a new parse starts afresh.
+   */
+  heights: WeakMap<Pick<DiffHunk, 'lines'>, Map<string, number>>;
   rowHeight: number;
 }
 
@@ -192,6 +204,7 @@ interface ReviewActions {
   setText(text: string): void;
   save(): void;
   cancel(): void;
+  showContext: UseDiffReviewResult['showContext'];
 }
 
 /**
@@ -310,7 +323,25 @@ export function DiffReview({
     setText: (text) => latest.current.setDraftText(text),
     save: () => latest.current.saveDraft(),
     cancel: () => latest.current.cancelDraft(),
+    showContext: (...args) => latest.current.showContext(...args),
   }));
+
+  // Past the first hundred, hunks render a hundred per task: a thousand in one task blocked the page
+  // for a quarter of a second. The item J, K or V moves to renders at once, and focus follows it.
+  const [batches, setBatches] = useState(1);
+  const rendered = Math.max(batches * ITEMS_BATCH, review.activeIndex + 1);
+  useEffect(() => {
+    if (rendered >= items.length) return;
+    const timer = setTimeout(() => setBatches((n) => n + 1));
+    return () => clearTimeout(timer);
+  }, [rendered, items.length]);
+  const renderedBefore = useRef(rendered);
+  useIsoLayoutEffect(() => {
+    const hunk = document.activeElement?.closest('[data-slot="signoff-diff-hunk"]') ?? null;
+    if (review.activeIndex >= renderedBefore.current && rootRef.current?.contains(hunk))
+      latest.current.focusItem(review.activeIndex);
+    renderedBefore.current = rendered;
+  }, [rendered, review.activeIndex]);
 
   // Comments by the hunk (or whole-file item) they are on, kept per array so memoized hunks keep theirs.
   const commentsByItem = useMemo(() => {
@@ -391,6 +422,7 @@ export function DiffReview({
             <FileSection key={file.id} file={file} review={review}>
               {file.items.map((item) => {
                 const index = indexOf.get(item.id)!;
+                if (index >= rendered) return null;
                 const itemProps = review.getItemProps(index);
                 const selection = review.selection?.item.id === item.id ? review.selection : undefined;
                 const draft = review.draft && draftItem(review.draft) === item.id ? review.draft : undefined;
@@ -410,29 +442,35 @@ export function DiffReview({
                     />
                   );
                 }
-                const gap = (before: number) => {
-                  const found = file.gaps.find((g) => g.before === before);
+                const parsed = file.parsed!;
+                // The gap before this hunk, or after it, the last: numbered by the hunk below it.
+                const gap = (before: number, number: number) => {
+                  const found = gapsOf(file).get(before);
                   return (
                     found && (
                       <ContextGapView
                         key={`gap-${before}`}
-                        review={review}
-                        file={file}
+                        fileId={file.id}
+                        parsed={parsed}
                         gap={found}
                         view={view}
                         shown={review.shown[`${file.id}:${before}`]}
+                        readOnly={readOnly}
+                        number={number}
+                        virtualizer={virtualizer}
+                        actions={actions}
                       />
                     )
                   );
                 };
                 const hunk = item.hunk;
-                const last = hunk.index === file.parsed!.hunks.length - 1;
+                const last = hunk.index === parsed.hunks.length - 1;
                 return (
                   <Fragment key={item.id}>
-                    {gap(hunk.index)}
+                    {gap(hunk.index, index + 1)}
                     <Hunk
                       hunk={hunk}
-                      file={file.parsed!}
+                      file={parsed}
                       index={index}
                       name={itemProps['aria-label']}
                       view={view}
@@ -445,7 +483,7 @@ export function DiffReview({
                       draft={draft}
                       actions={actions}
                     />
-                    {last && gap(hunk.index + 1)}
+                    {last && gap(hunk.index + 1, index + 2)}
                   </Fragment>
                 );
               })}
@@ -550,6 +588,18 @@ export function DiffReview({
       </section>
     </WithLabels>
   );
+}
+
+const gapsByParse = new WeakMap<ParsedFileDiff, Map<number, ContextGap>>();
+
+/**
+ * A file's gaps by the hunk they go before, made once per parse: the review makes them again with
+ * every decision, and a gap that keeps its identity lets its memoized view skip the render.
+ */
+function gapsOf(file: DiffReviewFileState) {
+  let gaps = gapsByParse.get(file.parsed!);
+  if (!gaps) gapsByParse.set(file.parsed!, (gaps = new Map(file.gaps.map((gap) => [gap.before, gap]))));
+  return gaps;
 }
 
 /** The item a draft is written on: its hunk, or for a file comment, the file's whole-file item or first hunk. */
@@ -1250,7 +1300,8 @@ function Chunk({
   className,
   children,
 }: {
-  hunk: DiffHunk;
+  /** The hunk, or the unchanged lines, whose rows it holds. */
+  hunk: Pick<DiffHunk, 'lines'>;
   /** The chunk within its hunk, by view and first row. */
   id: string;
   rows: number;
@@ -1317,7 +1368,11 @@ function LineContent({
 }) {
   const prefix = useLinePrefix();
   const pieces = useMemo(
-    () => mergeTokensWithSegments(tokenizeLine(line.content, language), line.segments),
+    () =>
+      mergeTokensWithSegments(
+        tokenizeLine(line.content, line.content.length > HIGHLIGHT_MAX_LINE ? 'text' : language),
+        line.segments,
+      ),
     [line, language],
   );
   return (
@@ -1436,16 +1491,17 @@ function UnifiedRow({
 }
 
 interface RowsProps {
-  hunk: DiffHunk;
-  index: number;
+  /** The hunk, or unchanged lines shown around hunks: those have no `index`, selection or `actions`. */
+  hunk: Pick<DiffHunk, 'lines'>;
+  index?: number;
   language: string;
   rejected: boolean;
   /** Set when the review is long enough to render only what is near the screen. */
   virtualizer: Virtualizer | null;
   rowOffset: number;
-  selection: { from: number; to: number; head: number } | undefined;
+  selection?: { from: number; to: number; head: number } | undefined;
   annotations: Annotations;
-  actions: ReviewActions;
+  actions?: ReviewActions;
   readOnly: boolean;
 }
 
@@ -1725,74 +1781,88 @@ function SplitRows({
 /**
  * Unchanged lines between hunks, before the first or after the last: those shown so far, and a bar
  * to show more. Its buttons are outside the tab order, like the line numbers: from a hunk, E shows
- * more lines around it; a screen reader reaches the buttons by reading.
+ * more lines around it; a screen reader reaches the buttons by reading. Memoized, on props that
+ * keep their identity: a decision, or a message streaming around the review, does not render it.
  */
-function ContextGapView({
-  review,
-  file,
+const ContextGapView = memo(function ContextGapView({
+  fileId,
+  parsed,
   gap,
   view,
   shown = { start: 0, end: 0 },
+  readOnly,
+  number,
+  virtualizer,
+  actions,
 }: {
-  review: UseDiffReviewResult;
-  file: DiffReviewFileState;
+  fileId: string;
+  parsed: ParsedFileDiff;
   gap: ContextGap;
   view: DiffViewMode;
   shown: ShownContext | undefined;
+  readOnly: boolean;
+  /** The number of the hunk below it, as the review numbers its items: the one above is one less. */
+  number: number;
+  virtualizer: Virtualizer;
+  actions: ReviewActions;
 }) {
   const T = useLabels(LABELS).diffReview;
-  const parsed = file.parsed!;
   const size = gap.oldEnd - gap.oldStart + 1;
   const hidden = size - shown.start - shown.end;
-  const top = shown.start > 0 ? gapLines(parsed, gap, gap.oldStart, gap.oldStart + shown.start - 1) : [];
-  const bottom = shown.end > 0 ? gapLines(parsed, gap, gap.oldEnd - shown.end + 1, gap.oldEnd) : [];
+  const top = useMemo(
+    () => (shown.start > 0 ? gapLines(parsed, gap, gap.oldStart, gap.oldStart + shown.start - 1) : []),
+    [parsed, gap, shown.start],
+  );
+  const bottom = useMemo(
+    () => (shown.end > 0 ? gapLines(parsed, gap, gap.oldEnd - shown.end + 1, gap.oldEnd) : []),
+    [parsed, gap, shown.end],
+  );
   const first = gap.before === 0;
   const last = gap.before === parsed.hunks.length;
-  const hunkNumber = (i: number) => review.items.findIndex((item) => item.id === parsed.hunks[i]?.id) + 1;
   const button =
     'text-signoff-fg-muted hover:text-signoff-fg hover:bg-signoff-surface-2 focus-visible:outline-signoff-ring inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 focus-visible:outline-2';
   return (
     <div data-slot="signoff-diff-gap" className="border-signoff-border/70 border-b">
-      <ContextLines lines={top} view={view} language={parsed.language} />
-      {hidden > 0 && !review.readOnly && (
+      <ContextLines lines={top} view={view} language={parsed.language} virtualizer={virtualizer} />
+      {hidden > 0 && !readOnly && (
         <div className="bg-signoff-bg/50 text-signoff-fg-subtle flex flex-wrap items-center gap-x-3 gap-y-1 py-1 pr-2 pl-4 text-[11px]">
           <span className="font-signoff-mono">{T.unchangedLines(hidden)}</span>
           {hidden > CONTEXT_STEP && !first && (
             <button
               type="button"
               tabIndex={-1}
-              onClick={() => review.showContext(file.id, gap, 'start')}
+              onClick={() => actions.showContext(fileId, gap, 'start')}
               className={button}
             >
               <ArrowDownIcon size={11} />
-              <GapLabel {...T.moreAfter(CONTEXT_STEP, hunkNumber(gap.before - 1))} />
+              <GapLabel {...T.moreAfter(CONTEXT_STEP, number - 1)} />
             </button>
           )}
           {hidden > CONTEXT_STEP && !last && (
             <button
               type="button"
               tabIndex={-1}
-              onClick={() => review.showContext(file.id, gap, 'end')}
+              onClick={() => actions.showContext(fileId, gap, 'end')}
               className={button}
             >
               <ArrowUpIcon size={11} />
-              <GapLabel {...T.moreBefore(CONTEXT_STEP, hunkNumber(gap.before))} />
+              <GapLabel {...T.moreBefore(CONTEXT_STEP, number)} />
             </button>
           )}
           <button
             type="button"
             tabIndex={-1}
-            onClick={() => review.showContext(file.id, gap, 'all')}
+            onClick={() => actions.showContext(fileId, gap, 'all')}
             className={button}
           >
             <GapLabel {...T.showAll(hidden)} />
           </button>
         </div>
       )}
-      <ContextLines lines={bottom} view={view} language={parsed.language} />
+      <ContextLines lines={bottom} view={view} language={parsed.language} virtualizer={virtualizer} />
     </div>
   );
-}
+});
 
 /** A gap button's words: what shows, then what only a screen reader hears. */
 function GapLabel({ visible, hidden }: { visible: string; hidden: string }) {
@@ -1804,29 +1874,39 @@ function GapLabel({ visible, hidden }: { visible: string; hidden: string }) {
   );
 }
 
-/** Unchanged lines shown around hunks, in the review's layout. */
-function ContextLines({ lines, view, language }: { lines: DiffLine[]; view: DiffViewMode; language: string }) {
+/** Nothing after a row, and no row to keep rendered: unchanged lines have no comments or selection. */
+const NO_ANNOTATIONS: Annotations = { after: new Map(), pinned: new Set() };
+
+/**
+ * Unchanged lines shown around hunks, in the review's layout, rendered as a hunk's rows are: past
+ * `INITIAL_ROWS` of them, cut into chunks that render only near the screen.
+ */
+function ContextLines({
+  lines,
+  view,
+  language,
+  virtualizer,
+}: {
+  lines: DiffLine[];
+  view: DiffViewMode;
+  language: string;
+  virtualizer: Virtualizer;
+}) {
+  // The chunks keep their measured heights under it for as long as these lines show.
+  const rows = useMemo(() => ({ lines }), [lines]);
   if (lines.length === 0) return null;
-  if (view === 'unified') {
-    return (
-      <div className="font-signoff-mono @container overflow-x-auto py-0.5 text-[12.5px] leading-[1.6]">
-        <div className="min-w-max @max-[30rem]:min-w-0">
-          {lines.map((line, i) => (
-            <UnifiedRow key={i} line={line} language={language} rejected={false} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const Rows = view === 'unified' ? UnifiedRows : SplitRows;
   return (
-    <div className={cn('font-signoff-mono py-0.5 text-[12.5px] leading-[1.6]', SPLIT_GRID)}>
-      {lines.map((line, i) => (
-        <Fragment key={i}>
-          <SplitCell line={line} side="left" language={language} rejected={false} />
-          <span aria-hidden="true" className="bg-signoff-border" />
-          <SplitCell line={line} side="right" language={language} rejected={false} hidden />
-        </Fragment>
-      ))}
+    <div className="@container overflow-x-auto">
+      <Rows
+        hunk={rows}
+        language={language}
+        rejected={false}
+        virtualizer={lines.length > INITIAL_ROWS ? virtualizer : null}
+        rowOffset={0}
+        annotations={NO_ANNOTATIONS}
+        readOnly
+      />
     </div>
   );
 }

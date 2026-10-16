@@ -125,6 +125,52 @@ function rehypeImagesInLinks() {
 const REHYPE_PLUGINS = [rehypeImagesInLinks];
 const REHYPE_PLUGINS_STREAMING = [rehypeImagesInLinks, rehypeCaret];
 
+const BLANK = /^[ \t\r]*$/;
+/**
+ * A line that can start a block: at the left margin, and not what may be a list item (`-`, `+`, `*`
+ * or a number), since a list goes on past blank lines.
+ */
+const BLOCK_START = /^[^\s\d*+-]/;
+/** Blocks are parsed together up to about this many characters: each parse has a fixed cost too. */
+const BLOCK_CHARS = 1_000;
+
+/**
+ * The text cut into top-level blocks, each parsed on its own, so that a streamed delta parses only
+ * the last one again. A block starts after a blank line, outside fenced code, where CommonMark ends
+ * what came before: indented lines and list items stay with what they follow.
+ */
+function splitBlocks(text: string): string[] {
+  // Link reference and footnote definitions are used across blocks, and some HTML blocks go on past
+  // blank lines: text with either is one block.
+  if (/^ {0,3}(\[.*\]:|<)/m.test(text)) return [text];
+  const lines = text.split('\n');
+  const blocks: string[] = [];
+  let start = 0;
+  let size = 0;
+  let fence = '';
+  lines.forEach((line, i) => {
+    // A fence: three or more backticks (with none after them on the line) or tildes.
+    const marker = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)/.exec(line);
+    if (fence) {
+      // Closed by the same character, at least as many times, with nothing after it.
+      if (marker?.[1]!.startsWith(fence) && BLANK.test(marker[2]!)) fence = '';
+    } else {
+      if (size >= BLOCK_CHARS && BLANK.test(lines[i - 1]!) && BLOCK_START.test(line)) {
+        blocks.push(lines.slice(start, i).join('\n'));
+        start = i;
+        size = 0;
+      }
+      fence = marker?.[1] ?? '';
+    }
+    size += line.length + 1;
+  });
+  blocks.push(lines.slice(start).join('\n'));
+  return blocks;
+}
+
+/** One top-level block: memoized, so the blocks before a streamed delta are not parsed again. */
+const Block = memo(ReactMarkdown);
+
 function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(textOf).join('');
@@ -452,10 +498,8 @@ export const Markdown = memo(function Markdown({
   className,
   labels,
 }: MarkdownProps) {
-  const text = useMemo(
-    () => (streaming ? remend(children, { linkMode: 'text-only' }) : children),
-    [children, streaming],
-  );
+  const blocks = useMemo(() => splitBlocks(children), [children]);
+  const last = blocks.length - 1;
   const remarkPlugins = useMemo(
     () =>
       citations > 0
@@ -463,8 +507,10 @@ export const Markdown = memo(function Markdown({
         : [remarkGfm],
     [citations, citationPrefix],
   );
-  const merged = useMemo(() => (overrides ? { ...components, ...overrides } : components), [overrides]);
   const imagePolicy = useMemo(() => getImagePolicy(allowedImageHosts), [allowedImageHosts]);
+  // New with the image policy too, so that every block renders again, as the whole text did.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const merged = useMemo(() => ({ ...components, ...overrides }), [overrides, imagePolicy]);
   return (
     <div
       data-signoff
@@ -477,14 +523,18 @@ export const Markdown = memo(function Markdown({
       {/* .Provider rather than React 19's <Context value>, so that React 18 renders it too. */}
       <ImagePolicyContext.Provider value={imagePolicy}>
         <WithLabels labels={labels}>
-          <ReactMarkdown
-            // Plugin tuples are typed loosely by unified; the shapes above are correct.
-            remarkPlugins={remarkPlugins as never}
-            rehypePlugins={(streaming ? REHYPE_PLUGINS_STREAMING : REHYPE_PLUGINS) as never}
-            components={merged}
-          >
-            {text}
-          </ReactMarkdown>
+          {blocks.map((block, i) => (
+            <Block
+              key={i}
+              // Plugin tuples are typed loosely by unified; the shapes above are correct.
+              remarkPlugins={remarkPlugins as never}
+              rehypePlugins={(i === last && streaming ? REHYPE_PLUGINS_STREAMING : REHYPE_PLUGINS) as never}
+              components={merged}
+            >
+              {/* Only the last block can be unterminated: each one before it ended at a blank line. */}
+              {i === last && streaming ? remend(block, { linkMode: 'text-only' }) : block}
+            </Block>
+          ))}
         </WithLabels>
       </ImagePolicyContext.Provider>
     </div>
