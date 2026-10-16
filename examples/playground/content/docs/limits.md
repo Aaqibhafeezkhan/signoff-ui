@@ -8,8 +8,8 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | ------------------------------------------------------------------ | -------: |
 | `addUsage`, `estimateCost` from `/core` (for a route handler)      |   0.4 kB |
 | ACP converters from `/acp`                                         |   1.6 kB |
-| `toToolApproval` from `/core` (approval rules in a route handler)  |   2.4 kB |
-| `useApprovalPolicy` (the rules without markup)                     |   4.0 kB |
+| `toToolApproval` from `/core` (approval rules in a route handler)  |   2.5 kB |
+| `useApprovalPolicy` (the rules without markup)                     |   4.1 kB |
 | `useAgUiAgent` from `/ag-ui`                                       |   3.5 kB |
 | `applyHunks`, `parseFileChange` from `/core` (with jsdiff)         |   6.7 kB |
 | `Sources`                                                          |  10.3 kB |
@@ -19,10 +19,10 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `ApprovalCard`                                                     |  20.7 kB |
 | `ToolCallTimeline`                                                 |  22.6 kB |
 | `AgentMessage` from `/custom-markdown` (with your own renderer)    |  34.9 kB |
-| `DiffReview`                                                       |  42.4 kB |
-| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  53.2 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  88.2 kB |
-| Everything in the main entry                                       | 124.8 kB |
+| `DiffReview`                                                       |  42.6 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  53.5 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  88.6 kB |
+| Everything in the main entry                                       | 125.4 kB |
 
 Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 64.3 kB. An app with its own renderer can [import `AgentMessage` without it](/docs/components/agent-message#your-own-markdown-renderer), and CI checks that react-markdown stays out of that bundle. Each component carries the English labels of the sections it reads, not the others.
 
