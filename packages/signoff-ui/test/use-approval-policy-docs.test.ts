@@ -137,6 +137,17 @@ describe('the useApprovalPolicy page: patterns', () => {
     expect(evaluateRules(key, 'write_file', { content: 'x'.repeat(1_000_000) })).toBeUndefined();
   });
 
+  it('says an array costs a deny rule about what its items do, each a character at least, not a pass each', () => {
+    const bound = paragraph(patterns, 'Each rule gets ');
+    expect(bound).toContain('an array up to four times, its items and then the items joined, each read both ways');
+    expect(bound).toContain('The items go in one pass, each once however often it comes');
+    expect(bound).toContain('each counts as one character at least');
+    // The items still deny as they do one by one, and as they read joined.
+    expect(denies('git push*', ['', 'git status && git push'])).toBe(true);
+    expect(denies('git push*', ['', 'git', 'push'])).toBe(true);
+    expect(denies('git push*', ['', 'git', 'status'])).toBe(false);
+  });
+
   it("protects other people with a server allowlist (`otherwise: 'denied'`) or a real shell parser", () => {
     expect(caveat).toContain("toToolApproval(allowed, { otherwise: 'denied' })");
     expect(caveat).toContain('a real shell parser');
@@ -158,6 +169,7 @@ describe("the useApprovalPolicy page: the server's rules win", () => {
     expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
     expect(bound).toContain('bounded at about 30 steps for each character it reads');
     expect(bound).toContain('grows with the number of rules times the length of its arguments');
+    expect(bound).toContain('an array up to four times, each item counting as one character at least');
     expect(bound).toContain('cap the length of the arguments they read');
     expect(bound).not.toMatch(/however many|can't hold up/);
   });

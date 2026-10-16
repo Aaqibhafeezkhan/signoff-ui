@@ -127,7 +127,8 @@ export function globToRegExp(pattern: string): RegExp {
 
 /**
  * Matching work a rule has left for a call, in steps. Each character it reads costs the places in
- * the pattern that match so far, plus one, and earns `STEPS_PER_CHARACTER`.
+ * the pattern that match so far, plus one, and earns `STEPS_PER_CHARACTER`. An empty value, such as
+ * an array's item, counts as one character.
  */
 interface Budget {
   left: number;
@@ -191,6 +192,8 @@ function globMatch(
       }
       if (i === value.length) {
         if (seen[end] === step) return true;
+        // An empty value reads no character, and counts as one: so the steps grow with the values read.
+        if (!i && (budget.left += STEPS_PER_CHARACTER - count - 1) < 0) return undefined;
         break;
       }
       if (!count && s === starts.length) break;
@@ -411,34 +414,64 @@ function commands(line: string): Candidate[] {
 }
 
 /**
- * A text's commands (`commands`), split once for all the rules of a call, less the matches the whole
- * text already tried: from the start of a command that is the whole text, as `a`s or `npm test` are.
+ * A text's commands (`commands`), less the matches its whole already tried: from the start of a
+ * command that is the whole text, as `a`s or `npm test` are.
  */
-function commandsOf(text: string, split: Map<string, Candidate[]>): Candidate[] {
-  let list = split.get(text);
-  if (!list) {
-    list = [];
-    for (const [command, starts] of commands(text)) {
-      const from = command === text ? starts.filter((start) => start > 0) : starts;
-      if (from.length) list.push([command, from]);
-    }
-    split.set(text, list);
+function commandsOf(text: string): Candidate[] {
+  const list: Candidate[] = [];
+  for (const [command, starts] of commands(text)) {
+    const from = command === text ? starts.filter((start) => start > 0) : starts;
+    if (from.length) list.push([command, from]);
   }
   return list;
 }
 
 /**
- * Whether a deny rule's pattern covers a text: the whole of it, as an allow rule reads it, or any of
- * its commands from where one may start (`commands`), so `git push*` denies `git status && git push`.
+ * What a deny rule matches of some texts: each whole from its start, and then each of their
+ * commands, split the first time a rule needs them.
  */
-function denyMatch(
-  text: string,
-  parts: readonly number[],
-  budget: Budget,
-  split: Map<string, Candidate[]>,
-): boolean | undefined {
-  const whole = globMatch([[text, FROM_START]], parts, false, budget);
-  return whole === false ? globMatch(commandsOf(text, split), parts, false, budget) : whole;
+interface Reading {
+  whole: Candidate[];
+  commands?: Candidate[] | undefined;
+}
+
+/** Each argument as deny rules read it (`readingsOf`), worked out once for all the rules of a call. */
+type Readings = Map<unknown, Reading[] | undefined>;
+
+/** Some texts as a deny rule reads them, each text once however often it comes. */
+const reading = (texts: readonly string[]): Reading => ({
+  whole: [...new Set(texts)].map((text) => [text, FROM_START] as const),
+});
+
+/**
+ * What a deny rule reads of an argument: a text, or an array's items and then the items joined by
+ * spaces; `undefined` for one it can't read: an object, or an array with an item that isn't text.
+ * Worked out once for all the rules of a call, in `readings`.
+ */
+function readingsOf(value: unknown, readings: Readings): Reading[] | undefined {
+  if (readings.has(value)) return readings.get(value);
+  const text = argumentText(value);
+  const items = text === undefined && Array.isArray(value) ? value.map(argumentText) : [text];
+  const read = items.includes(undefined)
+    ? undefined
+    : text === undefined
+      ? [reading(items as string[]), reading([items.join(' ')])]
+      : [reading([text])];
+  readings.set(value, read);
+  return read;
+}
+
+/**
+ * Whether a deny rule's pattern covers one of a reading's texts: the whole of it, as an allow rule
+ * reads it, or any of its commands from where one may start (`commands`), so `git push*` denies
+ * `git status && git push`. All the texts go in one pass each way, so an array's items cost what
+ * their characters do, not the pattern's length each.
+ */
+function denyMatch(texts: Reading, parts: readonly number[], budget: Budget): boolean | undefined {
+  const whole = globMatch(texts.whole, parts, false, budget);
+  if (whole !== false) return whole;
+  texts.commands ??= texts.whole.flatMap(([text]) => commandsOf(text));
+  return globMatch(texts.commands, parts, false, budget);
 }
 
 const own = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
@@ -468,25 +501,27 @@ function argumentText(value: unknown): string | undefined {
 
 /**
  * Whether an argument matches a pattern, or `undefined` once `budget` runs out: as text for an allow
- * rule. A deny rule reads a text's commands too (`denyMatch`), an array by each item and by the
- * items joined with spaces, and covers any other object, which it can't read: it fails closed.
+ * rule. A deny rule reads a text's commands too, an array by its items, all in one pass, and by the
+ * items joined with spaces (`readingsOf`), and covers any other object, which it can't read: it
+ * fails closed.
  */
 function argumentMatches(
   value: unknown,
   parts: readonly number[],
   deny: boolean,
   budget: Budget,
-  split: Map<string, Candidate[]>,
+  readings: Readings,
 ): boolean | undefined {
-  const text = argumentText(value);
-  if (text !== undefined)
-    return deny ? denyMatch(text, parts, budget, split) : globMatch([[text, FROM_START]], parts, false, budget);
-  if (!deny || value == null) return false;
-  const items = Array.isArray(value) ? value.map(argumentText) : [undefined];
-  if (items.includes(undefined)) return true;
+  if (!deny) {
+    const text = argumentText(value);
+    return text !== undefined && globMatch([[text, FROM_START]], parts, false, budget);
+  }
+  if (value == null) return false;
+  const read = readingsOf(value, readings);
+  if (!read) return true;
   let result: boolean | undefined = false;
-  for (const item of [...items, items.join(' ')]) {
-    const matched = denyMatch(item!, parts, budget, split);
+  for (const texts of read) {
+    const matched = denyMatch(texts, parts, budget);
     if (matched) return true;
     if (matched === undefined) result = undefined;
   }
@@ -499,12 +534,7 @@ function argumentMatches(
  * runs out of: a rule on another tool doesn't count against the call. A deny rule counts what it
  * can't read as covered: an object argument, or a `when` that throws.
  */
-function covers(
-  rule: ApprovalRule,
-  toolName: string,
-  input: unknown,
-  split: Map<string, Candidate[]>,
-): boolean | undefined {
+function covers(rule: ApprovalRule, toolName: string, input: unknown, readings: Readings): boolean | undefined {
   const deny = rule.effect !== 'allow';
   // A tool's name is no shell command: in a deny rule, `*` and `?` match any character of it, so `*`
   // covers every tool. An allow rule's tool pattern reads a name as its argument patterns read text.
@@ -517,7 +547,7 @@ function covers(
     // Each reading of the argument must match for an allow rule; one does for a deny rule.
     let matched: boolean | undefined = false;
     for (const value of argumentValues(input, name)) {
-      const one = argumentMatches(value, parts, deny, budget, split);
+      const one = argumentMatches(value, parts, deny, budget, readings);
       if (!deny && one !== true) return one;
       if (one !== false) matched = one;
       if (deny && one) break;
@@ -541,9 +571,9 @@ function covers(
  * Whether a rule applies to a call: its tool, every argument pattern, and its own test. A deny rule
  * reads more than an allow rule, to hold when a command is written another way: each command of a
  * shell line, from its first word past `NAME=value` settings, a path and a redirect, or after `sudo`,
- * `env`, `sh -c`, `find -exec`… (see `commands`); an array by its items; and an object, or a `when` that throws, as covered. Matching
- * takes a bounded amount of work (see `evaluateRules`), and what it can't finish counts against the
- * call: an allow rule doesn't apply, a deny rule does.
+ * `env`, `sh -c`, `find -exec`… (see `commands`); an array by its items; and an object, or a `when`
+ * that throws, as covered. Matching takes a bounded amount of work (see `evaluateRules`), and what
+ * it can't finish counts against the call: an allow rule doesn't apply, a deny rule does.
  */
 export function ruleMatches(rule: ApprovalRule, toolName: string, input: unknown): boolean {
   return covers(rule, toolName, input, new Map()) ?? rule.effect !== 'allow';
@@ -558,23 +588,25 @@ const specificity = (rule: ApprovalRule) =>
 /**
  * The rule that decides a call, if any. A deny rule wins over an allow rule, whatever their
  * order; among rules of the same effect the most specific is the one reported. Each rule's matching
- * takes a bounded amount of work, in proportion to the arguments it reads: far more than common
- * patterns need, however long the arguments. The bound is each rule's, so a call's work grows with
- * the number of rules times the arguments' length, and a deny rule reads a string up to twice (whole,
- * then by command) and an array up to four times: cap the arguments where a client sends rules. A
- * rule that runs out before it can tell counts against the call: an allow rule allows nothing, and a
- * deny rule denies, reported as `unchecked` when no other deny rule covers the call.
+ * takes a bounded amount of work, in proportion to the arguments it reads, an array's item counting
+ * as one character at least: far more than common patterns need, however long the arguments. The
+ * bound is each rule's, so a call's work grows with the number of rules times the arguments' length,
+ * and a deny rule reads a string up to twice (whole, then by command) and an array up to four times
+ * (all its items in one pass, each once however often it comes, then the items joined, each both
+ * ways): cap the arguments where a client sends rules. A rule that runs out before it can tell
+ * counts against the call: an allow rule allows nothing, and a deny rule denies, reported as
+ * `unchecked` when no other deny rule covers the call.
  */
 export function evaluateRules(rules: readonly ApprovalRule[], toolName: string, input: unknown): RuleMatch | undefined {
-  // Each argument's commands, split once for all the rules.
-  const split = new Map<string, Candidate[]>();
+  // Each argument as deny rules read it, worked out once for all the rules.
+  const readings: Readings = new Map();
   let best: ApprovalRule | undefined;
   let unchecked: ApprovalRule | undefined;
   // Deny rules first: one that covers the call wins, and then no allow rule is read. A rule that
   // can't beat the best so far by specificity isn't read either.
   for (const rule of rules) {
     if (rule.effect === 'allow' || (best && specificity(rule) <= specificity(best))) continue;
-    const covered = covers(rule, toolName, input, split);
+    const covered = covers(rule, toolName, input, readings);
     if (covered) best = rule;
     else if (covered === undefined && (!unchecked || specificity(rule) > specificity(unchecked))) unchecked = rule;
   }
@@ -582,7 +614,7 @@ export function evaluateRules(rules: readonly ApprovalRule[], toolName: string, 
   if (unchecked) return { effect: 'deny', rule: unchecked, unchecked: true };
   for (const rule of rules) {
     if (rule.effect !== 'allow' || (best && specificity(rule) <= specificity(best))) continue;
-    if (covers(rule, toolName, input, split) === true) best = rule;
+    if (covers(rule, toolName, input, readings) === true) best = rule;
   }
   return best && { effect: 'allow', rule: best };
 }

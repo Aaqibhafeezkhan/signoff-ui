@@ -59,6 +59,7 @@ describe('Performance and limits: rules', () => {
     expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
     expect(bullet).toContain('Each rule gets 20,000 matching steps and 30 more for each character it reads');
     expect(bullet).toContain('That bounds each rule, not a call');
+    expect(bullet).toContain('an array up to four times, an item counting as one character at least');
     expect(bullet).toContain("cap the length of the arguments in the tool's input schema");
     expect(bullet).not.toMatch(/can't hold up/);
   });

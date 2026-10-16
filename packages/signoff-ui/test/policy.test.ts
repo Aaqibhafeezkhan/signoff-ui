@@ -411,6 +411,43 @@ describe('matching work', () => {
     expect(performance.now() - start).toBeLessThan(1000);
   });
 
+  it('reads an array of many short items in one pass for all of them, not a pass for each', () => {
+    // Each item used to take passes of its own, each set up at the pattern's length, and an empty
+    // item cost no step: 100 such deny rules took seconds on 10,000 empty or one-character items.
+    const rules = clientRules('deny');
+    expect(rules).toHaveLength(100);
+    const route = toToolApproval(rules);
+    for (const content of [
+      Array.from({ length: 10_000 }, () => ''),
+      // One character each, all different, so none is read once for several.
+      Array.from({ length: 2_000 }, (_, i) => String.fromCharCode(0x4e00 + i)),
+    ]) {
+      const start = performance.now();
+      expect(route({ toolCall: { toolName: 'write_file', input: { content } } })).toBe('user-approval');
+      expect(performance.now() - start).toBeLessThan(1000);
+    }
+    // Read together, the items still deny as each did on its own, and as they read joined.
+    const push = rule({ id: 'push', effect: 'deny', args: { command: 'git push*' } });
+    const empty = Array.from({ length: 10_000 }, () => '');
+    expect(evaluateRules([push], 'run_command', { command: [...empty, 'git status && git push'] })?.rule.id).toBe(
+      'push',
+    );
+    expect(evaluateRules([push], 'run_command', { command: [...empty, 'git', 'push'] })?.rule.id).toBe('push');
+    expect(evaluateRules([push], 'run_command', { command: [...empty, 'git', 'status'] })).toBeUndefined();
+  });
+
+  it('counts an empty value as a character: a rule out of steps can no more tell one than the other', () => {
+    const slowDeny = rule({ id: 'slow', tool: 'write_file', effect: 'deny', args: { content: pattern, path: 'x' } });
+    const content = 'a'.repeat(20_000);
+    for (const path of ['', 'y', [], ['', '']]) {
+      expect(evaluateRules([slowDeny], 'write_file', { content, path }), JSON.stringify(path)).toEqual({
+        effect: 'deny',
+        rule: slowDeny,
+        unchecked: true,
+      });
+    }
+  });
+
   it('gives each rule steps of its own: one that runs out leaves the others to decide', () => {
     const slow = rule({ id: 'slow', tool: 'write_file', args: { content: pattern } });
     const content = 'a'.repeat(20_000);
