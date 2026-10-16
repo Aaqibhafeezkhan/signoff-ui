@@ -3,8 +3,9 @@
 //   pnpm --filter playground build && pnpm --filter playground start   # serves :3100
 //   pnpm media                                                          # needs Chrome and ffmpeg
 //
-// Outputs to docs/media/: hero.png, review.png, inspect.png, mobile.png,
-// run.gif + run.mp4 (a full run driven by the keyboard), components/*.png and *-light.png.
+// Outputs to docs/media/: hero.png (the home page's first screen), review.png, inspect.png and
+// mobile.png (the scripted run, which #run starts), run.gif + run.mp4 (a full run driven by the
+// keyboard), components/*.png and *-light.png.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -68,59 +69,69 @@ async function newPage({ width = 1440, height = 900, scale = 2, hud = false, col
   return page;
 }
 
-const approvalPending = '[data-slot="signoff-approval-card"][data-status="pending"]';
-const reviewReady = '[data-slot="signoff-diff-review"] [data-slot="signoff-diff-submit"]';
+// The scripted run's, not the first screen's: the run is in the #run section.
+const approvalPending = '#run [data-slot="signoff-approval-card"][data-status="pending"]';
+const reviewReady = '#run [data-slot="signoff-diff-review"] [data-slot="signoff-diff-submit"]';
 
-/** Grow the viewport so everything down to `selector` fits, then shoot from the top. */
+/**
+ * Grow the viewport so the run, from the top of its section down to `selector`, fits, then shoot
+ * it with the section at the top, under the header.
+ */
 async function shootTo(page, selector, file, { min = 900, max = 1400, pad = 40 } = {}) {
   // Fit the target and the sidebar, whichever ends lower.
-  const bottom = await page.evaluate(
+  const height = await page.evaluate(
     (sel) =>
-      Math.max(
-        ...[sel, 'aside'].map((s) => (document.querySelector(s)?.getBoundingClientRect().bottom ?? 0) + scrollY),
-      ),
+      Math.max(...[sel, '#run aside'].map((s) => document.querySelector(s)?.getBoundingClientRect().bottom ?? 0)) -
+      document.querySelector('#run').getBoundingClientRect().top,
     selector,
   );
   const vp = page.viewportSize();
-  await page.setViewportSize({ width: vp.width, height: Math.round(Math.min(max, Math.max(min, bottom + pad))) });
-  await page.evaluate(() => scrollTo(0, 0));
+  // The section starts under the 56px header.
+  await page.setViewportSize({ width: vp.width, height: Math.round(Math.min(max, Math.max(min, height + 56 + pad))) });
+  await page.evaluate(() => document.querySelector('#run').scrollIntoView({ block: 'start' }));
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(out, file) });
   console.log('wrote', `docs/media/${file}`);
 }
 
-if (want('hero') || want('review')) {
+if (want('hero')) {
+  // The first screen as a visitor sees it: nothing plays on load.
   const page = await newPage();
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(900);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: join(out, 'hero.png') });
+  console.log('wrote docs/media/hero.png');
+  await page.context().close();
+}
+
+if (want('review')) {
+  const page = await newPage();
+  await page.goto(`${BASE}/#run`, { waitUntil: 'networkidle' });
   await page.waitForSelector(approvalPending, { timeout: 90_000 });
   await page.waitForTimeout(900);
   await page.mouse.move(0, 0);
-  await shootTo(page, approvalPending, 'hero.png', { max: 1320, pad: 14 });
-
-  if (want('review')) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.focus(approvalPending);
-    await page.keyboard.press('y');
-    await page.waitForSelector(reviewReady, { timeout: 90_000 });
-    await page.waitForTimeout(700);
-    for (const key of ['a', 'a', 'a', 'r']) {
-      await page.keyboard.press(key);
-      await page.waitForTimeout(350);
-    }
-    await page.evaluate(() => {
-      const el = document.querySelector('[data-slot="signoff-diff-review"]');
-      scrollTo(0, el.getBoundingClientRect().top + scrollY - 140);
-    });
-    await page.waitForTimeout(500);
-    await page.screenshot({ path: join(out, 'review.png') });
-    console.log('wrote docs/media/review.png');
+  await page.focus(approvalPending);
+  await page.keyboard.press('y');
+  await page.waitForSelector(reviewReady, { timeout: 90_000 });
+  await page.waitForTimeout(700);
+  for (const key of ['a', 'a', 'a', 'r']) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(350);
   }
+  await page.evaluate(() => {
+    const el = document.querySelector('#run [data-slot="signoff-diff-review"]');
+    scrollTo(0, el.getBoundingClientRect().top + scrollY - 140);
+  });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(out, 'review.png') });
+  console.log('wrote docs/media/review.png');
   await page.context().close();
 }
 
 if (want('inspect')) {
   const page = await newPage();
-  await page.goto(`${BASE}/?inspect=1&speed=4`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/?inspect=1&speed=4#run`, { waitUntil: 'networkidle' });
   await page.waitForSelector(approvalPending, { timeout: 90_000 });
   await page.waitForTimeout(900);
   await shootTo(page, approvalPending, 'inspect.png', { max: 1320, pad: 14 });
@@ -129,7 +140,7 @@ if (want('inspect')) {
 
 if (want('mobile')) {
   const page = await newPage({ width: 390, height: 844, scale: 3 });
-  await page.goto(`${BASE}/?speed=4`, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
   await page.waitForSelector(approvalPending, { timeout: 90_000 });
   await page.waitForTimeout(900);
   await page.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'end' }), approvalPending);
@@ -175,13 +186,13 @@ if (want('gif')) {
     frames.push({ data, t: metadata.timestamp });
     await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
   });
-  await page.goto(`${BASE}/?speed=2`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE}/?speed=2#run`, { waitUntil: 'domcontentloaded' });
   // Start once the agent is responding, so the first frame (shown when GitHub pauses
   // animations for reduced-motion users) is the run rather than an empty page.
   await page.waitForSelector('[data-slot="signoff-agent-message"]', { timeout: 30_000 });
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 90, everyNthFrame: 1 });
   await page.waitForSelector(approvalPending, { timeout: 90_000 });
-  // The run started on load, so its card doesn't take focus: go to it, as the reader would.
+  // Go to the card, as the reader would, in case it hasn't taken focus.
   await page.focus(approvalPending);
   await page.waitForTimeout(1600);
   await page.keyboard.press('y');

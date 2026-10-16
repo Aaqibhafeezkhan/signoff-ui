@@ -1,11 +1,12 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { RunStart } from './run-start';
 
 /*
- * The live run loads after the page: the AI SDK, the kit and the scripted agent are most of the
- * home page's JavaScript, and nothing above the fold needs them to paint. Until then, a placeholder
- * of the same shape holds its place in the grid, so nothing moves when the run arrives.
+ * The live run loads after the page: the AI SDK and the scripted agent are most of the home page's
+ * JavaScript, and the first screen doesn't need them. Until then, a placeholder of the same shape
+ * holds its place in the grid, the run not yet started, so nothing moves when the run arrives.
  */
 
 const RunPlaceholder = () => (
@@ -18,11 +19,10 @@ const RunPlaceholder = () => (
       <span className="border-line bg-raised/70 hidden h-[326px] rounded-xl border lg:block" />
       <span className="border-line bg-raised/70 hidden h-[270px] rounded-xl border lg:block" />
     </div>
-    <div className="flex min-h-svh min-w-0 flex-col gap-6 lg:col-start-1 lg:row-start-2">
-      <p className="text-fg-subtle text-[13px] leading-relaxed">
-        <span className="text-fg font-medium">Live demo, no API key.</span> A scripted coding agent adds rate limiting
-        to a Next.js route. Every panel is a kit component.
-      </p>
+    <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-start-2">
+      {/* The repository's chips, or the run meter on a phone. */}
+      <span className="h-[25px] sm:h-[27px]" />
+      <RunStart />
     </div>
   </>
 );

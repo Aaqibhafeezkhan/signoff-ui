@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * What the README tells someone deciding whether to use the kit, against what ships: one pitch on
- * the README, npm and the site's hero and meta description, a start that needs no API key before
+ * the README, npm and the site's meta description, a start that needs no API key before
  * one that does, a quickstart that says why a run failed and what an approval protects, and
  * comparisons and protocol notes that match the code, and the docs pages that say them too. npm
  * publishes this README (scripts/npm-readme.mjs), so it ships with each release. readme.test.ts
@@ -75,21 +75,12 @@ const componentPageIds = ['example', 'installation', 'usage', 'how-it-works', 'a
 describe('the pitch', () => {
   const lead = readme.split('\n')[2] ?? '';
 
-  it('is one line on the README, npm and the home page', () => {
-    // The hero's sub-line, as text. The README and npm leave out the hero's note on how assistant-ui
-    // is supported, and follow the tagline with a colon where the hero starts a new sentence.
-    const hero = read('examples/playground/components/hero.tsx');
-    const sub = /<\/h1>\s*<p[^>]*>([\s\S]*?)<\/p>/.exec(hero)?.[1] ?? '';
-    const said = sub
-      .replace(/\{' '\}/g, ' ')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(' (through its own adapter)', '')
-      .replace('. For ', ', for ');
-    expect(said).toMatch(/^React components for .+ or your own chat\.$/);
-    expect(lead).toBe(`Review what your agent changed and approve what it may do: ${said}`);
+  it('is one line on the README and npm', () => {
+    // The home page's hero says it in fewer words, for a first screen of 45 at most
+    // (examples/playground/test/first-screen.test.ts); its meta description is this line (below).
+    expect(lead).toMatch(
+      /^Review what your agent changed and approve what it may do: React components for .+ or your own chat\.$/,
+    );
     expect(pkg.description).toBe(lead);
   });
 
