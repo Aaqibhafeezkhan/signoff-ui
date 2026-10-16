@@ -243,7 +243,7 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
 
   it('a critical press stays armed until the second press, Escape, or focus leaving the card', async () => {
     expect(text()).toContain(
-      'The first press on a `critical` action stays armed, with no time limit, until the second press, Escape, or focus leaving the card (or Approve all).',
+      'The first press on a `critical` action stays armed, with no time limit, until the second press, Escape, or focus leaving the card (or Approve all);',
     );
     const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
     const user = userEvent.setup();
@@ -257,6 +257,40 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     await user.click(screen.getByRole('textbox', { name: 'Message' }));
     expect(armed()).not.toBeInTheDocument();
     expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('the Escape that closes the reason field closes only the field', async () => {
+    expect(text()).toContain('the Escape that closes the reason field closes only the field.');
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', allowReason: true, onDecide }]} />);
+    const armed = () => screen.queryByRole('button', { name: /^Confirm approval/ });
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('button', { name: L.denyWithFeedback }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('textbox', { name: L.reasonLabel })).toBeNull();
+    expect(armed()).toBeInTheDocument();
+    // The next Escape is the card's.
+    await user.keyboard('{Escape}');
+    expect(armed()).not.toBeInTheDocument();
+    expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it('an edit made after the first press needs a new one', async () => {
+    expect(text()).toContain(
+      'The press is for the arguments it would approve, so new ones from the agent, or an edit made after it, need a new first press.',
+    );
+    const onDecide = vi.fn<(choice: ApprovalChoice) => void>();
+    const user = userEvent.setup();
+    render(<Page cards={[{ risk: 'critical', editable: true, onDecide }]} />);
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    await user.click(screen.getByRole('button', { name: L.editArguments }));
+    await user.type(screen.getByRole('textbox', { name: 'command' }), ' origin');
+    await user.click(screen.getByRole('button', { name: L.doneEditing }));
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onDecide).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /^Confirm approval/ }));
+    expect(onDecide).toHaveBeenCalledWith({ decision: 'allow-once', input: { command: 'git push --force origin' } });
   });
 
   it('with several pending cards, globalShortcut approves the latest to ask', async () => {
@@ -280,5 +314,21 @@ describe('the ApprovalCard page: held keys, focus and the page-wide shortcut', (
     await user.keyboard('{Control>}{Enter}{/Control}');
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('a newer card taking the keys over drops a press they armed on a critical card', async () => {
+    expect(text()).toContain(
+      'When a newer card takes them over, a press they armed on a `critical` card from outside it is dropped.',
+    );
+    const first = vi.fn();
+    const user = userEvent.setup();
+    const critical = { globalShortcut: true, risk: 'critical' as const, onDecide: first };
+    const { rerender } = render(<Page cards={[critical]} />);
+    screen.getByRole('button', { name: 'Send' }).focus();
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(screen.getByRole('button', { name: /^Confirm approval/ })).toBeInTheDocument();
+    rerender(<Page cards={[critical, { globalShortcut: true }]} />);
+    expect(screen.queryByRole('button', { name: /^Confirm approval/ })).not.toBeInTheDocument();
+    expect(first).not.toHaveBeenCalled();
   });
 });

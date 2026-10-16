@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -386,11 +387,17 @@ function editorInput(value: EditorValue): { ok: true; input: unknown } | { ok: f
 /** How long a decision stays in the live region: long enough to be read, then gone from the card. */
 const ANNOUNCEMENT_MS = 3000;
 
+/** A pending card with `globalShortcut`: its element, and what it does when a newer card joins. */
+interface GlobalCard {
+  ref: RefObject<HTMLElement | null>;
+  displaced: () => void;
+}
+
 /**
  * The pending cards with `globalShortcut`, oldest first. ⌘/Ctrl+Enter outside them answers only
  * the last, the latest to ask (the last of parallel calls), not each card or the first to mount.
  */
-const globalCards: RefObject<HTMLElement | null>[] = [];
+const globalCards: GlobalCard[] = [];
 
 /**
  * What a critical action's first press armed. It holds until the second press, Escape, or focus
@@ -403,10 +410,11 @@ function useArmed<T>(ref: RefObject<HTMLElement | null>, call: unknown) {
   const stale = armed !== undefined && !sameValue(armed.call, call);
   // Adjusting state during render, not in an effect, as for a stale edit.
   if (stale) setArmed(undefined);
+  // The same function on every render, so an effect can hold it without running again.
+  const disarm = useCallback(() => setArmed(undefined), []);
   useEffect(() => {
     if (armed === undefined) return;
     const element = ref.current;
-    const disarm = () => setArmed(undefined);
     // Anywhere on the page, as ⌘/Ctrl+Enter may have armed it from there; not an Escape a field or
     // a menu took for itself, such as the one that closes the reason field.
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -422,9 +430,9 @@ function useArmed<T>(ref: RefObject<HTMLElement | null>, call: unknown) {
       window.removeEventListener('keydown', onKey);
       element?.removeEventListener('focusout', onFocusOut);
     };
-  }, [armed, ref]);
+  }, [armed, ref, disarm]);
   const arm = (value: T | undefined) => setArmed(value === undefined ? undefined : { value, call });
-  return [stale ? undefined : armed?.value, arm] as const;
+  return [stale ? undefined : armed?.value, arm, disarm] as const;
 }
 
 /** The focused element, inside open shadow roots too: in a web component, the document sees only its host. */
@@ -485,7 +493,6 @@ export function ApprovalCard({
   const reasonId = `${ids}-reason`;
   const cardRef = useRef<HTMLElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
-  const [confirming, setConfirming] = useArmed<ApprovalDecision>(cardRef, input);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reasonText, setReasonText] = useState('');
   const [announcement, setAnnouncement] = useState('');
@@ -496,14 +503,12 @@ export function ApprovalCard({
   // An edit counts only for the arguments it was made against: new `input` is a new call.
   const stale = edit !== undefined && !sameValue(edit.base, input);
   // It also belongs to the pending period it was made in, so a card that asks again does not carry
-  // the last answer's edit, or a critical press it armed. Either drops it, adjusting state during
-  // render, not in an effect.
+  // the last answer's edit. Either drops it, adjusting state during render, not in an effect.
   const [period, setPeriod] = useState(status);
   if (period !== status) {
     setPeriod(status);
     setEdit(undefined);
     setEditing(false);
-    setConfirming(undefined);
   } else if (stale) {
     setEdit(undefined);
   }
@@ -523,6 +528,9 @@ export function ApprovalCard({
   const finalInput = editedInput?.ok && !sameValue(editedInput.input, input) ? editedInput.input : undefined;
   // `null` is an edit like any other (JSON edited to `null`), so not `finalInput ?? input`.
   const runInput = finalInput !== undefined ? finalInput : input;
+  // A critical press is for the arguments it would approve, in this pending period: new ones from
+  // the agent, an edit made after it, or a card that asks again start disarmed.
+  const [confirming, setConfirming, disarm] = useArmed<ApprovalDecision>(cardRef, [status, input, runInput]);
 
   // The rule's scope, suggested from the arguments the call will run with.
   const suggested = useMemo(() => ruleArgs ?? suggestArgs(runInput), [ruleArgs, runInput]);
@@ -605,7 +613,17 @@ export function ApprovalCard({
   });
   useEffect(() => {
     if (!globalShortcut || !pending) return;
-    globalCards.push(cardRef);
+    const entry: GlobalCard = {
+      ref: cardRef,
+      // Keys pressed outside the cards are now the new card's. A press they armed here would
+      // otherwise wait, out of sight, and the next one, once that card is answered, would confirm
+      // it. One armed with focus in here stays: the keys pressed in here are still this card's.
+      displaced: () => {
+        if (!cardRef.current?.matches(':focus-within')) disarm();
+      },
+    };
+    for (const card of globalCards) card.displaced();
+    globalCards.push(entry);
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.defaultPrevented) {
         const path = event.composedPath();
@@ -614,8 +632,9 @@ export function ApprovalCard({
         if (isTypingTarget(path[0] ?? event.target)) return;
         // One card answers: the one the keys were pressed in (its custom preview, say), else the
         // latest to ask, wherever focus is.
-        const owner = globalCards.find((card) => card.current && path.includes(card.current)) ?? globalCards.at(-1);
-        if (owner !== cardRef) return;
+        const owner =
+          globalCards.find((card) => card.ref.current && path.includes(card.ref.current)) ?? globalCards.at(-1);
+        if (owner !== entry) return;
         event.preventDefault();
         // A held key repeats its keydown: one press, one decision.
         if (!event.repeat) approveRef.current();
@@ -624,9 +643,10 @@ export function ApprovalCard({
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      globalCards.splice(globalCards.indexOf(cardRef), 1);
+      const index = globalCards.indexOf(entry);
+      if (index !== -1) globalCards.splice(index, 1);
     };
-  }, [globalShortcut, pending]);
+  }, [globalShortcut, pending, disarm]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     // Keys on your controls in `preview`, or in a menu it opens in a portal, are theirs.
@@ -1240,10 +1260,11 @@ export function ToolApprovalBatch({
       !(policy && evaluateRules(policy.rules, request.toolName, request.input))
     );
   });
-  // Armed for these calls: one more arriving, or one answered on its card, needs a new first press.
+  // Armed for these calls and their arguments: one more arriving, one answered on its card, or new
+  // arguments need a new first press.
   const [confirming, setConfirming] = useArmed<true>(
     groupRef,
-    waiting.map((part) => part.toolCallId),
+    waiting.map((part) => [part.toolCallId, part.input]),
   );
   if (waiting.length < min) return null;
   // A held Enter clicks the focused button on every repeat: one press, one answer.
@@ -1278,9 +1299,12 @@ export function ToolApprovalBatch({
       data-signoff
       data-slot="signoff-approval-batch"
       role="group"
+      // A click focuses the group where it doesn't focus the button (Safari), so focus leaving it
+      // can disarm Approve all there too. Not in the tab order: its buttons are.
+      tabIndex={-1}
       aria-label={B.group}
       className={cn(
-        'rounded-signoff border-signoff-warn/40 bg-signoff-surface font-signoff-sans text-signoff-fg flex flex-wrap items-center gap-x-3 gap-y-2 border px-3.5 py-2.5 text-[13px]',
+        'rounded-signoff border-signoff-warn/40 bg-signoff-surface font-signoff-sans text-signoff-fg flex flex-wrap items-center gap-x-3 gap-y-2 border px-3.5 py-2.5 text-[13px] outline-none',
         className,
       )}
       {...props}
