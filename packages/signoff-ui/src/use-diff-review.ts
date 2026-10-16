@@ -126,27 +126,127 @@ function fileIdOf(key: string) {
   return at !== -1 && (rest === 'file' || /^\d+$/.test(rest)) ? key.slice(0, at) : undefined;
 }
 
-/** A value of the review's state from before files were revised, and the same value without their entries. */
-interface Pruned<T> {
-  from: T;
-  to: T;
+/** `record` with only the keys `keep` picks. */
+function pickKeys<T>(record: Readonly<Record<string, T>>, keep: (key: string) => boolean): Readonly<Record<string, T>> {
+  const picked: Record<string, T> = {};
+  for (const key of Object.keys(record)) if (keep(key)) picked[key] = record[key]!;
+  return picked;
+}
+
+/** How one of the review's values (decisions, viewed marks or comments) holds each file's entries. */
+interface FileEntries<T> {
+  /** No entries. */
+  none: T;
+  /** `value`'s entries for the file `id`. */
+  of: (value: T, id: string) => T;
+  /** The same entries, by value. */
+  same: (a: T, b: T) => boolean;
+  /** `value` without the entries of the files `ids` has: the same value when it has none of them. */
+  without: (value: T, ids: { has: (id: string) => boolean }) => T;
+  /** A copy for the caller to keep. */
+  copy: (value: T) => T;
+}
+
+const DECISION_ENTRIES: FileEntries<Readonly<Record<string, HunkDecision>>> = {
+  none: {},
+  of: (value, id) => pickKeys(value, (key) => fileIdOf(key) === id),
+  same: (a, b) => sameRecord(a, b, 'pending'),
+  without: (value, ids) =>
+    omitKeys(value, (key) => {
+      const id = fileIdOf(key);
+      return id !== undefined && ids.has(id);
+    }),
+  copy: (value) => ({ ...value }),
+};
+
+const VIEWED_ENTRIES: FileEntries<Readonly<Record<string, boolean>>> = {
+  none: {},
+  of: (value, id) => pickKeys(value, (key) => key === id),
+  same: (a, b) => sameRecord(a, b, false),
+  without: (value, ids) => omitKeys(value, (id) => ids.has(id)),
+  copy: (value) => ({ ...value }),
+};
+
+const COMMENT_ENTRIES: FileEntries<readonly DiffReviewComment[]> = {
+  none: [],
+  of: (value, id) => value.filter((c) => c.fileId === id),
+  same: sameComments,
+  without: (value, ids) => (value.some((c) => ids.has(c.fileId)) ? value.filter((c) => !ids.has(c.fileId)) : value),
+  copy: (value) => [...value],
+};
+
+/** Entries a revision left over in one of the review's values: about the old edit, so read without. */
+interface LeftOver<T> {
+  /** The value they were left over in. The hook's own value is read without them while it is this one. */
+  value: T;
+  /** By file id, the file's entries then. A controlled value is read without a file's while it has the same ones. */
+  files: ReadonlyMap<string, T>;
+  /** New with each revision that leaves entries over, so the owner is told once. */
+  revision: object;
+}
+
+/** `left` without the files whose entries `value` no longer has as they were: `undefined` when none are left. */
+function stillLeftOver<T>(
+  kind: FileEntries<T>,
+  left: LeftOver<T>,
+  value: T,
+  controlled: boolean,
+): LeftOver<T> | undefined {
+  if (value === left.value) return left;
+  // The hook's own value only changes when the reviewer acts on the review as it reads.
+  if (!controlled) return undefined;
+  let files: Map<string, T> | undefined;
+  for (const [id, entries] of left.files) {
+    if (kind.same(kind.of(value, id), entries)) continue;
+    (files ??= new Map(left.files)).delete(id);
+  }
+  if (!files) return left;
+  return files.size > 0 ? { ...left, files } : undefined;
 }
 
 /**
- * `value` with `omit` applied, on top of what `before` left out when it was made on the same value.
- * `undefined` when there is nothing to leave out.
+ * One of the review's values (decisions, viewed marks or comments) as the review reads it: without
+ * a revised file's entries, which were about the edit before. The hook's own value is read without
+ * them until the reviewer changes it. A controlled one is read without them while it has the same
+ * entries for that file, as the same object or one built on every render, and `onChange` is called
+ * once with it without them. Entries for the file that change in the render the file does are the
+ * caller's say about the new edit, and are kept.
  */
-function prune<T>(before: Pruned<T> | undefined, value: T, omit: (value: T) => T): Pruned<T> | undefined {
-  const same = before?.from === value;
-  const base = same ? before.to : value;
-  const to = omit(base);
-  if (to === base) return same ? before : undefined;
-  return { from: value, to };
-}
-
-/** `value` as the review reads it: without what `left` leaves out, while it is the value that was pruned. */
-function withoutLeftOut<T>(value: T, left: Pruned<T> | undefined) {
-  return left?.from === value ? left.to : value;
+function useWithoutRevised<T>(
+  kind: FileEntries<T>,
+  value: T,
+  controlled: T | undefined,
+  revised: ReadonlySet<string> | undefined,
+  onChange: ((next: T) => void) | undefined,
+): T {
+  // The controlled value as of the last render, for a revision to compare with. Set only when its
+  // contents change, so a value built anew on every render settles.
+  const [previous, setPrevious] = useState(controlled);
+  const same =
+    previous === controlled || (previous !== undefined && controlled !== undefined && kind.same(previous, controlled));
+  if (!same) setPrevious(controlled);
+  const [leftOver, setLeftOver] = useState<LeftOver<T>>();
+  let left = leftOver && stillLeftOver(kind, leftOver, value, controlled !== undefined);
+  if (revised) {
+    let files: Map<string, T> | undefined;
+    for (const id of revised) {
+      const entries = kind.of(value, id);
+      if (kind.same(entries, kind.none)) continue;
+      const theirs = controlled !== undefined && (previous === undefined || !kind.same(kind.of(previous, id), entries));
+      if (theirs) continue;
+      (files ??= new Map(left?.files)).set(id, entries);
+    }
+    if (files) left = { value, files, revision: {} };
+  }
+  if (left !== leftOver) setLeftOver(left);
+  const read = useMemo(() => (left ? kind.without(value, left.files) : value), [kind, value, left]);
+  const told = useRef<object | undefined>(undefined);
+  useEffect(() => {
+    if (!leftOver || leftOver.revision === told.current) return;
+    told.current = leftOver.revision;
+    onChange?.(kind.copy(read));
+  });
+  return read;
 }
 
 /** A change's path, as a string: '' when model-written input left it out, as in `parseFileChange`. */
@@ -627,47 +727,33 @@ export function useDiffReview({
   const [draft, setDraft] = useState<DiffReviewDraft>();
 
   // A revised file starts its review over: what the reviewer decided, marked viewed and wrote on
-  // the old edit is not about the new one, and would otherwise apply to it by position. The values
-  // keep their entries for it (the caller's, when controlled) but are read without them until they
-  // change, and the owner is told below. A controlled value passed anew with the new files is the
-  // caller's say about them, and is kept.
-  const [controlled, setControlled] = useState({
-    decisions: decisionsProp,
-    viewed: viewedProp,
-    comments: commentsProp,
-  });
-  if (
-    controlled.decisions !== decisionsProp ||
-    controlled.viewed !== viewedProp ||
-    controlled.comments !== commentsProp
-  )
-    setControlled({ decisions: decisionsProp, viewed: viewedProp, comments: commentsProp });
-  const [pruned, setPruned] = useState<{
-    decisions?: Pruned<Readonly<Record<string, HunkDecision>>> | undefined;
-    viewed?: Pruned<Readonly<Record<string, boolean>>> | undefined;
-    comments?: Pruned<readonly DiffReviewComment[]> | undefined;
-  }>({});
-  let leftOut = pruned;
+  // the old edit is not about the new one, and would otherwise apply to it by position.
+  const decisions = useWithoutRevised(
+    DECISION_ENTRIES,
+    givenDecisions,
+    decisionsProp,
+    revised,
+    onDecisionsChange as ((next: Readonly<Record<string, HunkDecision>>) => void) | undefined,
+  );
+  const viewed = useWithoutRevised(
+    VIEWED_ENTRIES,
+    givenViewed,
+    viewedProp,
+    revised,
+    onViewedChange as ((next: Readonly<Record<string, boolean>>) => void) | undefined,
+  );
+  const comments = useWithoutRevised(
+    COMMENT_ENTRIES,
+    givenComments,
+    commentsProp,
+    revised,
+    onCommentsChange as ((next: readonly DiffReviewComment[]) => void) | undefined,
+  );
   if (revised) {
     const onRevised = (key: string) => {
       const id = fileIdOf(key);
       return id !== undefined && revised.has(id);
     };
-    const leftover = (prop: unknown, before: unknown) => prop === undefined || prop === before;
-    leftOut = {
-      decisions: leftover(decisionsProp, controlled.decisions)
-        ? prune(pruned.decisions, givenDecisions, (d) => omitKeys(d, onRevised))
-        : undefined,
-      viewed: leftover(viewedProp, controlled.viewed)
-        ? prune(pruned.viewed, givenViewed, (v) => omitKeys(v, (id) => revised.has(id)))
-        : undefined,
-      comments: leftover(commentsProp, controlled.comments)
-        ? prune(pruned.comments, givenComments, (list) =>
-            list.some((c) => revised.has(c.fileId)) ? list.filter((c) => !revised.has(c.fileId)) : list,
-          )
-        : undefined,
-    };
-    setPruned(leftOut);
     const unfolded = omitKeys(folded, (id) => revised.has(id));
     if (unfolded !== folded) setFolded(unfolded);
     const hidden = omitKeys(shown, onRevised);
@@ -675,19 +761,6 @@ export function useDiffReview({
     if (selectionState && onRevised(selectionState.itemId)) setSelection(undefined);
     if (draft && revised.has(draft.fileId)) setDraft(undefined);
   }
-  const decisions = withoutLeftOut(givenDecisions, leftOut.decisions);
-  const viewed = withoutLeftOut(givenViewed, leftOut.viewed);
-  const comments = withoutLeftOut(givenComments, leftOut.comments);
-  // Tell the owner of each value what a revision left out of it, once.
-  const reported = useRef(pruned);
-  useEffect(() => {
-    const before = reported.current;
-    if (before === pruned) return;
-    reported.current = pruned;
-    if (pruned.decisions && pruned.decisions !== before.decisions) onDecisionsChange?.({ ...pruned.decisions.to });
-    if (pruned.viewed && pruned.viewed !== before.viewed) onViewedChange?.({ ...pruned.viewed.to });
-    if (pruned.comments && pruned.comments !== before.comments) onCommentsChange?.([...pruned.comments.to]);
-  });
   const [announcement, setAnnouncement] = useState('');
   const [activeState, setActive] = useState(0);
   const [navActive, setNavActive] = useState<string>();

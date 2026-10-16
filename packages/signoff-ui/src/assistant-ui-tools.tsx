@@ -45,7 +45,7 @@ export function SignoffToolsProvider({ children, ...options }: SignoffToolsProvi
  * A call whose arguments carry `files` (`FileChange[]`), reviewed in a `DiffReview` once its
  * arguments are in. The review goes back as the call's result, `reviewToolOutput(review)`, and the
  * review stays on the page, read-only, with the decisions that result records: a thread loaded
- * again shows each hunk as it was decided.
+ * again shows each hunk as it was decided. Its viewed marks and comments are not shown again.
  */
 export function ReviewToolUI({ args, result, status, addResult }: ToolCallMessagePartProps) {
   const { review, output } = useContext(Options);

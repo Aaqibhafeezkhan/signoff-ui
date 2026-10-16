@@ -193,7 +193,8 @@ describe('DiffReview', () => {
     await user.click(screen.getByRole('button', { name: 'Other files' }));
     await apply();
     expect(onSubmit).toHaveBeenCalledTimes(2);
-    expect(onSubmit.mock.calls[1]![0].files[0].content).toBe('B\n');
+    // B revises a.ts: the Accept, passed again as a new but equal object, was on A, so B is not applied.
+    expect(onSubmit.mock.calls[1]![0].files[0]).toMatchObject({ decision: 'pending', content: 'a\n' });
   });
 
   it('submits again once a decision changes, including back to one already submitted', async () => {

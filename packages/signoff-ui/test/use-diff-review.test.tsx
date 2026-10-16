@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { applyPatch } from 'diff';
 import { useEffect, useState } from 'react';
@@ -275,6 +275,142 @@ describe('useDiffReview when the files change under it', () => {
     expect(result.current.draft).toBeUndefined();
     act(() => result.current.saveDraft());
     expect(result.current.comments).toEqual([]);
+  });
+
+  type Decisions = Record<string, HunkDecision>;
+  const both: Decisions = { 'a.ts:0': 'accepted', 'b.ts:0': 'accepted' };
+  const noted = (fileId: string): DiffReviewComment => ({
+    id: `on-${fileId}`,
+    fileId,
+    path: fileId,
+    target: 'hunk',
+    hunkId: `${fileId}:0`,
+    text: 'Fine',
+  });
+
+  // What a component that renders its own markup may build as it renders: a new object every time.
+  it('settles when controlled values are built on every render: { ...state }, {} and saved ?? []', () => {
+    const renders: Array<{ review: ReturnType<typeof useDiffReview>; owner: Decisions }> = [];
+    function Rebuilt({ files }: { files: FileChange[] }) {
+      const [decisions, setDecisions] = useState<Decisions>(both);
+      const [saved] = useState<DiffReviewComment[]>();
+      const review = useDiffReview({
+        files,
+        decisions: { ...decisions },
+        onDecisionsChange: setDecisions,
+        viewed: {},
+        comments: saved ?? [],
+      });
+      renders.push({ review, owner: decisions });
+      return null;
+    }
+    const view = render(<Rebuilt files={v1} />);
+    view.rerender(<Rebuilt files={v1} />);
+    view.rerender(<Rebuilt files={v1} />);
+    expect(renders.at(-1)!.review.decisions).toEqual(both);
+    const revisedFrom = renders.length;
+    view.rerender(<Rebuilt files={v2} />);
+    view.rerender(<Rebuilt files={v2} />);
+    expect(renders.slice(revisedFrom).every(({ review }) => review.decisions['a.ts:0'] === undefined)).toBe(true);
+    expect(renders.at(-1)!.review.counts).toMatchObject({ accepted: 1, pending: 1 });
+    expect(renders.at(-1)!.owner).toEqual({ 'b.ts:0': 'accepted' });
+  });
+
+  it('leaves a revised file out of controlled values built with Object.fromEntries or copied', () => {
+    type Owner = { decisions: Decisions; viewed: Record<string, boolean>; comments: DiffReviewComment[] };
+    const renders: Array<{ review: ReturnType<typeof useDiffReview>; owner: Owner }> = [];
+    function Rebuilt({ files }: { files: FileChange[] }) {
+      const [decisions, setDecisions] = useState<Decisions>(both);
+      const [viewed, setViewed] = useState<Record<string, boolean>>({ 'a.ts': true, 'b.ts': true });
+      const [comments, setComments] = useState<DiffReviewComment[]>([noted('a.ts'), noted('b.ts')]);
+      const review = useDiffReview({
+        files,
+        decisions: Object.fromEntries(Object.entries(decisions)),
+        viewed: { ...viewed },
+        comments: [...comments],
+        onDecisionsChange: setDecisions,
+        onViewedChange: setViewed,
+        onCommentsChange: setComments,
+      });
+      renders.push({ review, owner: { decisions, viewed, comments } });
+      return null;
+    }
+    const view = render(<Rebuilt files={v1} />);
+    view.rerender(<Rebuilt files={v1} />);
+    view.rerender(<Rebuilt files={v1} />);
+    const revisedFrom = renders.length;
+    view.rerender(<Rebuilt files={v2} />);
+    view.rerender(<Rebuilt files={v2} />);
+    // Not one render after the revision, committed or not, gives the revised file its old state.
+    for (const { review } of renders.slice(revisedFrom)) {
+      expect(review.decisions['a.ts:0']).toBeUndefined();
+      expect(review.files[0]).toMatchObject({ viewed: false, collapsed: false });
+      expect(review.comments.map((c) => c.fileId)).toEqual(['b.ts']);
+    }
+    expect(renders.at(-1)!.owner).toEqual({
+      decisions: { 'b.ts:0': 'accepted' },
+      viewed: { 'b.ts': true },
+      comments: [noted('b.ts')],
+    });
+  });
+
+  /** An owner that keeps the files and decisions in one state, and revises them in one update. */
+  function reviseInOneUpdate(next: (decisions: Decisions) => Decisions) {
+    const reviews: Array<ReturnType<typeof useDiffReview>> = [];
+    function Owner() {
+      const [state, setState] = useState({ files: v1, decisions: both });
+      reviews.push(
+        useDiffReview({
+          files: state.files,
+          decisions: state.decisions,
+          onDecisionsChange: (decisions) => setState((s) => ({ ...s, decisions })),
+        }),
+      );
+      return (
+        <button type="button" onClick={() => setState((s) => ({ files: v2, decisions: next(s.decisions) }))}>
+          Revise
+        </button>
+      );
+    }
+    const view = render(<Owner />);
+    fireEvent.click(screen.getByRole('button', { name: 'Revise' }));
+    view.unmount();
+    return reviews.at(-1)!;
+  }
+
+  it("drops a revised file's entries that the owner passes again with the new files", () => {
+    // Copied in the update that revises a.ts: the same entries, so still about the old edit.
+    expect(reviseInOneUpdate((d) => ({ ...d })).decisions).toEqual({ 'b.ts:0': 'accepted' });
+    // Another file's entries changed in that update say nothing about a.ts.
+    expect(reviseInOneUpdate((d) => ({ ...d, 'b.ts:0': 'rejected' })).decisions).toEqual({ 'b.ts:0': 'rejected' });
+    // New entries for a.ts itself are the owner's say about the new edit.
+    expect(reviseInOneUpdate((d) => ({ ...d, 'a.ts:0': 'rejected' })).decisions).toEqual({
+      'a.ts:0': 'rejected',
+      'b.ts:0': 'accepted',
+    });
+  });
+
+  it('lets the reviewer decide the revised hunk as the old one was, on its own value or a controlled one', () => {
+    const own = renderHook((props: UseDiffReviewOptions) => useDiffReview(props), { initialProps: { files: v1 } });
+    act(() => own.result.current.decide('a.ts:0', 'accepted'));
+    own.rerender({ files: v2 });
+    expect(own.result.current.decisions).toEqual({});
+    act(() => own.result.current.decide('a.ts:0', 'accepted'));
+    expect(own.result.current.decisions).toEqual({ 'a.ts:0': 'accepted' });
+    expect(own.result.current.result().files[0]!.accepted).toEqual(['a.ts:0']);
+
+    const reviews: Array<ReturnType<typeof useDiffReview>> = [];
+    function Rebuilt({ files }: { files: FileChange[] }) {
+      const [decisions, setDecisions] = useState<Decisions>({});
+      reviews.push(useDiffReview({ files, decisions: { ...decisions }, onDecisionsChange: setDecisions }));
+      return null;
+    }
+    const view = render(<Rebuilt files={v1} />);
+    act(() => reviews.at(-1)!.decide('a.ts:0', 'accepted'));
+    view.rerender(<Rebuilt files={v2} />);
+    expect(reviews.at(-1)!.decisions).toEqual({});
+    act(() => reviews.at(-1)!.decide('a.ts:0', 'accepted'));
+    expect(reviews.at(-1)!.decisions).toEqual({ 'a.ts:0': 'accepted' });
   });
 });
 
