@@ -32,7 +32,7 @@ const rows = [
   ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 4.2],
   ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 2.7],
   ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 24],
-  ['`DiffReview`', `export { DiffReview } from ${index};`, 42.5],
+  ['`DiffReview`', `export { DiffReview } from ${index};`, 44.5],
   ['`useDiffReview` (no markup)', `export { useDiffReview } from ${index};`, 17],
   [
     '`AgentMessage` (with markdown, reasoning, timeline, approvals, sources)',
