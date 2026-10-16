@@ -256,6 +256,7 @@ function Run({ onReset }: { onReset: () => void }) {
           message={message}
           streaming={turn.status === 'streaming'}
           active={!finished}
+          failed={turn.status === 'error'}
           tools={TOOLS}
           renderTool={(part) => {
             if (!turn.permissions[part.toolCallId]) return undefined;

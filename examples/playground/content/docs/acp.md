@@ -104,6 +104,7 @@ export function AcpTurnView({
       message={toAcpMessage(turn)}
       streaming={turn.status === 'streaming'}
       active={active}
+      failed={turn.status === 'error'}
       renderTool={(part) => {
         const permission = turn.permissions[part.toolCallId];
         // Only while the call waits: a decided one gets the default row, with its result.
