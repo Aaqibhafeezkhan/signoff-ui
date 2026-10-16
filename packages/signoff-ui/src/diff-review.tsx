@@ -327,14 +327,17 @@ export function DiffReview({
   }));
 
   // Past the first hundred, hunks render a hundred per task: a thousand in one task blocked the page
-  // for a quarter of a second. The item J, K or V moves to renders at once, and focus follows it.
+  // for a quarter of a second. The item J, K or V moves to renders at once, with its batch, and focus
+  // follows it. The count only grows: moving back, or past folded files, unmounts nothing.
   const [batches, setBatches] = useState(1);
-  const rendered = Math.max(batches * ITEMS_BATCH, review.activeIndex + 1);
+  const reached = Math.ceil((review.activeIndex + 1) / ITEMS_BATCH);
+  if (reached > batches) setBatches(reached);
+  const rendered = Math.max(batches, reached) * ITEMS_BATCH;
   useEffect(() => {
-    if (rendered >= items.length) return;
+    if (batches * ITEMS_BATCH >= items.length) return;
     const timer = setTimeout(() => setBatches((n) => n + 1));
     return () => clearTimeout(timer);
-  }, [rendered, items.length]);
+  }, [batches, items.length]);
   const renderedBefore = useRef(rendered);
   useIsoLayoutEffect(() => {
     const hunk = document.activeElement?.closest('[data-slot="signoff-diff-hunk"]') ?? null;

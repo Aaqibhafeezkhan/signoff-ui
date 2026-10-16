@@ -269,6 +269,51 @@ describe('DiffReview at scale', () => {
     expect(document.activeElement).toHaveAccessibleName(/^Hunk 141 of 150, src\/next\.ts,/);
   });
 
+  // 380 hunks in jsdom: slow on shared CI runners, so these get time.
+  const threeFiles = () => [dense(1_400, 'src/a.ts'), dense(1_400, 'src/b.ts'), dense(1_000, 'src/c.ts')];
+  const allHunks = (container: HTMLElement) => container.querySelectorAll('[data-slot="signoff-diff-hunk"]');
+
+  // The active item starts past folded files, ahead of the batches: they stopped there, at its hunk.
+  it('renders every hunk after files that start folded', { timeout: 30_000 }, async () => {
+    const { container } = render(
+      <DiffReview files={threeFiles()} defaultViewed={{ 'src/a.ts': true, 'src/b.ts': true }} />,
+    );
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+    // The folded files' hunks are there, hidden; the third file shows all of its own.
+    expect(hunks()).toHaveLength(100);
+    expect(hunks()[0]).toHaveAccessibleName(/^Hunk 281 of 380, src\/c\.ts,/);
+  });
+
+  it('hydrates folded files and the batch the active item is in, then the rest', { timeout: 30_000 }, async () => {
+    const files = threeFiles();
+    const viewed = { 'src/a.ts': true, 'src/b.ts': true };
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<DiffReview files={files} defaultViewed={viewed} />);
+    document.body.append(container);
+    onTestFinished(() => container.remove());
+    expect(allHunks(container)).toHaveLength(300);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => errors.mockRestore());
+    const root = await act(async () => hydrateRoot(container, <DiffReview files={files} defaultViewed={viewed} />));
+    onTestFinished(() => act(() => root.unmount()));
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  // Shift+J twice ahead of the batches stopped them, and K unmounted the hunk it left.
+  it('renders every hunk after J jumps far ahead, and keeps the one it left', { timeout: 30_000 }, async () => {
+    const { container } = render(<DiffReview files={threeFiles()} autoAdvance={false} />);
+    expect(allHunks(container)).toHaveLength(100);
+    hunks()[0]!.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'J', shiftKey: true });
+    fireEvent.keyDown(document.activeElement!, { key: 'J', shiftKey: true });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 281 of 380, src\/c\.ts,/);
+    fireEvent.keyDown(document.activeElement!, { key: 'k' });
+    expect(document.activeElement).toHaveAccessibleName(/^Hunk 280 of 380, src\/b\.ts,/);
+    expect(screen.getByRole('group', { name: /^Hunk 281 of 380,/ })).toBeInTheDocument();
+    await waitFor(() => expect(allHunks(container)).toHaveLength(380), { timeout: 20_000 });
+  });
+
   it('renders on the server what the client hydrates, then the rest of the hunks', async () => {
     const files = [dense(1_400)];
     const container = document.createElement('div');

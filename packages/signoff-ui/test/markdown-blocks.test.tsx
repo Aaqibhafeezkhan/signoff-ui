@@ -98,4 +98,37 @@ describe('Markdown, a block at a time', () => {
     expect(container.querySelector('a[href="https://example.com/docs"]')).toHaveTextContent('the docs');
     expect(container.querySelector('[data-footnotes]')).toHaveTextContent('The note.');
   });
+
+  // CommonMark applies a definition in a list item or a quote to the whole text too.
+  it.each([
+    ['a list item', '- [d]: https://example.com/docs'],
+    ['a quote', '> [d]: https://example.com/docs'],
+    ['a list item, indented under it', '- Sources\n\n  [d]: https://example.com/docs'],
+    ['a quote in a numbered list item', '1. > [d]: https://example.com/docs'],
+  ])('resolves a reference to a definition in %s, from another block', (_, definition) => {
+    const { container } = render(
+      <Markdown>{`See [the docs][d].\n\n${answer(1_200)}\n\nSources:\n\n${definition}`}</Markdown>,
+    );
+    expect(parsed.lengths).toHaveLength(1);
+    expect(container.querySelector('a[href="https://example.com/docs"]')).toHaveTextContent('the docs');
+  });
+
+  it('resolves a footnote defined in a list item, from another block', () => {
+    const { container } = render(
+      <Markdown>{`A note[^1].\n\n${answer(1_200)}\n\nNotes:\n\n- [^1]: The note.`}</Markdown>,
+    );
+    expect(parsed.lengths).toHaveLength(1);
+    expect(container.querySelector('[data-footnotes]')).toHaveTextContent('The note.');
+  });
+
+  // A TypeScript index signature or a line of JSX in fenced code is only code.
+  it('still cuts text whose fenced code holds what looks like a definition or HTML', () => {
+    const code = '```ts\ninterface Scores {\n  [name: string]: number;\n}\n[key: string]: T\n<div>{x}</div>\n```';
+    const text = `${answer(4_000)}\n\n${code}\n\n${answer(2_000)}`;
+    const whole = markup(`${text}\n\n[unused]: https://example.com`);
+    expect(parsed.lengths).toHaveLength(1);
+    parsed.lengths = [];
+    expect(markup(text)).toBe(whole);
+    expect(parsed.lengths.length).toBeGreaterThan(5);
+  });
 });

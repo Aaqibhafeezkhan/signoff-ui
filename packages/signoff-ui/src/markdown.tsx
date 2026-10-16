@@ -133,6 +133,15 @@ const BLANK = /^[ \t\r]*$/;
 const BLOCK_START = /^[^\s\d*+-]/;
 /** Blocks are parsed together up to about this many characters: each parse has a fixed cost too. */
 const BLOCK_CHARS = 1_000;
+/** A fence: three or more backticks (with none after them on the line) or tildes. */
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)/;
+/**
+ * What may be a link reference or footnote definition (its label may hold `\]`), also in a list item
+ * or a quote, or indented under one: CommonMark applies those to the whole text.
+ */
+const DEFINITION = /^[ \t]*(?:(?:>|[-+*]|\d{1,9}[.)])[ \t]*)*\[(?:[^\\\]\n]|\\.)*\]:/;
+/** What may start an HTML block, some of which go on past blank lines. */
+const HTML_START = /^ {0,3}</;
 
 /**
  * The text cut into top-level blocks, each parsed on its own, so that a streamed delta parses only
@@ -140,21 +149,21 @@ const BLOCK_CHARS = 1_000;
  * what came before: indented lines and list items stay with what they follow.
  */
 function splitBlocks(text: string): string[] {
-  // Link reference and footnote definitions are used across blocks, and some HTML blocks go on past
-  // blank lines: text with either is one block.
-  if (/^ {0,3}(\[.*\]:|<)/m.test(text)) return [text];
   const lines = text.split('\n');
   const blocks: string[] = [];
   let start = 0;
   let size = 0;
   let fence = '';
-  lines.forEach((line, i) => {
-    // A fence: three or more backticks (with none after them on the line) or tildes.
-    const marker = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)/.exec(line);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const marker = FENCE.exec(line);
     if (fence) {
       // Closed by the same character, at least as many times, with nothing after it.
       if (marker?.[1]!.startsWith(fence) && BLANK.test(marker[2]!)) fence = '';
     } else {
+      // Definitions are used across blocks, and some HTML blocks go on past blank lines: text with
+      // either, outside fenced code (where `[key: string]: T` and `<div>` are only code), is one block.
+      if (!marker && (DEFINITION.test(line) || HTML_START.test(line))) return [text];
       if (size >= BLOCK_CHARS && BLANK.test(lines[i - 1]!) && BLOCK_START.test(line)) {
         blocks.push(lines.slice(start, i).join('\n'));
         start = i;
@@ -163,7 +172,7 @@ function splitBlocks(text: string): string[] {
       fence = marker?.[1] ?? '';
     }
     size += line.length + 1;
-  });
+  }
   blocks.push(lines.slice(start).join('\n'));
   return blocks;
 }
@@ -508,9 +517,7 @@ export const Markdown = memo(function Markdown({
     [citations, citationPrefix],
   );
   const imagePolicy = useMemo(() => getImagePolicy(allowedImageHosts), [allowedImageHosts]);
-  // New with the image policy too, so that every block renders again, as the whole text did.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const merged = useMemo(() => ({ ...components, ...overrides }), [overrides, imagePolicy]);
+  const merged = useMemo(() => (overrides ? { ...components, ...overrides } : components), [overrides]);
   return (
     <div
       data-signoff

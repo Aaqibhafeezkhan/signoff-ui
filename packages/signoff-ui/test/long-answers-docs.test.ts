@@ -7,9 +7,10 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /*
- * Long streamed answers: the text is parsed again on every delta, and the docs say how to parse it
- * less often, with useChat's throttle. The option is checked against the @ai-sdk/react the docs'
- * snippets are typechecked with (the playground's), so the advice can't outlive the option.
+ * Long streamed answers: the end of the text, or all of it, is parsed again on every delta, and the
+ * docs say how to parse it less often, with useChat's throttle. The option is checked against the
+ * @ai-sdk/react the docs' snippets are typechecked with (the playground's), so the advice can't
+ * outlive the option.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
