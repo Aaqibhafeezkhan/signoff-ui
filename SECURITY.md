@@ -6,4 +6,5 @@ Fixes ship in the latest release only. The components render model output, so th
 
 - content from a message (text, reasoning, tool input or output, sources, files) that runs script, renders raw HTML or follows a `javascript:` or `data:` URL;
 - an image that loads from a host `allowedImageHosts` does not allow, since the request alone can leak data;
-- an approval or a diff decision that is sent without the user's action, or sent twice.
+- an approval or a diff decision that is sent without the user's action, or sent twice;
+- a tool call or a diff whose rule matching or diffing takes time out of proportion to its size (ReDoS), since the agent writes both.
