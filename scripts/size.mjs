@@ -28,9 +28,9 @@ const rows = [
   ['`Sources`', `export { Sources } from ${index};`, 10.5],
   ['`AgentStatus`', `export { AgentStatus, deriveAgentState } from ${index};`, 11.8],
   ['`RunMeter`', `export { RunMeter, useRunTiming } from ${index};`, 13],
-  ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 19.5],
-  ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 2.4],
-  ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 1],
+  ['`ApprovalCard`', `export { ApprovalCard, ToolApprovalCard } from ${index};`, 21.5],
+  ['`useApprovalPolicy` (no markup)', `export { useApprovalPolicy } from ${index};`, 4.2],
+  ['`toToolApproval` (`/core`, for a route)', `export { toToolApproval } from ${core};`, 2.7],
   ['`ToolCallTimeline`', `export { ToolCallTimeline } from ${index};`, 24],
   ['`DiffReview`', `export { DiffReview } from ${index};`, 42.5],
   ['`useDiffReview` (no markup)', `export { useDiffReview } from ${index};`, 17],
@@ -42,7 +42,7 @@ const rows = [
   [
     '`AgentMessage` (`/custom-markdown`, for your own renderer: no react-markdown)',
     `export { AgentMessage } from ${customMarkdown};`,
-    34.5,
+    35.5,
     ['react-markdown', 'remark-gfm', 'remend'],
   ],
   ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 3.7],
@@ -50,7 +50,7 @@ const rows = [
   [
     '`signoffTools` (`/assistant-ui`, with DiffReview and the approval card)',
     `export * from ${JSON.stringify(join(dist, 'assistant-ui.js'))};`,
-    52.5,
+    55,
   ],
   ['Everything in the main entry', `export * from ${index};`, 126.5],
 ];

@@ -7,8 +7,9 @@ import { DEFAULT_RULES, SERVER_RULES } from '../lib/rules';
 const server = (command: string) => evaluateRules(SERVER_RULES, 'run_command', { command })?.effect;
 
 describe("the server's rule against pushing", () => {
-  // A deny pattern matches from the argument's first character: `git push*` misses each of these
-  // but the first two.
+  // Up to signoff-ui 0.8 a deny pattern matches from the argument's first character only, so
+  // `git push*` misses each of these but the first two; later releases read each command of a line,
+  // and of these `git push*` misses only `git -C . push`.
   it.each([
     'git push',
     'git push -u origin main',

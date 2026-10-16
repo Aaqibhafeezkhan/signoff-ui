@@ -1,9 +1,11 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
+import { StrictMode, useEffect, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApprovalRule } from '../src/lib/policy';
 import {
   memoryRuleStorage,
   useApprovalPolicy,
+  type ApprovalPolicy,
   webStorageRules,
   type ApprovalAuditEvent,
   type ApprovalRuleStorage,
@@ -270,6 +272,302 @@ describe('useApprovalPolicy', () => {
     const third = await load(storage, [inRepo, LIST]);
     expect(ids(third)).toEqual(['reads-in-repo', 'default:list']);
     expect(third.result.current.match('read_file', { path: '~/.ssh/id_ed25519' })).toBeUndefined();
+  });
+
+  it('keeps the saved rules when a person decides before an async storage loads', async () => {
+    const NO_PUSH: ApprovalRule = {
+      id: 'no-push',
+      tool: 'run_command',
+      args: { command: 'git push*' },
+      effect: 'deny',
+      scope: 'always',
+    };
+    let stored: readonly ApprovalRule[] = [NO_PUSH];
+    let release!: () => void;
+    const save = vi.fn((rules: readonly ApprovalRule[]) => void (stored = rules));
+    const storage: ApprovalRuleStorage = {
+      load: () => {
+        const saved = stored;
+        return new Promise((resolve) => (release = () => resolve(saved)));
+      },
+      save,
+    };
+    const first = renderHook(() => useApprovalPolicy({ storage }));
+    act(() => void first.result.current.decide({ id: 'a1', toolName: 'read_file', input: {} }, 'allow-always'));
+    // Nothing saved yet: it would replace the rules the storage still holds.
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => release());
+    expect(first.result.current.ready).toBe(true);
+    expect(ids(first)).toEqual([expect.stringMatching(/^rule-/), 'no-push']);
+    expect(stored.map((r) => r.id)).toEqual([expect.stringMatching(/^rule-/), 'no-push']);
+    expect(save).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // The next visit: the deny rule is still there.
+    const second = renderHook(() => useApprovalPolicy({ storage }));
+    await act(async () => release());
+    expect(second.result.current.match('run_command', { command: 'git push origin main' })?.effect).toBe('deny');
+  });
+
+  it('puts rules added, replaced or removed before an async storage loads over what it loads', async () => {
+    let release!: () => void;
+    const saved = memoryRuleStorage([
+      { id: 'old', tool: 'run_command', effect: 'allow', scope: 'always' },
+      { id: 'mine', tool: 'run_command', effect: 'deny', scope: 'always' },
+    ]);
+    const storage: ApprovalRuleStorage = {
+      load: () => new Promise((resolve) => (release = () => resolve(saved.load()))),
+      save: (rules) => saved.save(rules),
+      loadRemovedDefaults: () => saved.loadRemovedDefaults!(),
+      saveRemovedDefaults: (removed) => saved.saveRemovedDefaults!(removed),
+    };
+    const hook = renderHook(() => useApprovalPolicy({ storage, defaultRules: [READ, LIST] }));
+    act(() => {
+      hook.result.current.addRule({ id: 'mine', tool: 'write_file', effect: 'deny', scope: 'always' });
+      hook.result.current.removeRule('default:read');
+      hook.result.current.addRule({ id: 'new', tool: 'search', effect: 'allow', scope: 'always' });
+    });
+    await act(async () => release());
+    expect(hook.result.current.rules.map((r) => [r.id, r.tool])).toEqual([
+      ['default:list', 'list_files'],
+      ['mine', 'write_file'],
+      ['new', 'search'],
+      ['old', 'run_command'],
+    ]);
+    expect((await saved.load()).map((r) => r.id)).toEqual(['default:list', 'mine', 'new', 'old']);
+    expect(await saved.loadRemovedDefaults!()).toEqual(['default:read']);
+    // A change after the load is saved as it happens.
+    act(() => hook.result.current.removeRule('new'));
+    expect((await saved.load()).map((r) => r.id)).toEqual(['default:list', 'mine', 'old']);
+  });
+
+  it('keeps the saved rules when a child adds a rule before the storage loads, as its effects run first', () => {
+    const saved = memoryRuleStorage([{ id: 'no-push', tool: 'run_command', effect: 'deny', scope: 'always' }]);
+    function Child({ policy }: { policy: ApprovalPolicy }) {
+      const added = useRef(false);
+      useEffect(() => {
+        if (added.current) return;
+        added.current = true;
+        policy.addRule({ id: 'mine', tool: 'read_file', effect: 'allow', scope: 'always' });
+      });
+      return null;
+    }
+    function Page() {
+      return <Child policy={useApprovalPolicy({ storage: saved })} />;
+    }
+    render(<Page />);
+    expect((saved.load() as ApprovalRule[]).map((r) => r.id)).toEqual(['mine', 'no-push']);
+  });
+
+  it.each([false, true])(
+    'keeps and saves the changes a child makes before the storage loads, in StrictMode (async storage: %s)',
+    async (async) => {
+      const saved = memoryRuleStorage([
+        { id: 'no-push', tool: 'run_command', effect: 'deny', scope: 'always' },
+        { id: 'old', tool: 'read_file', effect: 'allow', scope: 'always' },
+      ]);
+      let release = () => {};
+      const storage: ApprovalRuleStorage = {
+        load: () => (async ? new Promise((resolve) => (release = () => resolve(saved.load()))) : saved.load()),
+        save: (rules) => saved.save(rules),
+        loadRemovedDefaults: () => saved.loadRemovedDefaults!(),
+        saveRemovedDefaults: (removed) => saved.saveRemovedDefaults!(removed),
+      };
+      let policy!: ApprovalPolicy;
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        // Once, though StrictMode runs the effect twice.
+        const done = useRef(false);
+        useEffect(() => {
+          if (done.current) return;
+          done.current = true;
+          policy.addRule({ id: 'mine', tool: 'search', effect: 'allow', scope: 'always' });
+          policy.addRule({ id: 'old', tool: 'write_file', effect: 'allow', scope: 'always' });
+          policy.removeRule('default:list');
+        });
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage, defaultRules: [LIST] });
+        return <Child policy={policy} />;
+      }
+      render(
+        <StrictMode>
+          <Page />
+        </StrictMode>,
+      );
+      await act(async () => release());
+      const kept = [
+        ['mine', 'search'],
+        ['old', 'write_file'],
+        ['no-push', 'run_command'],
+      ];
+      await waitFor(() => expect(policy.rules.map((r) => [r.id, r.tool])).toEqual(kept));
+      expect((saved.load() as ApprovalRule[]).map((r) => [r.id, r.tool])).toEqual(kept);
+      expect(saved.loadRemovedDefaults!()).toEqual(['default:list']);
+    },
+  );
+
+  /** A storage holding a saved deny rule, sync or async: `release` lets an async one load. */
+  function savedDeny(async: boolean) {
+    const saved = memoryRuleStorage([{ id: 'no-push', tool: 'run_command', effect: 'deny', scope: 'always' }]);
+    let release = () => {};
+    const storage: ApprovalRuleStorage = {
+      load: () => (async ? new Promise((resolve) => (release = () => resolve(saved.load()))) : saved.load()),
+      save: (rules) => saved.save(rules),
+    };
+    const stored = () => (saved.load() as ApprovalRule[]).map((r) => r.id);
+    return { storage, stored, release: () => release() };
+  }
+
+  it.each([false, true])(
+    'keeps the saved rules when a child adds a rule once the policy is ready (async storage: %s)',
+    async (async) => {
+      const { storage, stored, release } = savedDeny(async);
+      let policy!: ApprovalPolicy;
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        useEffect(() => {
+          if (policy.ready) policy.addRule({ id: 'mine', tool: 'read_file', effect: 'allow', scope: 'always' });
+          // Once, when it is ready: as the docs' `ready` asks.
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage });
+        return <Child policy={policy} />;
+      }
+      render(<Page />);
+      await act(async () => release());
+      await waitFor(() => expect(policy.rules.map((r) => r.id)).toEqual(['no-push', 'mine']));
+      expect(stored()).toEqual(['no-push', 'mine']);
+      expect(policy.match('run_command', { command: 'git push' })?.rule.id).toBe('no-push');
+    },
+  );
+
+  it.each([false, true])(
+    'keeps both rules when a child and the page add one in the effects of one render (async storage: %s)',
+    async (async) => {
+      const { storage, stored, release } = savedDeny(async);
+      let policy!: ApprovalPolicy;
+      const rule = (id: string): ApprovalRule => ({ id, tool: id, effect: 'allow', scope: 'always' });
+      function Child({ policy }: { policy: ApprovalPolicy }) {
+        useEffect(() => {
+          if (policy.ready) policy.addRule(rule('child'));
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return null;
+      }
+      function Page() {
+        policy = useApprovalPolicy({ storage });
+        // The page's effect runs after the child's and the hook's, in the same commit.
+        useEffect(() => {
+          if (policy.ready) policy.addRule(rule('page'));
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [policy.ready]);
+        return <Child policy={policy} />;
+      }
+      render(<Page />);
+      await act(async () => release());
+      await waitFor(() => expect(policy.rules.map((r) => r.id)).toEqual(['no-push', 'child', 'page']));
+      expect(stored()).toEqual(['no-push', 'child', 'page']);
+    },
+  );
+
+  it("answers a deny rule that ran out of steps with the policy's reason, not the rule's", async () => {
+    const slow: ApprovalRule = {
+      id: 'no-keys',
+      tool: 'write_file',
+      args: { content: `*${'a'.repeat(498)}b` },
+      effect: 'deny',
+      scope: 'always',
+      reason: 'No AWS keys in files.',
+    };
+    const { result } = renderHook(() => useApprovalPolicy({ defaultRules: [slow] }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const write = { id: 'w', toolName: 'write_file', input: { content: 'a'.repeat(20_000) } };
+    expect(result.current.match(write.toolName, write.input)).toEqual({ effect: 'deny', rule: slow, unchecked: true });
+    expect(result.current.answer(write)).toMatchObject({ approved: false, reason: 'Denied by a rule', rule: slow });
+  });
+
+  it('saves a decision made before a storage that fails to load', async () => {
+    let fail!: () => void;
+    const save = vi.fn();
+    const storage = {
+      load: () => new Promise<ApprovalRule[]>((_, reject) => (fail = () => reject(new Error('x')))),
+      save,
+    };
+    const { result } = renderHook(() => useApprovalPolicy({ storage }));
+    act(() => void result.current.decide(request('npm ci'), 'allow-always'));
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => fail());
+    expect(result.current.ready).toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]![0]).toMatchObject([{ tool: 'run_command', effect: 'allow' }]);
+  });
+
+  it('replays an outcome only for the call it answered, not another call with the same id', async () => {
+    const deny: ApprovalRule = {
+      id: 'no-rm',
+      tool: 'run_command',
+      args: { command: 'rm*' },
+      effect: 'deny',
+      scope: 'always',
+    };
+    const { result } = renderHook(() => useApprovalPolicy({ defaultRules: [deny] }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    result.current.decide({ id: 'interrupt-1', toolName: 'read_file', input: { path: 'a.ts' } }, 'allow-once');
+    expect(result.current.answer({ id: 'interrupt-1', toolName: 'read_file', input: { path: 'a.ts' } })).toMatchObject({
+      approved: true,
+      by: 'user',
+    });
+    // The same id on another call: the rules decide it again.
+    expect(
+      result.current.answer({ id: 'interrupt-1', toolName: 'run_command', input: { command: 'rm -rf ~' } }),
+    ).toMatchObject({
+      approved: false,
+      decision: 'deny-always',
+      by: 'rule',
+      rule: deny,
+    });
+    expect(
+      result.current.answer({ id: 'interrupt-1', toolName: 'read_file', input: { path: '/etc/passwd' } }),
+    ).toBeUndefined();
+  });
+
+  it('replays an outcome for the arguments the person approved, edited or not', async () => {
+    const { result } = renderHook(() => useApprovalPolicy());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const asked = request('rm -rf build', 'c1');
+    const outcome = result.current.decide(asked, 'allow-once', { input: { command: 'rm -rf build/cache' } });
+    expect(result.current.answer(asked)).toBe(outcome);
+    expect(result.current.answer(request('rm -rf build/cache', 'c1'))).toBe(outcome);
+    expect(result.current.answer(request('rm -rf ~', 'c1'))).toBeUndefined();
+    // Input JSON can't write, such as a cycle, is the same call only as the same value.
+    const cycle: { self?: unknown } = {};
+    cycle.self = cycle;
+    const again = result.current.decide({ id: 'c2', toolName: 'x', input: cycle }, 'allow-once');
+    expect(result.current.answer({ id: 'c2', toolName: 'x', input: cycle })).toBe(again);
+    const other: { self?: unknown } = {};
+    other.self = other;
+    expect(result.current.answer({ id: 'c2', toolName: 'x', input: other })).toBeUndefined();
+  });
+
+  it('keeps the inputs it answered, not a copy of each as text', async () => {
+    const { result } = renderHook(() => useApprovalPolicy());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const write = { id: 'w1', toolName: 'write_file', input: { path: 'pnpm-lock.yaml', content: 'x'.repeat(100_000) } };
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const outcome = result.current.decide(write, 'allow-once');
+      // The same call again, as the same value: no text made of it.
+      expect(result.current.answer(write)).toBe(outcome);
+      expect(stringify).not.toHaveBeenCalled();
+      // The same call as another value, as a message parsed again gives: the same as JSON.
+      expect(result.current.answer({ ...write, input: { ...write.input } })).toBe(outcome);
+      expect(result.current.answer({ ...write, input: { ...write.input, path: '.env' } })).toBeUndefined();
+    } finally {
+      stringify.mockRestore();
+    }
   });
 
   it('is ready after a storage that fails to load', async () => {

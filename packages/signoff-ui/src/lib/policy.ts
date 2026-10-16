@@ -19,11 +19,16 @@ export const APPROVAL_DECISIONS: readonly ApprovalDecision[] = [
 export interface ApprovalRule {
   /** Unique among the rules. */
   id: string;
-  /** The tool's name, or a glob over names: `*` for every tool, `mcp_github_*` for a family. */
+  /**
+   * The tool's name, or a glob over names: `*` for every tool, `mcp_github_*` for a family. In a
+   * deny rule `*` and `?` match any character of a name; in an allow rule they stop at a shell
+   * operator, as in `args`.
+   */
   tool: string;
   /**
    * Globs by argument name, which must all match: `{ command: 'npm test*' }`. A dotted name reads
-   * a nested argument (`'options.cwd'`). Absent: any arguments.
+   * a nested argument (`'options.cwd'`), and a key of that name too. A deny rule's globs also match
+   * each command of a shell line (see `ruleMatches`). Absent: any arguments.
    */
   args?: Readonly<Record<string, string>> | undefined;
   /** A test of your own on the input, on top of `args`. Code, so storage does not keep the rule. */
@@ -57,6 +62,12 @@ export interface ApprovalRequest {
 export interface RuleMatch {
   effect: 'allow' | 'deny';
   rule: ApprovalRule;
+  /**
+   * The rule is a deny rule that ran out of steps before it could tell whether it covers the call,
+   * the arguments being too long for its patterns, and no other deny rule covers it: the call is
+   * denied, and the rule's own `reason` doesn't apply.
+   */
+  unchecked?: boolean | undefined;
 }
 
 /**
@@ -73,6 +84,7 @@ function escapeRegExp(text: string) {
 const ONE = -1; // ?
 const STAR = -2; // *
 const ANY = -3; // ** (or more)
+const END = 0x10000; // past the last part, in `globMatch`: no character's code
 
 /** A pattern in parts: `\` and the character it makes literal, a run of `*`, or one character. */
 const globParts = (pattern: string) =>
@@ -114,64 +126,457 @@ export function globToRegExp(pattern: string): RegExp {
 }
 
 /**
+ * Matching work a rule has left for a call, in steps. Each character it reads costs the places in
+ * the pattern that match so far, plus one, and earns `STEPS_PER_CHARACTER`. An empty value, such as
+ * an array's item, counts as one character.
+ */
+interface Budget {
+  left: number;
+}
+
+/**
+ * The steps a rule starts with, for the tool's name and again for its arguments: enough for any
+ * pattern on a short argument. Each character it reads earns it `STEPS_PER_CHARACTER` more, several
+ * times what a common pattern takes, so a rule such as `**PRIVATE KEY**` never runs out, however
+ * long the argument. A pattern that takes more for each character, such as 500 characters of `a`
+ * against an argument of `a`s, stops after a few hundred: each rule's work grows with what it reads,
+ * and no more.
+ */
+const RULE_STEPS = 20_000;
+const STEPS_PER_CHARACTER = 30;
+
+/** A value to match, and where in it a match may start, ascending. */
+type Candidate = readonly [value: string, starts: readonly number[]];
+
+const FROM_START: readonly number[] = [0];
+
+/**
+ * Whether a glob's parts match one of the values from one of its starts to its end, or `undefined`
+ * once `budget` runs out. It reads each value once, keeping the places in the pattern that match so
+ * far, each once, so its time grows with the values' length times the pattern's, and no more. With
+ * `loose`, `*` and `?` match any character, as they do in a deny rule's tool pattern.
+ */
+function globMatch(
+  values: readonly Candidate[],
+  parts: readonly number[],
+  loose: boolean,
+  budget: Budget,
+): boolean | undefined {
+  const end = parts.length;
+  // The parts, and past the last one a part no character matches: the loops never read past them.
+  const pattern = Int32Array.from([...parts, END]);
+  // Whether a single `*` or `?` must stop at a shell operator: none in the pattern, nothing to check.
+  const narrow = !loose && parts.some((part) => part === STAR || part === ONE);
+  // The places in the pattern that match so far, `count` of them, and those after the next character.
+  let places = new Int32Array(end + 1);
+  let next = new Int32Array(end + 1);
+  // The step at which each place was last reached, so a place joins a step's list once. Steps count
+  // on from one value to the next, so no mark carries over.
+  const seen = new Int32Array(end + 1).fill(-1);
+  let step = 0;
+  for (const [value, starts] of values) {
+    let count = 0;
+    for (let i = 0, s = 0; ; i++, step++) {
+      if (s < starts.length && starts[s] === i && seen[0] !== step) {
+        seen[0] = step;
+        places[count++] = 0;
+      }
+      while (s < starts.length && starts[s]! <= i) s++;
+      // A `*` or `**` can match nothing, so the place after it is reached too (the loop visits what it adds).
+      for (let k = 0; k < count; k++) {
+        const after = places[k]! + 1;
+        if (pattern[after - 1]! < ONE && seen[after] !== step) {
+          seen[after] = step;
+          places[count++] = after;
+        }
+      }
+      if (i === value.length) {
+        if (seen[end] === step) return true;
+        // An empty value reads no character, and counts as one: so the steps grow with the values read.
+        if (!i && (budget.left += STEPS_PER_CHARACTER - count - 1) < 0) return undefined;
+        break;
+      }
+      if (!count && s === starts.length) break;
+      if ((budget.left += STEPS_PER_CHARACTER - count - 1) < 0) return undefined;
+      const code = value.charCodeAt(i);
+      // What a single `*` or `?` may match: no shell control character, and no `$` that starts `$(`.
+      const safe = !narrow || (!SHELL_CONTROL.includes(value[i]!) && !(code === 36 && value.charCodeAt(i + 1) === 40));
+      let reached = 0;
+      for (let k = 0; k < count; k++) {
+        const place = places[k]!;
+        const part = pattern[place]!;
+        const to =
+          part === ANY || (part === STAR && safe) ? place : part === code || (part === ONE && safe) ? place + 1 : -1;
+        if (to >= 0 && seen[to] !== step + 1) {
+          seen[to] = step + 1;
+          next[reached++] = to;
+        }
+      }
+      const read = places;
+      places = next;
+      next = read;
+      count = reached;
+    }
+    step++;
+  }
+  return false;
+}
+
+/**
  * Whether a whole value matches a glob (see `globToRegExp`). It reads the value once, keeping the
  * places in the pattern that match so far, so its time grows with the value's length times the
  * pattern's, and no more: a long argument written by a model can't hold up the server or the page.
  */
 export function matchesGlob(value: string, pattern: string): boolean {
-  const parts = globParts(pattern);
-  let places = new Set([0]);
-  for (let i = 0; ; i++) {
-    // A `*` or `**` can match nothing, so the place after it is reached too (the loop visits what it adds).
-    for (const place of places) if (parts[place]! < ONE) places.add(place + 1);
-    if (i === value.length) return places.has(parts.length);
-    // What a single `*` or `?` may match: no shell control character, and no `$` that starts `$(`.
-    const safe = !SHELL_CONTROL.includes(value[i]!) && !value.startsWith('$(', i);
-    const next = new Set<number>();
-    for (const place of places) {
-      const part = parts[place];
-      if (part === ANY || (part === STAR && safe)) next.add(place);
-      else if (part === value.charCodeAt(i) || (part === ONE && safe)) next.add(place + 1);
-    }
-    places = next;
-  }
+  return globMatch([[value, FROM_START]], globParts(pattern), false, { left: Infinity }) === true;
 }
 
-/** An argument by name, dotted names reading nested objects: `'options.cwd'`. */
-function argument(input: unknown, name: string): unknown {
-  if (input === null || typeof input !== 'object') return undefined;
-  if (Object.prototype.hasOwnProperty.call(input, name)) return (input as Record<string, unknown>)[name];
+/** Where a shell line splits into commands, inside quotes too: its operators, `$(`, and a subshell's parentheses. */
+const COMMAND_BREAK = ';&|`\r\n()';
+/** Space between words; line breaks are in `COMMAND_BREAK`. */
+const SPACE = /\s/;
+/** A stretch of a line with nothing in it for `pieces` to do: no space, quote, `\`, redirect or break. */
+const PLAIN = /[^\s"'\\<>;&|`()]+/y;
+/** Words that run the next one, past options of their own: `nohup git push`, `if git push; then`. */
+const RUNS_NEXT = /^(?:[!{]|if|then|else|elif|do|while|until|time|command|exec|builtin|nohup)$/;
+/** Programs that run a command among their arguments: `sudo -u root git push`, `sh -c "git push"`. */
+const RUNS_LATER = /^(?:sudo|doas|env|nice|xargs|timeout|watch|eval|(?:ba|da|k|z)?sh)$/;
+/** `find`'s options that run the words after them: `find . -exec rm {} \;`. */
+const RUNS_AFTER = /^-(?:exec|execdir|ok|okdir)$/;
+
+/** A command of a shell line: its words, each as its runs of non-space characters. */
+interface Piece {
+  words: string[][];
+  /** It starts inside a quote, so its first word began in the piece before. */
+  continued: boolean;
+}
+
+/**
+ * A shell line in pieces, split at each character of `COMMAND_BREAK`, inside quotes too, and inside
+ * quotes at `<` and `>` as well, since a quoted line may be one a shell runs (`sh -c "git push 2>&1"`).
+ * Each piece holds its words as a shell splits them, quotes and `\` taken off. Outside quotes, a
+ * redirect goes with the word it names (`>out`, `2>/dev/null`, `>&2`, `<<'EOF'`), so the words on
+ * either side of it are one command, as a shell runs them, and a `\` before a line break joins the
+ * lines. It reads the line once.
+ */
+function pieces(line: string): Piece[] {
+  const out: Piece[] = [];
+  let words: string[][] = [];
+  // The word being read, as its runs so far, and the run being read.
+  let word: string[] | undefined;
+  let run = '';
+  // The quote the line is in, a quote inside it, and whether the word being read is the one a
+  // redirect names.
+  let quote = '';
+  let inner = '';
+  let target = false;
+  let continued = false;
+  const endRun = () => {
+    if (run) (word ??= []).push(run);
+    run = '';
+  };
+  const endWord = () => {
+    endRun();
+    if (word?.length && !target) words.push(word);
+    word = undefined;
+    target = false;
+  };
+  const endPiece = () => {
+    endWord();
+    out.push({ words, continued });
+    words = [];
+    inner = '';
+    continued = quote !== '';
+    if (continued) word = [];
+  };
+  // A plain stretch from `i`, added to the run at once, and where it ends.
+  const plain = (i: number) => {
+    PLAIN.lastIndex = i;
+    PLAIN.test(line);
+    run += line.slice(i, PLAIN.lastIndex);
+    return PLAIN.lastIndex - 1;
+  };
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    const next = line[i + 1];
+    if (c === '\\' && quote !== "'") {
+      // Before a line break, `\` joins the lines. Before a break, it leaves the break to split the
+      // line, as a quote does. In double quotes, `\"` is a quote to the shell the line is given to.
+      // Any other character it makes literal.
+      if (next === '\n') i++;
+      else if (quote && next === '"') {
+        inner = inner ? '' : next;
+        i++;
+      } else if (next !== undefined && !COMMAND_BREAK.includes(next) && !(quote && (next === '<' || next === '>'))) {
+        run += next;
+        i++;
+      }
+    } else if (quote) {
+      // A quoted line may be one a shell runs, which reads its quotes in turn: `inner`, the other
+      // quote, keeps its spaces in the run, from where it opens in the piece.
+      if (c === quote) quote = inner = '';
+      else if (c === '"' || c === "'") inner = inner ? '' : c;
+      else if (COMMAND_BREAK.includes(c) || c === '<' || c === '>') endPiece();
+      else if (SPACE.test(c)) {
+        if (inner) run += c;
+        else endRun();
+      } else if (c === '\\') run += c;
+      else i = plain(i);
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      word ??= [];
+    } else if (COMMAND_BREAK.includes(c) || ((c === '<' || c === '>') && next === '(')) {
+      // `<(` and `>(` run a command of their own: the next piece.
+      endPiece();
+    } else if (c === '<' || c === '>') {
+      // A redirect. A number written against it is the descriptor it redirects, not a word.
+      if (!word && /^\d+$/.test(run)) run = '';
+      endWord();
+      // `>>`, `<>`, `>&`, `<&`, `>|`, then `<<`, `<<<` and `<<-`.
+      if (next === '&' || next === '>' || (c === '>' && next === '|')) i++;
+      else if (c === '<' && next === '<') {
+        i++;
+        if (line[i + 1] === '<' || line[i + 1] === '-') i++;
+      }
+      while (line[i + 1] === ' ' || line[i + 1] === '\t') i++;
+      target = true;
+    } else if (SPACE.test(c)) endWord();
+    else i = plain(i);
+  }
+  endPiece();
+  return out;
+}
+
+/**
+ * Each command of a shell line (`pieces`), as its words joined by one space, with where in it the
+ * command may start: its first word past `NAME=value` settings, that word without its path
+ * (`/usr/bin/git` as `git`), the word after one in `RUNS_NEXT` or `RUNS_AFTER`, and every word after
+ * one in `RUNS_LATER`. A quoted word a command may start at is a line a shell may run, read the same
+ * way (`sh -c "FOO=1 git push"`), and so is the first word of a piece that starts inside a quote,
+ * where the words after it may start a command too (`FOO="a;b" git push`).
+ */
+function commands(line: string): Candidate[] {
+  return pieces(line).map(({ words, continued }) => {
+    const runs = words.flat();
+    // Each run's offset in the runs joined by spaces, and each word's first run.
+    const at: number[] = [];
+    for (let k = 0, offset = 0; k < runs.length; offset += runs[k++]!.length + 1) at.push(offset);
+    const first: number[] = [];
+    for (let k = 0, run = 0; k < words.length; run += words[k++]!.length) first.push(run);
+    const texts = words.map((word) => word.join(' '));
+    const starts: number[] = [];
+    /**
+     * Where a command may start among items `k` to `end` (words, or a quoted word's runs), in one
+     * pass: the offset of each, and past its path, the program as a shell finds it.
+     */
+    const read = (
+      items: readonly string[],
+      offset: (k: number) => number,
+      nest: (k: number) => void,
+      k: number,
+      end: number,
+    ) => {
+      // Looking for the command, among its arguments, or past a program that runs any of them.
+      let state: 'command' | 'arguments' | 'any' = 'command';
+      let options = false;
+      for (; k < end; k++) {
+        const item = items[k]!;
+        if (state === 'arguments') {
+          if (RUNS_AFTER.test(item)) {
+            state = 'command';
+            options = false;
+          }
+          continue;
+        }
+        if (state === 'command' && (/^[A-Za-z_]\w*=/.test(item) || (options && item.startsWith('-')))) continue;
+        const path = item.lastIndexOf('/') + 1;
+        starts.push(offset(k), offset(k) + path);
+        nest(k);
+        if (state === 'any') continue;
+        const name = item.slice(path);
+        if (RUNS_LATER.test(name)) state = 'any';
+        else if (RUNS_NEXT.test(name)) options = true;
+        else state = 'arguments';
+      }
+    };
+    const none = () => {};
+    const inRuns = (k: number) => read(runs, (j) => at[j]!, none, first[k]!, first[k]! + words[k]!.length);
+    const nest = (j: number) => {
+      if (words[j]!.length > 1) inRuns(j);
+    };
+    const inWords = (k: number) => read(texts, (j) => at[first[j]!]!, nest, k, words.length);
+    if (continued && words.length) {
+      inRuns(0);
+      inWords(1);
+    } else inWords(0);
+    return [runs.join(' '), starts.sort((a, b) => a - b)] as const;
+  });
+}
+
+/**
+ * A text's commands (`commands`), less the matches its whole already tried: from the start of a
+ * command that is the whole text, as `a`s or `npm test` are.
+ */
+function commandsOf(text: string): Candidate[] {
+  const list: Candidate[] = [];
+  for (const [command, starts] of commands(text)) {
+    const from = command === text ? starts.filter((start) => start > 0) : starts;
+    if (from.length) list.push([command, from]);
+  }
+  return list;
+}
+
+/**
+ * What a deny rule matches of some texts: each whole from its start, and then each of their
+ * commands, split the first time a rule needs them.
+ */
+interface Reading {
+  whole: Candidate[];
+  commands?: Candidate[] | undefined;
+}
+
+/** Each argument as deny rules read it (`readingsOf`), worked out once for all the rules of a call. */
+type Readings = Map<unknown, Reading[] | undefined>;
+
+/** Some texts as a deny rule reads them, each text once however often it comes. */
+const reading = (texts: readonly string[]): Reading => ({
+  whole: [...new Set(texts)].map((text) => [text, FROM_START] as const),
+});
+
+/**
+ * What a deny rule reads of an argument: a text, or an array's items and then the items joined by
+ * spaces; `undefined` for one it can't read: an object, or an array with an item that isn't text.
+ * Worked out once for all the rules of a call, in `readings`.
+ */
+function readingsOf(value: unknown, readings: Readings): Reading[] | undefined {
+  if (readings.has(value)) return readings.get(value);
+  const text = argumentText(value);
+  const items = text === undefined && Array.isArray(value) ? value.map(argumentText) : [text];
+  const read = items.includes(undefined)
+    ? undefined
+    : text === undefined
+      ? [reading(items as string[]), reading([items.join(' ')])]
+      : [reading([text])];
+  readings.set(value, read);
+  return read;
+}
+
+/**
+ * Whether a deny rule's pattern covers one of a reading's texts: the whole of it, as an allow rule
+ * reads it, or any of its commands from where one may start (`commands`), so `git push*` denies
+ * `git status && git push`. All the texts go in one pass each way, so an array's items cost what
+ * their characters do, not the pattern's length each.
+ */
+function denyMatch(texts: Reading, parts: readonly number[], budget: Budget): boolean | undefined {
+  const whole = globMatch(texts.whole, parts, false, budget);
+  if (whole !== false) return whole;
+  texts.commands ??= texts.whole.flatMap(([text]) => commandsOf(text));
+  return globMatch(texts.commands, parts, false, budget);
+}
+
+const own = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+
+/**
+ * An argument by name, as each reading of it present: the key itself, and for a dotted name the
+ * nested argument too (`'options.cwd'`), since a call may carry both.
+ */
+function argumentValues(input: unknown, name: string): unknown[] {
+  if (input === null || typeof input !== 'object') return [];
+  const values = own(input, name) ? [(input as Record<string, unknown>)[name]] : [];
+  if (!name.includes('.')) return values;
   let value: unknown = input;
   for (const key of name.split('.')) {
-    if (value === null || typeof value !== 'object' || !Object.prototype.hasOwnProperty.call(value, key))
-      return undefined;
+    if (value === null || typeof value !== 'object' || !own(value, key)) return values;
     value = (value as Record<string, unknown>)[key];
   }
-  return value;
+  return [...values, value];
 }
 
-/** A string, number or boolean argument as text; anything else matches no pattern. */
+/** A string, number or boolean argument as text; anything else matches no allow pattern. */
 function argumentText(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
   return undefined;
 }
 
-/** Whether a rule applies to a call: its tool, every argument pattern, and its own test. */
-export function ruleMatches(rule: ApprovalRule, toolName: string, input: unknown): boolean {
-  if (!matchesGlob(toolName, rule.tool)) return false;
+/**
+ * Whether an argument matches a pattern, or `undefined` once `budget` runs out: as text for an allow
+ * rule. A deny rule reads a text's commands too, an array by its items, all in one pass, and by the
+ * items joined with spaces (`readingsOf`), and covers any other object, which it can't read: it
+ * fails closed.
+ */
+function argumentMatches(
+  value: unknown,
+  parts: readonly number[],
+  deny: boolean,
+  budget: Budget,
+  readings: Readings,
+): boolean | undefined {
+  if (!deny) {
+    const text = argumentText(value);
+    return text !== undefined && globMatch([[text, FROM_START]], parts, false, budget);
+  }
+  if (value == null) return false;
+  const read = readingsOf(value, readings);
+  if (!read) return true;
+  let result: boolean | undefined = false;
+  for (const texts of read) {
+    const matched = denyMatch(texts, parts, budget);
+    if (matched) return true;
+    if (matched === undefined) result = undefined;
+  }
+  return result;
+}
+
+/**
+ * Whether a rule covers a call: `true`, `false`, or `undefined` when it ran out of steps before it
+ * could tell. The tool's name is read first, on steps of its own, which a name of usual length never
+ * runs out of: a rule on another tool doesn't count against the call. A deny rule counts what it
+ * can't read as covered: an object argument, or a `when` that throws.
+ */
+function covers(rule: ApprovalRule, toolName: string, input: unknown, readings: Readings): boolean | undefined {
+  const deny = rule.effect !== 'allow';
+  // A tool's name is no shell command: in a deny rule, `*` and `?` match any character of it, so `*`
+  // covers every tool. An allow rule's tool pattern reads a name as its argument patterns read text.
+  const tool = globMatch([[toolName, FROM_START]], globParts(rule.tool), deny, { left: RULE_STEPS });
+  if (tool !== true) return tool;
+  const budget: Budget = { left: RULE_STEPS };
+  let result: boolean | undefined = true;
   for (const [name, pattern] of Object.entries(rule.args ?? {})) {
-    const text = argumentText(argument(input, name));
-    if (text === undefined || !matchesGlob(text, pattern)) return false;
+    const parts = globParts(pattern);
+    // Each reading of the argument must match for an allow rule; one does for a deny rule.
+    let matched: boolean | undefined = false;
+    for (const value of argumentValues(input, name)) {
+      const one = argumentMatches(value, parts, deny, budget, readings);
+      if (!deny && one !== true) return one;
+      if (one !== false) matched = one;
+      if (deny && one) break;
+    }
+    if (matched === false) return false;
+    if (matched === undefined) result = undefined;
   }
   if (rule.when) {
+    let test: boolean;
     try {
-      if (!rule.when(input)) return false;
+      test = !!rule.when(input);
     } catch {
-      return false;
+      test = deny;
     }
+    if (!test) return false;
   }
-  return true;
+  return result;
+}
+
+/**
+ * Whether a rule applies to a call: its tool, every argument pattern, and its own test. A deny rule
+ * reads more than an allow rule, to hold when a command is written another way: each command of a
+ * shell line, from its first word past `NAME=value` settings, a path and a redirect, or after `sudo`,
+ * `env`, `sh -c`, `find -exec`… (see `commands`); an array by its items; and an object, or a `when`
+ * that throws, as covered. Matching takes a bounded amount of work (see `evaluateRules`), and what
+ * it can't finish counts against the call: an allow rule doesn't apply, a deny rule does.
+ */
+export function ruleMatches(rule: ApprovalRule, toolName: string, input: unknown): boolean {
+  return covers(rule, toolName, input, new Map()) ?? rule.effect !== 'allow';
 }
 
 /** How narrow a rule is, to report the most specific of several that match. */
@@ -182,20 +587,36 @@ const specificity = (rule: ApprovalRule) =>
 
 /**
  * The rule that decides a call, if any. A deny rule wins over an allow rule, whatever their
- * order; among rules of the same effect the most specific is the one reported.
+ * order; among rules of the same effect the most specific is the one reported. Each rule's matching
+ * takes a bounded amount of work, in proportion to the arguments it reads, an array's item counting
+ * as one character at least: far more than common patterns need, however long the arguments. The
+ * bound is each rule's, so a call's work grows with the number of rules times the arguments' length,
+ * and a deny rule reads a string up to twice (whole, then by command) and an array up to four times
+ * (all its items in one pass, each once however often it comes, then the items joined, each both
+ * ways): cap the arguments where a client sends rules. A rule that runs out before it can tell
+ * counts against the call: an allow rule allows nothing, and a deny rule denies, reported as
+ * `unchecked` when no other deny rule covers the call.
  */
 export function evaluateRules(rules: readonly ApprovalRule[], toolName: string, input: unknown): RuleMatch | undefined {
+  // Each argument as deny rules read it, worked out once for all the rules.
+  const readings: Readings = new Map();
   let best: ApprovalRule | undefined;
+  let unchecked: ApprovalRule | undefined;
+  // Deny rules first: one that covers the call wins, and then no allow rule is read. A rule that
+  // can't beat the best so far by specificity isn't read either.
   for (const rule of rules) {
-    if (!ruleMatches(rule, toolName, input)) continue;
-    if (
-      !best ||
-      (rule.effect === 'deny' && best.effect === 'allow') ||
-      (rule.effect === best.effect && specificity(rule) > specificity(best))
-    )
-      best = rule;
+    if (rule.effect === 'allow' || (best && specificity(rule) <= specificity(best))) continue;
+    const covered = covers(rule, toolName, input, readings);
+    if (covered) best = rule;
+    else if (covered === undefined && (!unchecked || specificity(rule) > specificity(unchecked))) unchecked = rule;
   }
-  return best ? { effect: best.effect, rule: best } : undefined;
+  if (best) return { effect: 'deny', rule: best };
+  if (unchecked) return { effect: 'deny', rule: unchecked, unchecked: true };
+  for (const rule of rules) {
+    if (rule.effect !== 'allow' || (best && specificity(rule) <= specificity(best))) continue;
+    if (covers(rule, toolName, input, readings) === true) best = rule;
+  }
+  return best && { effect: 'allow', rule: best };
 }
 
 /** What a decision does now, and the rule it leaves, if any. */
@@ -309,13 +730,18 @@ export interface ToToolApprovalOptions {
   /**
    * The reason for a call a rule decides, which the approval keeps as `approval.reason`: say whose
    * rules these are, so a page can tell the server's from the person's. Default: "Allowed by a
-   * rule: …" or "Denied by a rule: …", the rule in words (`describeRule`), then its own reason.
+   * rule: …" or "Denied by a rule: …", the rule in words (`describeRule`), then its own reason; for
+   * an `unchecked` match, "Denied: the arguments are too long to check against a rule: …".
    */
   reason?: ((match: RuleMatch) => string) | undefined;
 }
 
-/** The reason `toToolApproval` gives unless told otherwise: "Denied by a rule: rm * (No deletes)". */
-function ruleReason({ effect, rule }: RuleMatch) {
+/**
+ * The reason `toToolApproval` gives unless told otherwise: "Denied by a rule: rm * (No deletes)", or
+ * for an `unchecked` rule "Denied: the arguments are too long to check against a rule: …".
+ */
+function ruleReason({ effect, rule, unchecked }: RuleMatch) {
+  if (unchecked) return `Denied: the arguments are too long to check against a rule: ${describeRule(rule)}`;
   return `${effect === 'allow' ? 'Allowed' : 'Denied'} by a rule: ${describeRule(rule)}${
     rule.reason ? ` (${rule.reason})` : ''
   }`;
@@ -447,7 +873,7 @@ export interface ApprovalRuleLimits {
   /**
    * `*` wildcards in one pattern, `**` counting as one. Default 3, enough for a rule on what a
    * command contains (`git push*--force*`). Matching takes the argument's length times the
-   * pattern's, whatever the number of `*`, so `maxLength` is what bounds it.
+   * pattern's, whatever the number of `*`; `evaluateRules` bounds what each rule takes.
    */
   maxWildcards?: number | undefined;
 }

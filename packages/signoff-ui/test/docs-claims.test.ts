@@ -52,6 +52,18 @@ describe('Performance and limits: rules', () => {
     expect(item(limitations, 'Rules from the client.')).toContain("a person's grants on top of your server policy");
   });
 
+  it("says the matching bound is each rule's, with the matcher's numbers, and to cap the arguments", () => {
+    const bullet = item(limitations, 'Rules from the client.');
+    const policy = readFileSync(join(root, 'packages/signoff-ui/src/lib/policy.ts'), 'utf8');
+    expect(policy).toContain('const RULE_STEPS = 20_000;');
+    expect(policy).toContain('const STEPS_PER_CHARACTER = 30;');
+    expect(bullet).toContain('Each rule gets 20,000 matching steps and 30 more for each character it reads');
+    expect(bullet).toContain('That bounds each rule, not a call');
+    expect(bullet).toContain('an array up to four times, an item counting as one character at least');
+    expect(bullet).toContain("cap the length of the arguments in the tool's input schema");
+    expect(bullet).not.toMatch(/can't hold up/);
+  });
+
   const noPush: ApprovalRule[] = [
     { id: 'no-push', tool: 'run_command', args: { command: 'git push*' }, effect: 'deny', scope: 'always' },
   ];
@@ -61,14 +73,20 @@ describe('Performance and limits: rules', () => {
       toolCall: { toolName: 'run_command', input: { command } },
     });
 
+  const chained = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push', '2>/dev/null git push'];
+  const missed = ['git -C . push', 'git --git-dir=.git push'];
+
   it('says patterns are a convenience, not a sandbox, with commands a deny pattern misses that it really misses', () => {
     const bullet = item(limitations, 'Patterns are a convenience, not a sandbox.');
     expect(bullet).toContain('`git push*`');
     expect(deny('git push origin main')).toMatchObject({ type: 'denied' });
-    const missed = ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'];
+    for (const command of chained) {
+      expect(bullet, command).toContain(`\`${command}\``);
+      expect(deny(command), command).toMatchObject({ type: 'denied' });
+    }
     for (const command of missed) {
       expect(bullet, command).toContain(`\`${command}\``);
-      // When deny rules learn to read each command of a line, this fails: update the bullet then.
+      // When deny rules learn to read these too, this fails: update the bullet then.
       expect(deny(command), command).toBe('not-applicable');
     }
   });
@@ -82,8 +100,7 @@ describe('Performance and limits: rules', () => {
     const server = toToolApproval(allowed, { otherwise: 'denied' });
     const run = (command: string) => server({ toolCall: { toolName: 'run_command', input: { command } } });
     expect(run('git status --short')).toMatchObject({ type: 'approved' });
-    for (const command of ['git status && git push', '/usr/bin/git push', 'GIT_TRACE=1 git push'])
-      expect(run(command), command).toBe('denied');
+    for (const command of [...chained, ...missed]) expect(run(command), command).toBe('denied');
   });
 });
 
