@@ -998,7 +998,14 @@ try {
   await testCard.and(acpPage.locator('[data-status="pending"]')).waitFor({ timeout: 30_000 });
   await testCard.getByRole('button', { name: /^Approve/ }).click();
   await acp.getByText('now reads').waitFor({ timeout: 30_000 });
-  const acpState = await acp.locator('[data-slot="signoff-agent-status"]').getAttribute('data-state');
+  // The agent sends its last sentence a word at a time and ends the turn after it, so wait for the
+  // turn to end rather than read the status once its first words are on the page.
+  const acpStatus = acp.locator('[data-slot="signoff-agent-status"]');
+  await acpStatus
+    .and(acpPage.locator('[data-state="done"]'))
+    .waitFor({ timeout: 30_000 })
+    .catch(() => {});
+  const acpState = await acpStatus.getAttribute('data-state');
   const edited = await editCard.getAttribute('data-status');
   check(
     acpState === 'done' && edited === 'approved',

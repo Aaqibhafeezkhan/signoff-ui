@@ -323,4 +323,13 @@ export const pt: SignoffLabels = {
   approvalPolicy: { ruleDenial: 'Recusado por uma regra' },
   sources: { label: 'Fontes', document: 'Documento' },
   agentMessage: { attachedImage: 'Imagem anexada' },
+  untrusted: {
+    invisible: (count, codes) =>
+      count === 1 ? `Carácter invisível ${codes[0]}` : `${count} caracteres invisíveis: ${codes.join(', ')}`,
+    blank: (count, lines) =>
+      lines
+        ? `${lines} ${plural(lines, 'quebra de linha', 'quebras de linha')}`
+        : `${count} ${plural(count, 'espaço em branco', 'espaços em branco')}`,
+    linksTo: (host) => `Leva a ${host}`,
+  },
 };
