@@ -518,6 +518,35 @@ describe('linkHostMismatch', () => {
       expect(linkHostMismatch(text, 'https://github.com/a/b/releases')).toBeUndefined();
   });
 
+  it('reads a character that looks like a dot as a dot', () => {
+    for (const text of [
+      'github․com', // one dot leader
+      'Visit github﹒com →', // small full stop
+      'github⸳com', // raised dot
+      'github·com', // middle dot
+      'github܁com', // Syriac full stops
+      'github܂com',
+      'github꘎com', // Vai full stop
+      'github٠com', // Arabic zeros, between Latin letters
+      'github۰com',
+      'githubꓸcom/login', // a Lisu tone mark, between Latin letters
+    ])
+      expect(linkHostMismatch(text, 'https://evil.example/login')).toBe('evil.example');
+    expect(linkHostMismatch('github․com', 'https://github.com/x')).toBeUndefined();
+    // Dot leaders, a middle dot between words or in Catalan's l·l, and these stops and zeros in their own scripts.
+    for (const text of [
+      'Chapter 1․․․ 5',
+      'Docs · GitHub',
+      'Col·legi d’Advocats',
+      'INTEL·LIGÈNCIA',
+      'ܐܒ܁ܓܕ',
+      'ꔀꔁ꘎ꔂꔃ',
+      'مرحبا ١٠٠',
+      'ꓡꓲꓸꓡꓲ',
+    ])
+      expect(linkHostMismatch(text, 'https://example.org/book')).toBeUndefined();
+  });
+
   it('reads a file name whose extension is a top-level domain as a domain, unless the link goes to that file', () => {
     expect(linkHostMismatch('docs.rs', 'https://evil.example/login')).toBe('evil.example');
     expect(linkHostMismatch('bun.sh', 'https://evil.example/login')).toBe('evil.example');

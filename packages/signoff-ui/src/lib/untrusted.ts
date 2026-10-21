@@ -198,12 +198,17 @@ const NAMED_HOST =
 const DOMAIN =
   /^(?:(?:[\p{L}\p{M}\p{N}-]+\.)+\p{L}[\p{L}\p{M}\p{N}-]+|(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d))$/u;
 /**
- * The full stops a URL reads as dots: ideographic (U+3002), full-width (U+FF0E) and halfwidth
- * ideographic (U+FF61), so `github` U+3002 `com` goes to github.com. Only between letters or digits,
- * and not beside Chinese, Japanese or Korean, where U+3002 ends a sentence.
+ * Characters a person reads as a dot, which read as one here: the full stops a URL reads as dots,
+ * ideographic (U+3002), full-width (U+FF0E) and halfwidth ideographic (U+FF61), so `github` U+3002
+ * `com` goes to github.com; and the stops that only look like one, the one dot leader (U+2024), the
+ * small full stop (U+FE52), the raised and middle dots (U+2E33, U+00B7), and the Syriac and Vai full
+ * stops (U+0701, U+0702, U+A60E). Only between letters or digits, not beside Chinese, Japanese,
+ * Korean, Syriac or Vai, where such a stop ends a sentence, and a middle dot not between two l's,
+ * as in Catalan (`col\u00B7legi`). The Arabic zeros (U+0660, U+06F0) and the Lisu tone mark U+A4F8, which
+ * are a digit and a letter, only between Latin letters.
  */
 const OTHER_DOT =
-  /(?<=[\p{L}\p{N}])(?<![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}])[\u3002\uFF0E\uFF61](?=[\p{L}\p{N}])(?![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}])/gu;
+  /(?<=[\p{L}\p{N}])(?<![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}\p{scx=Syriac}\p{scx=Vai}])(?:[\u3002\uFF0E\uFF61\u2024\uFE52\u2E33\u0701\u0702\uA60E]|(?<![lL])\u00B7|\u00B7(?![lL]))(?=[\p{L}\p{N}])(?![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}\p{scx=Syriac}\p{scx=Vai}])|(?<=\p{scx=Latin})[\u0660\u06F0\uA4F8](?=\p{scx=Latin})/gu;
 /** A file's or a product's name, which reads like a domain and is not one: `README.md`, `Next.js`. */
 const FILE_NAME =
   /\.(?:[cm]?[jt]sx?|json|mdx?|s?css|html?|py|rb|go|rs|sh|txt|ya?ml|toml|lock|vue|svelte|php|java|kt|swift|cpp|cs|sql|xml|csv|log|zip|pdf|png|jpe?g|gif|svg|webp)$/i;
@@ -266,7 +271,7 @@ export function linkHostMismatch(text: string, href: string): string | undefined
   // selector inside an emoji, as in a red heart or a woman at a laptop.
   if (revealText(trimmed).some((part) => typeof part !== 'string')) return target;
   // Those left are an emoji's, and split no name: read without them, so that one after a host does
-  // not keep the text from naming it. Full stops a URL reads as dots read as dots.
+  // not keep the text from naming it. Characters that read as a dot read as one.
   const shown = trimmed.replace(/\u200D|\uFE0E|\uFE0F/gu, '').replace(OTHER_DOT, '.');
   const mailto = url.protocol === 'mailto:';
   let named = false;
