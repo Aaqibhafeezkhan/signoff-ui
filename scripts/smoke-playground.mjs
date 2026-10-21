@@ -754,27 +754,53 @@ try {
   // Through a whole run from the keyboard: after the review is applied, the reader stays with the
   // run (the diff folds away above them) and sees it finish at the bottom of the screen, not
   // scrolled past it into the sections below. The reader goes to the card: it doesn't come to them.
-  const run = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
-  await run.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
-  await run.waitForSelector(runPending, { timeout: 60_000 });
-  await run.focus(runPending);
-  await run.keyboard.press('y');
-  await run.waitForSelector('#run [data-slot="signoff-diff-submit"]', { timeout: 60_000 });
-  for (const key of ['a', 'a', 'a', 'r']) await run.keyboard.press(key);
-  await run.keyboard.press('Control+Enter');
-  await run.getByText('Run complete').waitFor({ timeout: 60_000 });
-  await run.waitForTimeout(1000);
-  const end = await run.evaluate(() => {
-    const box = [...document.querySelectorAll('span')].find((el) => el.textContent === 'Run complete');
-    const { top, bottom } = box.getBoundingClientRect();
-    return { top: Math.round(top), bottom: Math.round(bottom), height: innerHeight };
-  });
-  check(
-    end.top > end.height / 2 && end.bottom <= end.height,
-    'run: after the review is applied, the run fills the screen down to its end',
-    JSON.stringify(end),
-  );
-  await run.close();
+  // Twice: as it comes, then with a scroll event as soon as the review folds away, before the run's
+  // next update. The browser reports the scroll the fold causes at its next frame, and that can
+  // come first (it now and then did in Firefox): following must not depend on the order. On a
+  // failure, the detail lists the scrolls from the fold on: the page's offset, then where the run
+  // ends on the screen.
+  for (const scrollFirst of [false, true]) {
+    const run = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
+    await run.addInitScript((scrollFirst) => {
+      window.__scrolls = [];
+      let reviewing = false;
+      let folded = false;
+      const runEnd = () => document.querySelector('#run [aria-label="Agent run"]')?.getBoundingClientRect().bottom;
+      addEventListener(
+        'scroll',
+        () => folded && window.__scrolls.push(`${Math.round(scrollY)}/${Math.round(runEnd())}`),
+        { passive: true },
+      );
+      new MutationObserver(() => {
+        if (document.querySelector('#run [data-slot="signoff-diff-submit"]')) reviewing = true;
+        else if (reviewing && !folded) {
+          folded = true;
+          if (scrollFirst) dispatchEvent(new Event('scroll'));
+        }
+      }).observe(document, { childList: true, subtree: true });
+    }, scrollFirst);
+    await run.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
+    await run.waitForSelector(runPending, { timeout: 60_000 });
+    await run.focus(runPending);
+    await run.keyboard.press('y');
+    await run.waitForSelector('#run [data-slot="signoff-diff-submit"]', { timeout: 60_000 });
+    for (const key of ['a', 'a', 'a', 'r']) await run.keyboard.press(key);
+    await run.keyboard.press('Control+Enter');
+    await run.getByText('Run complete').waitFor({ timeout: 60_000 });
+    await run.waitForTimeout(1000);
+    const end = await run.evaluate(() => {
+      const box = [...document.querySelectorAll('span')].find((el) => el.textContent === 'Run complete');
+      const { top, bottom } = box.getBoundingClientRect();
+      return { top: Math.round(top), bottom: Math.round(bottom), height: innerHeight };
+    });
+    const scrolls = await run.evaluate(() => window.__scrolls.slice(0, 12).join(' '));
+    check(
+      end.top > end.height / 2 && end.bottom <= end.height,
+      `run${scrollFirst ? ", the fold's scroll first" : ''}: after the review is applied, the run fills the screen down to its end`,
+      `${JSON.stringify(end)}, scrolls ${scrolls}`,
+    );
+    await run.close();
+  }
 
   // Replay mid-run starts over once the stopped run has settled, so the new run's time to first
   // token is measured from its own request (the script pauses 680ms first, 170ms at 4x), not 0ms.
