@@ -298,7 +298,7 @@ export interface SignoffLabels {
   untrusted: {
     /** A mark in place of characters that do not show, such as a bidi control or a zero-width space; `codes` lists each once. */
     invisible: (count: number, codes: readonly string[]) => string;
-    /** A mark in place of a long run of spaces and tabs in a command or a path. */
+    /** A mark in place of a long run of spaces and tabs, or of blank lines, in a command or a path. */
     blank: (count: number) => string;
     /** Beside a link whose text names another host than the one it goes to. */
     linksTo: (host: string) => string;

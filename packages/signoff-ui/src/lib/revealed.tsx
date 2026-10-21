@@ -9,8 +9,8 @@ const LABELS = { untrusted: untrustedLabels };
 
 /**
  * Text from the agent, with marks in place of what does not show, so a command, a path or a line
- * reads as what it is: see `revealText`. `blanks` marks long runs of spaces too, for a command or a
- * path; not for code, which lines up with spaces.
+ * reads as what it is: see `revealText`. `blanks` marks long runs of spaces and of blank lines too,
+ * for a command or a path; not for code, which lines up with spaces.
  */
 export function Revealed({ text, blanks = false }: { text: string; blanks?: boolean }) {
   const L = useLabels(LABELS).untrusted;

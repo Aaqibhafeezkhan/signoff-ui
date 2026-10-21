@@ -226,9 +226,10 @@ const SLOT: Record<ApprovalDecision, string> = {
 
 /**
  * A command wraps, so no part of it sits out of view to the side, whatever comes before it; a long
- * run of spaces shows as its count, and what does not show as a mark (`Revealed`). Should something
- * still be wider than the box, such as a mark in a very narrow one, it scrolls sideways, and while
- * it does, the keyboard can reach it.
+ * run of spaces or of blank lines shows as its count, so blank lines cannot push the rest out of view
+ * below either, and what does not show shows as a mark (`Revealed`). Should something still be
+ * wider than the box, such as a mark in a very narrow one, it scrolls sideways, and while it does,
+ * the keyboard can reach it.
  */
 function CommandPreview({ command, cwd, label }: { command: string; cwd: string | undefined; label: string }) {
   const scrollRef = useScrollRegion<HTMLDivElement>(label);

@@ -1,8 +1,8 @@
 /**
  * Text and URLs from the agent, shown to the person who decides on them. A prompt injection can
  * write them too, so the components show what would make them read as something other than what
- * runs or opens: characters that do not show, a long run of spaces, and a link whose text names
- * another host. No React here, so servers can call these too.
+ * runs or opens: characters that do not show, a long run of spaces or of blank lines, and a link
+ * whose text names another host. No React here, so servers can call these too.
  */
 
 /**
@@ -16,24 +16,30 @@ const INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\uFFF9-\uF
 const ANY_INVISIBLE = /(?![\t\n\r])[\p{Cc}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\uFFF9-\uFFFB]|\r(?!\n|$)/u;
 /** Spaces other than U+0020, and the blank braille pattern: they look like a space and are not one. */
 const OTHER_SPACE = /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]/u;
-const ANY_BLANK = /[ \t]{2}|[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]/u;
+const ANY_BLANK = /[ \t]{2}|[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]|\n(?:[ \t\r]*\n){3}/u;
 const PICTOGRAPH = /\p{Extended_Pictographic}/u;
 const IN_EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\uFE0F]/u;
 /** A run of spaces and tabs this wide, a tab counting 8, shows as a mark: about a third of a narrow card. */
 const BLANK_RUN = 16;
+/**
+ * A run of blank characters with this many blank lines in it or more, so 4 line breaks, shows as a
+ * mark: blank lines push what follows down, out of view below. Code has up to 2 in a row (PEP 8
+ * between definitions), and keeps them.
+ */
+const BLANK_LINES = 3;
 
 export interface RevealTextOptions {
   /**
-   * Also mark spaces: a run of spaces and tabs 16 columns wide or more, as its count, and spaces
-   * other than U+0020, as their code points. For a command or a path; not for code, which lines up
-   * with spaces.
+   * Also mark spaces: a run of spaces and tabs 16 columns wide or more, as its count, a run of 3
+   * blank lines or more, as its count too, and spaces other than U+0020, as their code points. For a
+   * command or a path; not for code, which lines up with spaces.
    */
   blanks?: boolean | undefined;
 }
 
 /** A run of characters to show as a mark, in place of the characters. */
 export interface RevealedMark {
-  /** `invisible`: characters that do not show. `blank`: a long run of spaces and tabs. */
+  /** `invisible`: characters that do not show. `blank`: a long run of spaces and tabs, or of blank lines. */
   kind: 'invisible' | 'blank';
   /** The characters. */
   text: string;
@@ -41,7 +47,7 @@ export interface RevealedMark {
   count: number;
   /** Their code points, each once, in order (`U+202E`); empty for a blank run. */
   codes: string[];
-  /** What the mark shows: `U+202E`, `U+200B ×240`, `␣ ×240`. */
+  /** What the mark shows: `U+202E`, `U+200B ×240`, `␣ ×240`, and `↵ ×60` for a run with line breaks. */
   shown: string;
 }
 
@@ -50,7 +56,10 @@ export type RevealedPart = string | RevealedMark;
 
 const codeOf = (char: string) => `U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`;
 
-/** True when `revealText` would mark something in the text. */
+/**
+ * The quick test: false when `revealText` would mark nothing in the text. True does not always mean
+ * it marks something: the joiner in an emoji, or a run of 2 spaces, is left as it is.
+ */
 export function hasHidden(text: string, options: RevealTextOptions = {}): boolean {
   return ANY_INVISIBLE.test(text) || (!!options.blanks && ANY_BLANK.test(text));
 }
@@ -58,8 +67,9 @@ export function hasHidden(text: string, options: RevealTextOptions = {}): boolea
 /**
  * The text in parts, with marks in place of what would make it read as something it is not:
  * characters that do not show, such as a bidi override (`U+202E`), which shows the text after it
- * reversed, or a zero-width space, and with `blanks`, long runs of spaces. Text with none of them
- * is one part, the text itself. The joiners and variation selectors in an emoji are left as they are.
+ * reversed, or a zero-width space, and with `blanks`, long runs of spaces or of blank lines. Text
+ * with none of them is one part, the text itself. The joiners and variation selectors in an emoji
+ * are left as they are.
  */
 export function revealText(text: string, options: RevealTextOptions = {}): RevealedPart[] {
   if (!hasHidden(text, options)) return [text];
@@ -67,18 +77,27 @@ export function revealText(text: string, options: RevealTextOptions = {}): Revea
   const parts: RevealedPart[] = [];
   let plain = '';
   let mark: RevealedMark | undefined;
-  /** The spaces and tabs since the last other character, while they may still make a long run. */
+  /** The spaces, tabs and line breaks since the last other character, which may make a long run. */
   let run = '';
-  let width = 0;
+  const blank = (blanks: string, symbol: string) => {
+    if (plain) parts.push(plain);
+    plain = '';
+    const count = blanks.length;
+    parts.push({ kind: 'blank', text: blanks, count, codes: [], shown: `${symbol} ×${count}` });
+  };
   const flushRun = () => {
-    if (width >= BLANK_RUN) {
-      if (plain) parts.push(plain);
-      plain = '';
-      const count = run.length;
-      parts.push({ kind: 'blank', text: run, count, codes: [], shown: `␣ ×${count}` });
-    } else plain += run;
+    // Enough blank lines to push what follows out of view below are one mark, line breaks and all.
+    if (run.split('\n').length - 1 > BLANK_LINES) blank(run, '↵');
+    else {
+      // Otherwise each line's spaces count on their own, and the line breaks stay as they are.
+      for (const piece of run.split(/(\r?\n)/)) {
+        let width = 0;
+        for (const char of piece) width += char === '\t' ? 8 : char === ' ' ? 1 : 0;
+        if (width >= BLANK_RUN) blank(piece, '␣');
+        else plain += piece;
+      }
+    }
     run = '';
-    width = 0;
   };
   const invisible = (char: string, i: number) => {
     if (char === '\t' || char === '\n') return false;
@@ -107,9 +126,9 @@ export function revealText(text: string, options: RevealTextOptions = {}): Revea
       return;
     }
     mark = undefined;
-    if (options.blanks && (char === ' ' || char === '\t')) {
+    // A carriage return here ends a line: one inside a line is a mark, above.
+    if (options.blanks && (char === ' ' || char === '\t' || char === '\n' || char === '\r')) {
       run += char;
-      width += char === '\t' ? 8 : 1;
       return;
     }
     if (run) flushRun();
@@ -204,7 +223,9 @@ export function linkHostMismatch(text: string, href: string): string | undefined
   // What comes before an @ reads as the host, and is only a user name: whatever the text says.
   if (url.username || url.password) return target;
   const trimmed = text.trim();
-  if (hasHidden(trimmed)) return target;
+  // Characters that do not show, as `revealText` marks them: not the joiner or the variation
+  // selector inside an emoji, as in a red heart or a woman at a laptop.
+  if (revealText(trimmed).some((part) => typeof part !== 'string')) return target;
   const domain = DOMAIN_TEXT.exec(trimmed)?.[1];
   // A name such as `README.md` is a file's, unless its extension is a top-level domain too, as in
   // `docs.rs`: then only when the link goes to that file.

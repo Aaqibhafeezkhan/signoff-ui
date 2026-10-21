@@ -13,8 +13,9 @@ import { axe } from './utils';
 /*
  * The person who approves a command or reviews a diff reads what the agent wrote, which a prompt
  * injection can write too. Text that shows something other than what runs is made visible: bidi
- * controls, zero-width and other invisible characters, long runs of spaces, the end of a command
- * that filler would push out of view, and a link whose text names another host than the one it goes to.
+ * controls, zero-width and other invisible characters, long runs of spaces and of blank lines, the
+ * end of a command that filler would push out of view to the side or below, and a link whose text
+ * names another host than the one it goes to.
  */
 
 const RLO = '\u202E';
@@ -51,7 +52,17 @@ describe('ApprovalCard: a command shows what runs', () => {
     expect(card()).toHaveTextContent('240 blank characters');
   });
 
-  it('wraps the command, so no filler before its end pushes that end out of view', () => {
+  it('shows a run of blank lines as a count, so the end of the command stays in view below', () => {
+    // 60 line breaks would make the card taller than a screen, with the end below it.
+    render(
+      <ApprovalCard toolName="run_command" input={{ command: `npm test${'\n'.repeat(60)}--script-shell=./x.sh` }} />,
+    );
+    expect(card().textContent).not.toContain('\n');
+    expect(visibleText(card())).toContain('npm test↵ ×60--script-shell=./x.sh');
+    expect(card()).toHaveTextContent('60 blank characters');
+  });
+
+  it('wraps the command, so no filler before its end pushes that end out of view to the side', () => {
     // Runs of 15 spaces, under the length that shows as a count, each followed by a dot or by a
     // combining accent, which sits on the space before it and hardly shows.
     for (const filler of ['.', '\u0301']) {
@@ -129,6 +140,16 @@ describe('Markdown: a link whose text names another host shows where it goes', (
     expect(screen.getByRole('link', { name: 'docs' })).toHaveTextContent(/^docs$/);
     expect(screen.getByRole('link', { name: 'react.dev' })).toHaveTextContent(/^react\.dev$/);
     expect(screen.getByRole('link', { name: 'https://github.com/x' })).toHaveTextContent(/^https:\/\/github\.com\/x$/);
+  });
+
+  it('leaves a link with an emoji in its text alone', () => {
+    render(
+      <Markdown>
+        {'[❤\uFE0F Sponsor](https://github.com/sponsors/x) and [👩\u200D💻 Docs](https://react.dev/learn)'}
+      </Markdown>,
+    );
+    expect(document.querySelector('[data-slot="signoff-link-host"]')).toBeNull();
+    for (const link of screen.getAllByRole('link')) expect(link).not.toHaveAccessibleName(/Links to/);
   });
 
   it('shows the host of a look-alike domain as the browser resolves it', () => {
@@ -229,6 +250,31 @@ describe('revealText', () => {
     expect(revealText('a\t\tb', { blanks: true })[1]).toMatchObject({ kind: 'blank', count: 2 });
     expect(revealText('rm\u00A0-rf', { blanks: true })[1]).toMatchObject({ kind: 'invisible', codes: ['U+00A0'] });
   });
+
+  it('with blanks, marks a run of 3 blank lines or more, line breaks and all, and leaves 2 as they are', () => {
+    expect(revealText('a\n\n\n\nb', { blanks: true })).toEqual([
+      'a',
+      { kind: 'blank', text: '\n\n\n\n', count: 4, codes: [], shown: '↵ ×4' },
+      'b',
+    ]);
+    // Spaces and the carriage returns of CRLF on those lines are part of the run.
+    expect(revealText(`a${'  \r\n'.repeat(4)}b`, { blanks: true })).toEqual([
+      'a',
+      { kind: 'blank', text: '  \r\n'.repeat(4), count: 16, codes: [], shown: '↵ ×16' },
+      'b',
+    ]);
+    // Two blank lines, as between Python definitions, stay as they are.
+    const code = 'import os\n\n\ndef main():\n    pass\r\n\r\n\r\nmain()';
+    expect(revealText(code, { blanks: true })).toEqual([code]);
+    // Below that, a line's spaces count on their own, and the line break before them stays.
+    expect(revealText(`a\n\n${' '.repeat(16)}b`, { blanks: true })).toEqual([
+      'a\n\n',
+      { kind: 'blank', text: ' '.repeat(16), count: 16, codes: [], shown: '␣ ×16' },
+      'b',
+    ]);
+    // Without blanks, line breaks are left as they are.
+    expect(revealText('a\n\n\n\n\nb')).toEqual(['a\n\n\n\n\nb']);
+  });
 });
 
 describe('safeUrl', () => {
@@ -282,6 +328,13 @@ describe('linkHostMismatch', () => {
     expect(linkHostMismatch('https://github.com', '//evil.example/x')).toBe('evil.example');
     // Text a bidi override turns around.
     expect(linkHostMismatch(`${RLO}moc.buhtig//:sptth`, 'https://evil.example')).toBe('evil.example');
+  });
+
+  it('names nothing for the joiner and the variation selector inside an emoji', () => {
+    expect(linkHostMismatch('❤\uFE0F Sponsor', 'https://github.com/sponsors/x')).toBeUndefined();
+    expect(linkHostMismatch('👩\u200D💻 Docs', 'https://react.dev/learn')).toBeUndefined();
+    // A bidi override beside one still names the host.
+    expect(linkHostMismatch(`❤\uFE0F Sponsor${RLO}`, 'https://github.com/sponsors/x')).toBe('github.com');
   });
 
   it('names the host when the URL puts a name before it, whatever the text says', () => {
