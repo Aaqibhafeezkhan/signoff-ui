@@ -107,3 +107,31 @@ export async function collectErrors(fn: () => Promise<void>) {
   }
   return { reported, rejected };
 }
+
+/**
+ * The id the docs site gives a heading: lib/docs.ts's slugify of its plainText, copied rather than
+ * imported, so the tests don't load the playground's component and API modules lib/docs.ts uses.
+ */
+export const headingId = (heading: string) =>
+  heading
+    // plainText: code, links and emphasis as their text.
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|\*|_)(.*?)\1/g, '$2')
+    .trim()
+    // slugify
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .trim()
+    .replace(/\s+/g, '-');
+
+/** A Markdown section, from its heading to the next heading of the same depth or higher. */
+export function section(markdown: string, heading: string, depth = 2) {
+  const marker = `${'#'.repeat(depth)} ${heading}\n`;
+  const start = markdown.startsWith(marker) ? 0 : markdown.indexOf(`\n${marker}`);
+  if (start === -1) return '';
+  const next = new RegExp(`\\n#{2,${depth}} `, 'g');
+  next.lastIndex = start + 1;
+  const end = next.exec(markdown)?.index;
+  return markdown.slice(start, end);
+}

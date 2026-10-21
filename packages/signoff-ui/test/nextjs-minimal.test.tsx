@@ -8,7 +8,7 @@ import type { LanguageModel } from 'ai';
 import { version } from 'react';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AI_SDK_MAJOR } from './utils';
+import { AI_SDK_MAJOR, headingId } from './utils';
 
 /*
  * examples/nextjs-minimal, the walkthrough in Getting started as an app (readme.test.ts checks the
@@ -26,14 +26,6 @@ const guide = readFileSync(join(root, 'examples/playground/content/docs/getting-
 // The example's `signoff-ui` is the built package, and its React and AI SDK 7 must be the suite's.
 const built = existsSync(join(root, 'packages/signoff-ui/dist/index.d.ts'));
 const sameStack = built && AI_SDK_MAJOR >= 7 && Number(version.split('.')[0]) >= 19;
-
-/** The id the docs site gives a heading (lib/docs.ts). */
-const headingId = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .trim()
-    .replace(/\s+/g, '-');
 
 describe('the examples: their READMEs', () => {
   it.each(['nextjs-minimal', 'coding-agent'])('%s: opens on the command that starts it, with no API key', (name) => {

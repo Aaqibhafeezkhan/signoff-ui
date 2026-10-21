@@ -16,6 +16,8 @@ Review what your agent changed and approve what it may do: React components for 
 [![assistant-ui](https://img.shields.io/badge/assistant--ui-0d0f12)](https://signoff-ui.vercel.app/docs/chat-ui#assistant-ui)
 [![AG-UI](https://img.shields.io/badge/AG--UI-0d0f12)](https://signoff-ui.vercel.app/docs/ag-ui)
 [![ACP](https://img.shields.io/badge/ACP-0d0f12)](https://signoff-ui.vercel.app/docs/acp)
+[![Next.js](https://img.shields.io/badge/Next.js-0d0f12?logo=nextdotjs&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#nextjs)
+[![Vite](https://img.shields.io/badge/Vite-0d0f12?logo=vite&logoColor=white)](https://signoff-ui.vercel.app/docs/getting-started#vite-and-other-bundlers)
 
 **Website and docs:** [signoff-ui.vercel.app](https://signoff-ui.vercel.app), with a playground where a scripted coding agent asks for a review and an approval, driven from the keyboard, with no API key.
 
@@ -63,7 +65,7 @@ Add the styles once: `@import 'signoff-ui/tailwind.css';` after Tailwind v4 in y
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
 ```
 
-Then add the three files below to a Next.js App Router app (under `src/app/` if your app has a `src` folder). They build as they are, and run with `OPENAI_API_KEY` set. Without Tailwind, the classes on your own elements in them need [this CSS](https://signoff-ui.vercel.app/docs/getting-started#without-tailwind).
+Then add the three files below to a Next.js App Router app (under `src/app/` if your app has a `src` folder). They build as they are, and run with `OPENAI_API_KEY` set. Without Tailwind, the classes on your own elements in them need [this CSS](https://signoff-ui.vercel.app/docs/getting-started#without-tailwind). In a Vite app, [three things change](https://signoff-ui.vercel.app/docs/getting-started#vite-and-other-bundlers).
 
 **The route.** The agent proposes edits through `review_changes`, a tool with no `execute`, so the page answers it. `toolApproval` makes AI SDK 7 stop and ask before `run_command`:
 
@@ -244,7 +246,25 @@ The components take AI SDK message parts and plain props, not a runtime, and `st
 
 **Supporting:** `AgentMessage` renders the rest of an assistant message around them: streaming markdown and reasoning, sources, and every tool call in one timeline (`ToolCallTimeline`) with measured durations, approvals inline and sub-agents nested under the call that started them. `Markdown`, `Reasoning` and `Sources` also work on their own, `RunMeter` prices the run's tokens, `AgentStatus` announces its state, and `useAgUiAgent` turns an AG-UI agent's run into AI SDK messages.
 
-Typed against AI SDK 6 and 7 (`ai@^6.0.0 || ^7.0.102`), on React 18 and 19 (`react@^18.2.0 || ^19.0.0`), with Tailwind v4, v3 or no Tailwind, each tested in CI. Keyboard-first and announced to screen readers, with axe checks in jsdom and in Chrome. Every word the components show or announce is a label you can translate, from one provider. The kit calls no model and makes no requests of its own, so any model your backend uses works.
+Keyboard-first and announced to screen readers, with axe checks in jsdom and in Chrome. Every word the components show or announce is a label you can translate, from one provider. The kit calls no model and makes no requests of its own, so any model your backend uses works.
+
+## Works with
+
+What CI tests on every pull request, and what should work, through the same message parts or as plain React, but isn't tested yet. The peer ranges are `ai@^6.0.0 || ^7.0.102` and `react@^18.2.0 || ^19.0.0`.
+
+| Stack           | Tested in CI                              | Should work, not tested in CI                                     |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| AI SDK          | 6, 7                                      |                                                                   |
+| React           | 18, 19                                    |                                                                   |
+| Node            | 24                                        | 20 from 20.19, 22 from 22.12                                      |
+| Framework       | Next.js 16 App Router, Vite               | Next.js 14 and 15, the Pages Router, React Router, other bundlers |
+| Chat UI         | Your own, assistant-ui                    | AI Elements                                                       |
+| Agent           | AI SDK, AG-UI, ACP                        | Mastra through `@mastra/ai-sdk`, Cloudflare Agents, Vercel Eve    |
+| AG-UI framework | CopilotKit                                | LangGraph, CrewAI, Mastra                                         |
+| Styles          | Tailwind v4, Tailwind v3, no Tailwind     |                                                                   |
+| Browser         | Chrome, Firefox, WebKit (Safari's engine) | Safari, Edge, older versions                                      |
+
+[Works with](https://signoff-ui.vercel.app/docs/getting-started#works-with) in Getting started says what each CI job runs and how the untested agents connect, and [Requirements](https://signoff-ui.vercel.app/docs/getting-started#requirements) gives the oldest browsers the stylesheet supports.
 
 ## Docs
 

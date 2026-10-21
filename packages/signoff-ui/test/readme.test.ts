@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { AI_SDK_MAJOR } from './utils';
+import { AI_SDK_MAJOR, headingId } from './utils';
 
 /*
  * The README's quickstart is three whole files, each starting with a `// app/...` line: a shorter
@@ -170,13 +170,7 @@ describe('README top', () => {
       const slugs = readFileSync(file, 'utf8')
         .split('\n')
         .filter((line) => /^#{2,3} /.test(line))
-        .map((line) =>
-          line
-            .replace(/^#+ /, '')
-            .toLowerCase()
-            .replace(/[^a-z0-9 -]/g, '')
-            .replace(/ /g, '-'),
-        );
+        .map((line) => headingId(line.replace(/^#+ /, '')));
       expect(slugs, `${page ?? ''}#${anchor}`).toContain(anchor);
     }
   });

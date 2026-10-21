@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { AI_SDK_MAJOR } from './utils';
+import { AI_SDK_MAJOR, headingId, section } from './utils';
 
 /*
  * Getting started and Inside your chat UI, read the way a newcomer reads them: the page opens on a
@@ -27,25 +27,9 @@ function headings(markdown: string) {
     const match = fenced ? null : /^(##|###) (.+)$/.exec(line);
     if (!match) continue;
     const text = match[2]!.replace(/`([^`]*)`/g, '$1').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-    const id = text
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s-]/gu, '')
-      .trim()
-      .replace(/\s+/g, '-');
-    found.push({ depth: match[1]!.length, text, id });
+    found.push({ depth: match[1]!.length, text, id: headingId(text) });
   }
   return found;
-}
-
-/** A section, from its heading to the next heading of the same depth or higher. */
-function section(markdown: string, heading: string, depth = 2) {
-  const marker = `${'#'.repeat(depth)} ${heading}\n`;
-  const start = markdown.startsWith(marker) ? 0 : markdown.indexOf(`\n${marker}`);
-  if (start === -1) return '';
-  const next = new RegExp(`\\n#{2,${depth}} `, 'g');
-  next.lastIndex = start + 1;
-  const end = next.exec(markdown)?.index;
-  return markdown.slice(start, end);
 }
 
 /** The code of the block titled `title`, such as ```tsx title="app/page.tsx". */
@@ -61,8 +45,8 @@ function block(markdown: string, title: string) {
 const app = join(root, 'examples/playground/.getting-started-snippets');
 const built = existsSync(join(root, 'packages/signoff-ui/dist/index.d.ts'));
 
-/** TypeScript errors in the files, with create-next-app's compiler options and its `@/*` alias. */
-function typeErrors(files: Record<string, string>) {
+/** TypeScript errors in the files, with create-next-app's compiler options and its `@/*` alias, or `overrides`. */
+function typeErrors(files: Record<string, string>, overrides: ts.CompilerOptions = {}) {
   for (const [path, code] of Object.entries(files)) if (!code.trim()) throw new Error(`${path}: no such block`);
   const sources = new Map(Object.entries(files).map(([path, code]) => [join(app, path), code]));
   // TypeScript looks for a file only in a folder that exists: the in-memory files' folders do.
@@ -83,6 +67,7 @@ function typeErrors(files: Record<string, string>) {
     jsx: ts.JsxEmit.ReactJSX,
     types: [],
     paths: { '@/*': [`${app}/*`] },
+    ...overrides,
   };
   const host = ts.createCompilerHost(options);
   const { fileExists, readFile, directoryExists, getSourceFile } = host;
@@ -101,6 +86,23 @@ function typeErrors(files: Record<string, string>) {
     return where + ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
   });
 }
+
+/**
+ * The compiler options of Vite's react-ts template (create-vite 9.3.1, tsconfig.app.json), which its
+ * build script checks with `tsc -b` before `vite build`. TypeScript 6 makes `strict` the default.
+ */
+const viteOptions: ts.CompilerOptions = {
+  target: ts.ScriptTarget.ES2023,
+  lib: ['lib.es2023.d.ts', 'lib.dom.d.ts'],
+  allowArbitraryExtensions: true,
+  allowImportingTsExtensions: true,
+  verbatimModuleSyntax: true,
+  moduleDetection: ts.ModuleDetectionKind.Force,
+  noUnusedLocals: true,
+  noUnusedParameters: true,
+  erasableSyntaxOnly: true,
+  noFallthroughCasesInSwitch: true,
+};
 
 const typecheck = it.skipIf(!built || AI_SDK_MAJOR < 7);
 
@@ -194,6 +196,42 @@ describe('Getting started: typed messages', () => {
   it('is where Inside your chat UI sends typed apps', () => {
     expect(chatUi).toContain('outputSchema');
     expect(chatUi).toContain('(/docs/getting-started#typed-messages)');
+  });
+});
+
+describe('Getting started: Vite and other bundlers', () => {
+  const vite = section(guide, 'Vite and other bundlers');
+  /** The snippet that points useChat at your server: its imports, and the call. */
+  const snippet = /```tsx\n([\s\S]*?)```/.exec(vite)?.[1] ?? '';
+  const imports = snippet
+    .split('\n')
+    .filter((line) => line.startsWith('import '))
+    .join('\n');
+  const call = /^const \{[\s\S]*?^\}\);$/m.exec(snippet)?.[0] ?? '';
+  /** The walkthrough's client, and its useChat call, which the snippet's takes the place of. */
+  const client = block(guide, 'app/agent-run.tsx');
+  const clientCall = /^ {2}const \{[^}]*\} = useChat<Message>\(\{\n[\s\S]*?^ {2}\}\);$/m;
+  /** The walkthrough's client with `useChat` called as the snippet calls it, as a Vite app's file. */
+  const viteClient = (useChat: string) => ({
+    'src/agent-run.tsx': client
+      .replace(/^import /m, (first) => `${imports}\n${first}`)
+      .replace(clientCall, () => useChat.replace(/^(?=.)/gm, '  ')),
+  });
+
+  it("is the walkthrough's useChat, typed the same, with a transport added", () => {
+    expect(client).toMatch(clientCall);
+    expect(imports).toBe("import { DefaultChatTransport } from 'ai';");
+    expect(call).toContain('} = useChat<Message>({');
+    expect(call).toMatch(/^ {2}transport: new DefaultChatTransport\(/m);
+  });
+
+  typecheck("typechecks in the walkthrough's client with Vite's react-ts options", { timeout: 60_000 }, () => {
+    expect(typeErrors(viteClient(call), viteOptions)).toEqual([]);
+  });
+
+  typecheck("needs the type argument: without it, RunMeter's usage is rejected", { timeout: 60_000 }, () => {
+    const errors = typeErrors(viteClient(call.replace('useChat<Message>(', 'useChat(')), viteOptions);
+    expect(errors.join('\n')).toContain("Property 'usage' does not exist on type '{}'.");
   });
 });
 
