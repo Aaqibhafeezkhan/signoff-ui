@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ai from 'ai';
@@ -51,6 +51,8 @@ const jobs = new Map(
     .slice(1)
     .map((job) => [/^ {4}name: (.+)$/m.exec(job)?.[1] ?? '', job]),
 );
+/** Whether a job runs on every pull request: its own `if`, not a step's, skips only the daily run. */
+const onPullRequests = (name: string) => /^ {4}if: github\.event_name != 'schedule'$/m.test(jobs.get(name) ?? '');
 const json = (path: string) =>
   JSON.parse(read(path)) as {
     scripts: Record<string, string>;
@@ -67,6 +69,7 @@ const MAIN = 'Lint, typecheck, test, build';
 const NEXTJS = 'Next.js quickstart';
 const CODING_AGENT = 'Coding agent reference app';
 const ASSISTANT_UI = 'assistant-ui binding';
+const COPILOTKIT = 'CopilotKit example';
 
 /*
  * Each entry the tested column names, as `row: entry`: the job that tests it, what that job runs,
@@ -134,6 +137,21 @@ const TESTED: Record<string, { jobs: string[]; runs: string[]; also?: () => void
     runs: ['pnpm test:coverage'],
     also: () => expect(existsSync(join(root, 'packages/signoff-ui/test/acp.test.tsx'))).toBe(true),
   },
+  'AG-UI framework: CopilotKit': {
+    jobs: [COPILOTKIT],
+    runs: ['pnpm --filter copilotkit-example build', 'pnpm smoke:copilotkit'],
+    also: () => {
+      // The version the job line gives is the one the example pins.
+      const version = dependency('copilotkit', '@copilotkit/react-core');
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(section(guide, 'Works with')).toContain(`a Next.js 16 app on CopilotKit ${version}`);
+      expect(dependency('copilotkit', 'next')).toMatch(/^\^16\./);
+      expect(dependency('copilotkit', '@ag-ui/client')).not.toBe('');
+      expect(read('scripts/smoke-copilotkit.mjs')).toContain('useInterrupt');
+      expect(section(guide, 'Works with')).toContain('[CopilotKit](/docs/copilotkit)');
+      expect(existsSync(join(root, 'examples/playground/content/docs/copilotkit.md'))).toBe(true);
+    },
+  },
   'Styles: Tailwind v4': {
     jobs: [MAIN],
     runs: ['pnpm smoke:styles', 'pnpm build:playground'],
@@ -185,9 +203,7 @@ describe('Works with', () => {
       for (const name of names) {
         const job = jobs.get(name);
         expect(job, `${entry}: no CI job "${name}"`).toBeDefined();
-        expect(job, `${entry}: "${name}" doesn't run on pull requests`).toContain(
-          "if: github.event_name != 'schedule'",
-        );
+        expect(onPullRequests(name), `${entry}: "${name}" doesn't run on pull requests`).toBe(true);
       }
       for (const step of runs)
         expect(
@@ -202,6 +218,21 @@ describe('Works with', () => {
     const details = section(guide, 'Works with');
     for (const name of new Set(Object.values(TESTED).flatMap((entry) => entry.jobs)))
       expect(details, name).toContain(`**${name}**`);
+  });
+
+  it('names the examples the daily fresh install runs, which is not on every pull request', () => {
+    const script = read('scripts/smoke-fresh-install.mjs');
+    const block = /const EXAMPLES = \{\n([\s\S]*?)\n\};/.exec(script)?.[1] ?? '';
+    const fresh = [...block.matchAll(/^ {2}'([\w-]+)':/gm)].map((match) => match[1]);
+    expect(fresh.length).toBeGreaterThan(0);
+    const line =
+      section(guide, 'Works with')
+        .split('\n')
+        .find((text) => text.startsWith('**Examples installed fresh from npm**')) ?? '';
+    for (const example of readdirSync(join(root, 'examples')))
+      expect(line.includes(`\`${example}\``), example).toBe(fresh.includes(example));
+    expect(jobs.get('Examples installed fresh from npm')).toContain('pnpm smoke:fresh-install');
+    expect(onPullRequests('Examples installed fresh from npm')).toBe(false);
   });
 
   it('keeps the frameworks that stream AI SDK messages untested, with how each connects', () => {

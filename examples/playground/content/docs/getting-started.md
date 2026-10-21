@@ -557,7 +557,7 @@ What CI tests on every pull request, and what should work, through the same mess
 | Framework       | Next.js 16 App Router, Vite               | Next.js 14 and 15, the Pages Router, React Router, other bundlers |
 | Chat UI         | Your own, assistant-ui                    | AI Elements                                                       |
 | Agent           | AI SDK, AG-UI, ACP                        | Mastra through `@mastra/ai-sdk`, Cloudflare Agents, Vercel Eve    |
-| AG-UI framework |                                           | LangGraph, CrewAI, Mastra, CopilotKit                             |
+| AG-UI framework | CopilotKit                                | LangGraph, CrewAI, Mastra                                         |
 | Styles          | Tailwind v4, Tailwind v3, no Tailwind     |                                                                   |
 | Browser         | Chrome, Firefox, WebKit (Safari's engine) | Safari, Edge, older versions                                      |
 
@@ -568,16 +568,17 @@ The tested entries come from these jobs in [`ci.yml`](https://github.com/dgestev
 - **Next.js quickstart**: [examples/nextjs-minimal](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal), [Render a run](/docs/getting-started#render-a-run) as an app on AI SDK 7, built and run in Chrome through a review, an approval and the final answer.
 - **Coding agent reference app**: [examples/coding-agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent), with no Tailwind, built with webpack from the packed package and run in Chrome on a desktop and a phone-sized screen.
 - **assistant-ui binding**: [examples/assistant-ui](https://github.com/dgesteves/signoff-ui/tree/main/examples/assistant-ui), a Vite app, built from the packed package with `vite build` and run in Chrome through a review and an approval, then started with `vite dev` and run through the review to the approval card.
+- **CopilotKit example**: [examples/copilotkit](https://github.com/dgesteves/signoff-ui/tree/main/examples/copilotkit), a Next.js 16 app on CopilotKit 1.79.0 with a scripted AG-UI agent, built with `next build` and run in Chrome: the approval card, an approval rule and a review inside `CopilotChat`, an AG-UI interrupt through `useInterrupt`, and `useAgUiAgent` resuming a run through CopilotKit.
 - **Firefox** and **WebKit (Safari's engine)**: the playground and the quickstart in each, and axe in WebKit too. WebKit runs on macOS, where it behaves as Safari does.
 
-**Examples installed fresh from npm** runs daily and on each release's pull request, not on every pull request: each example copied out, installed from npm with no lockfile, and run with `dev` in Chrome.
+**Examples installed fresh from npm** runs daily and on each release's pull request, not on every pull request: the `nextjs-minimal`, `coding-agent` and `assistant-ui` examples, each copied out, installed from npm with no lockfile, and run with `dev` in Chrome.
 
 How the untested agents connect:
 
 - **Mastra through `@mastra/ai-sdk`**: its `chatRoute()` serves an agent as AI SDK UI messages, tool approvals included, so `useChat` and `AgentMessage` render it as in [Render a run](/docs/getting-started#render-a-run).
 - **Cloudflare Agents**: `useAgentChat` from `@cloudflare/ai-chat/react` returns what `useChat` does, `messages` and `addToolApprovalResponse` included, and the agent's tools ask with the AI SDK's `needsApproval`. Pass them to `AgentMessage` as the walkthrough does.
 - **Vercel Eve**: `useEveAgent` from `eve/react`, with `reducer: defaultMessageReducer()`, gives messages whose parts follow the AI SDK's, in Eve's own types. It answers approvals with `respond()`, not `addToolApprovalResponse`, so `onToolApproval` needs a function of yours that calls `respond()`.
-- **AG-UI frameworks**: [AG-UI agents](/docs/ag-ui) has LangGraph, the other frameworks and CopilotKit.
+- **AG-UI frameworks**: [AG-UI agents](/docs/ag-ui) has LangGraph and the others. [CopilotKit](/docs/copilotkit), which CI tests, has a page of its own.
 - **AI Elements**: [Inside your chat UI](/docs/chat-ui#ai-elements) has where the components go in its message parts.
 
 ## AI SDK 6 or 7

@@ -260,7 +260,7 @@ What CI tests on every pull request, and what should work, through the same mess
 | Framework       | Next.js 16 App Router, Vite               | Next.js 14 and 15, the Pages Router, React Router, other bundlers |
 | Chat UI         | Your own, assistant-ui                    | AI Elements                                                       |
 | Agent           | AI SDK, AG-UI, ACP                        | Mastra through `@mastra/ai-sdk`, Cloudflare Agents, Vercel Eve    |
-| AG-UI framework |                                           | LangGraph, CrewAI, Mastra, CopilotKit                             |
+| AG-UI framework | CopilotKit                                | LangGraph, CrewAI, Mastra                                         |
 | Styles          | Tailwind v4, Tailwind v3, no Tailwind     |                                                                   |
 | Browser         | Chrome, Firefox, WebKit (Safari's engine) | Safari, Edge, older versions                                      |
 
