@@ -22,8 +22,11 @@ To add the components to an app of your own, read on: install them, add the styl
 
 - **React** 18.2 or later, or 19 (`react@^18.2.0 || ^19.0.0`). CI runs the test suite on both.
 - **AI SDK** 6 or 7 (`ai@^6.0.0 || ^7.0.102`). The kit imports its types only, so it adds no SDK code to your bundle.
-- **A React app.** Nothing in the kit is tied to a framework. The walkthrough below is a Next.js 16 App Router app, which CI builds and runs in Chrome.
+- **A React app.** Nothing in the kit is tied to a framework. The walkthrough below is a Next.js 16 App Router app, which CI builds and runs in Chrome. In a Vite app, [three things change](/docs/getting-started#vite-and-other-bundlers).
 - **ES modules.** The package is ESM only, with no CommonJS build: load it with `import`, as bundlers and Next.js do. CI builds and tests it on Node 24.
+- **Browsers.** Chrome and Edge 111, Safari 16.4 and Firefox 128 or later. Those are the minimums of [Tailwind CSS v4](https://tailwindcss.com/docs/compatibility), which builds the kit's stylesheet. CI runs the current Chrome, Firefox and WebKit (Safari's engine), not the minimums.
+
+[Works with](/docs/getting-started#works-with) has what CI tests, and what should work but isn't tested yet.
 
 For an AG-UI agent (LangGraph, CrewAI, Mastra and the rest) instead of the AI SDK, read this page for the install and the styles, then go to [AG-UI agents](/docs/ag-ui).
 
@@ -542,6 +545,41 @@ Agents on LangGraph, CrewAI, Mastra or another AG-UI framework pick their model 
 
 **Does the playground use a key?** The public playground runs a scripted agent, with no model and no key. Its optional live mode runs the same tools against OpenAI, with the `OPENAI_API_KEY` (and `OPENAI_MODEL`) of whoever runs the playground; it's off on the public demo.
 
+## Works with
+
+What CI tests on every pull request, and what should work, through the same message parts or as plain React, but isn't tested yet. An entry moves to the tested column once a CI job runs it.
+
+| Stack           | Tested in CI                              | Should work, not tested in CI                                     |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| AI SDK          | 6, 7                                      |                                                                   |
+| React           | 18, 19                                    |                                                                   |
+| Node            | 24                                        | 20 from 20.19, 22 from 22.12                                      |
+| Framework       | Next.js 16 App Router, Vite               | Next.js 14 and 15, the Pages Router, React Router, other bundlers |
+| Chat UI         | Your own, assistant-ui                    | AI Elements                                                       |
+| Agent           | AI SDK, AG-UI, ACP                        | Mastra through `@mastra/ai-sdk`, Cloudflare Agents, Vercel Eve    |
+| AG-UI framework |                                           | LangGraph, CrewAI, Mastra, CopilotKit                             |
+| Styles          | Tailwind v4, Tailwind v3, no Tailwind     |                                                                   |
+| Browser         | Chrome, Firefox, WebKit (Safari's engine) | Safari, Edge, older versions                                      |
+
+The tested entries come from these jobs in [`ci.yml`](https://github.com/dgesteves/signoff-ui/blob/main/.github/workflows/ci.yml), which run on Node 24, under the names a pull request's checks show:
+
+- **Lint, typecheck, test, build**: the library's typecheck and test suite, the AG-UI and ACP adapters included; `styles.css` in Chrome next to a global reset, in a Tailwind v3 build and in a Tailwind v4 app; and the playground, a Next.js 16 app on Tailwind v4, AI SDK 7 and React 19, in Chrome, with axe.
+- **AI SDK 6** and **React 18**: the library's typecheck and test suite again, on AI SDK 6.0.0 and the latest 6, and on the latest React 18.
+- **Next.js quickstart**: [examples/nextjs-minimal](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal), [Render a run](/docs/getting-started#render-a-run) as an app on AI SDK 7, built and run in Chrome through a review, an approval and the final answer.
+- **Coding agent reference app**: [examples/coding-agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent), with no Tailwind, built with webpack from the packed package and run in Chrome on a desktop and a phone-sized screen.
+- **assistant-ui binding**: [examples/assistant-ui](https://github.com/dgesteves/signoff-ui/tree/main/examples/assistant-ui), a Vite app, built from the packed package with `vite build`, then started with `vite dev`, with a review and an approval in Chrome in each.
+- **Firefox** and **WebKit (Safari's engine)**: the playground and the quickstart in each, and axe in WebKit too. WebKit runs on macOS, where it behaves as Safari does.
+
+**Examples installed fresh from npm** runs daily and on each release's pull request, not on every pull request: each example copied out, installed from npm with no lockfile, and run with `dev` in Chrome.
+
+How the untested agents connect:
+
+- **Mastra through `@mastra/ai-sdk`**: its `chatRoute()` serves an agent as AI SDK UI messages, tool approvals included, so `useChat` and `AgentMessage` render it as in [Render a run](/docs/getting-started#render-a-run).
+- **Cloudflare Agents**: `useAgentChat` from `@cloudflare/ai-chat/react` returns what `useChat` does, `messages` and `addToolApprovalResponse` included, and the agent's tools ask with the AI SDK's `needsApproval`. Pass them to `AgentMessage` as the walkthrough does.
+- **Vercel Eve**: `useEveAgent` from `eve/react`, with `reducer: defaultMessageReducer()`, gives messages whose parts follow the AI SDK's, in Eve's own types. It answers approvals with `respond()`, not `addToolApprovalResponse`, so `onToolApproval` needs a function of yours that calls `respond()`.
+- **AG-UI frameworks**: [AG-UI agents](/docs/ag-ui) has LangGraph, the other frameworks and CopilotKit.
+- **AI Elements**: [Inside your chat UI](/docs/chat-ui#ai-elements) has where the components go in its message parts.
+
 ## AI SDK 6 or 7
 
 The components take the same message parts from both. The differences are on the server:
@@ -571,6 +609,41 @@ import { applyHunks, parseFileChange } from 'signoff-ui/core';
 **`cacheComponents`.** Nothing in the kit reads the clock or a random number while rendering on the server, so pages that render it prerender with `cacheComponents` on. Live durations render after hydration, so server and client markup match. `useChat` is the exception, as above: wrap the component that calls it in `<Suspense>`.
 
 **Versions.** CI builds and runs the walkthrough on Next.js 16. Next.js 14 and 15 run React 18.2 and 19, which the kit supports, and the Pages Router works too, since the components are ordinary React; those aren't built in CI.
+
+## Vite and other bundlers
+
+The components are React and ES modules with nothing from Next.js, so they render in a Vite app as they do in Next.js, and Vite ignores their `'use client'` lines. [examples/assistant-ui](https://github.com/dgesteves/signoff-ui/tree/main/examples/assistant-ui) is a Vite app, which CI builds from the packed package and runs with `vite build` and `vite dev`. Three things differ from the walkthrough.
+
+**The styles** go in your entry file, or in your CSS after Tailwind when you run Tailwind v4 through `@tailwindcss/vite`:
+
+```css title="src/index.css" tab="Tailwind v4"
+@import 'tailwindcss';
+@import 'signoff-ui/tailwind.css';
+```
+
+```ts title="src/main.tsx" tab="Tailwind v3 or no Tailwind"
+import 'signoff-ui/styles.css';
+```
+
+**The route** runs on your server, since a Vite app has no API routes of its own. Point `useChat` at it with a transport:
+
+```tsx
+import { DefaultChatTransport } from 'ai';
+
+// In AgentRun, the walkthrough's useChat with a transport added.
+const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat({
+  // Your server's chat route. Without a transport, useChat posts to /api/chat on the page's own origin.
+  transport: new DefaultChatTransport({ api: 'https://api.example.com/chat' }),
+  sendAutomaticallyWhen: (chat) =>
+    lastAssistantMessageIsCompleteWithToolCalls(chat) || lastAssistantMessageIsCompleteWithApprovalResponses(chat),
+});
+```
+
+A server on another origin than the page has to allow it with CORS. In development, Vite's `server.proxy` can forward `/api` to your server instead, when its route is at `/api/chat`, and `useChat` then needs no transport.
+
+**The page** needs no `<Suspense>`: the walkthrough wraps `AgentRun` in one for Next.js' prerendering (`cacheComponents`), and a Vite app renders on the client. Render `<AgentRun />` from your entry as it is.
+
+Other bundlers that read ES modules and the package's `exports` work the same way. `DiffReview` starts its diff worker for large files without configuration in Vite and webpack 5 ([Large diffs](/docs/limits#large-diffs)).
 
 ## React 18 or 19
 

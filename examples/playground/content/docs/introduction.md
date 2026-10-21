@@ -2,6 +2,8 @@ signoff-ui is a set of React components for the step where a person signs off on
 
 It works with any model and costs nothing extra. The kit calls no model, needs no API key and makes no network requests of its own. Your backend picks the model and holds the keys: OpenAI GPT, Anthropic Claude, Google Gemini, xAI Grok, Mistral or a local model through any AI SDK provider, or an agent on any AG-UI framework (LangGraph, CrewAI, Mastra and the rest). Switching providers is [one line in your route](/docs/getting-started#choosing-a-model); the components don't change.
 
+Frameworks that stream AI SDK UI messages should render the same way: Mastra through `@mastra/ai-sdk`, Cloudflare Agents, and Vercel Eve, which answers approvals through its own `respond()`. They're not tested in CI yet: [Works with](/docs/getting-started#works-with) has what is, and how each connects.
+
 ## Why it exists
 
 Coding and editing agents propose changes across several files and ask to run commands that can break things, and someone has to sign off on both. The questions a person has at that point are specific:
@@ -102,7 +104,7 @@ To read them instead, [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) list
 
 ## Next steps
 
-- [Getting started](/docs/getting-started): install, styles, a first run in Next.js with a review and an approval, AI SDK 6 or 7, and theming.
+- [Getting started](/docs/getting-started): install, styles, a first run in Next.js with a review and an approval, what CI tests, AI SDK 6 or 7, Vite, and theming.
 - [Inside your chat UI](/docs/chat-ui): with assistant-ui, AI Elements or your own components.
 - [AG-UI agents](/docs/ag-ui): LangGraph, CrewAI, Mastra and other AG-UI agents through `useAgUiAgent`.
 - [Agent Client Protocol](/docs/acp): an ACP prompt turn, its permission requests and its edits, through `signoff-ui/acp`.
