@@ -432,7 +432,15 @@ describe('linkHostMismatch', () => {
 
   it('reads long text once, not once from each of its characters', () => {
     const start = performance.now();
-    for (const text of ['a'.repeat(100_000), 'ab.'.repeat(30_000), `https://${'a'.repeat(100_000)}`])
+    for (const text of [
+      'a'.repeat(100_000),
+      'ab.'.repeat(30_000),
+      `https://${'a'.repeat(100_000)}`,
+      '1.'.repeat(50_000),
+      'a@'.repeat(50_000),
+      `${'a.'.repeat(50_000)}@x.com`,
+      'a\u3002'.repeat(50_000),
+    ])
       linkHostMismatch(text, 'https://evil.example/login');
     // Read from each character, the first alone takes seconds.
     expect(performance.now() - start).toBeLessThan(1000);
@@ -465,6 +473,49 @@ describe('linkHostMismatch', () => {
     const spoof = 'https://github.com@evil.example/x';
     expect(linkHostMismatch(spoof, spoof)).toBe('evil.example');
     expect(linkHostMismatch('the docs', 'https://github.com:pass@evil.example/')).toBe('evil.example');
+  });
+
+  it('names the host when the text puts a domain before an @, which reads as the host', () => {
+    for (const text of [
+      'https://github.com@evil.example/login',
+      'https://github.com:443@evil.example',
+      'https://github.com?@evil.example',
+      'github.com@evil.example',
+      '(github.com@evil.example)',
+      'x/github.com@evil.example',
+    ])
+      expect(linkHostMismatch(text, 'https://evil.example/login')).toBe('evil.example');
+    // A name that is no domain, an email address a mailto link writes to, or a path with an @ in it.
+    expect(linkHostMismatch('ssh://git@github.com/a/b', 'https://github.com/a/b')).toBeUndefined();
+    expect(linkHostMismatch('github.com@evil.example', 'mailto:github.com@evil.example')).toBeUndefined();
+    expect(linkHostMismatch('https://evil.example@evil.example', 'https://evil.example')).toBeUndefined();
+    expect(
+      linkHostMismatch('npmjs.com/package/@types/node', 'https://www.npmjs.com/package/@types/node'),
+    ).toBeUndefined();
+    expect(linkHostMismatch('medium.com/@user/post', 'https://medium.com/@user/post')).toBeUndefined();
+  });
+
+  it('reads the full stops a URL reads as dots, and an IP address, as a host', () => {
+    for (const text of [
+      'github\u3002com',
+      'github\uFF0Ecom',
+      'github\uFF61com/login',
+      'https://github\u3002com',
+      '\uFF47\uFF49\uFF54\uFF48\uFF55\uFF42\uFF0E\uFF43\uFF4F\uFF4D',
+      '8.8.8.8',
+      '8\u30028\u30028\u30028',
+      '10.0.0.1:8080/admin',
+    ])
+      expect(linkHostMismatch(text, 'https://evil.example/login')).toBe('evil.example');
+    expect(linkHostMismatch('github\u3002com', 'https://github.com')).toBeUndefined();
+    expect(linkHostMismatch('8.8.8.8', 'https://8.8.8.8/')).toBeUndefined();
+    // A sentence in Chinese, Japanese or Korean ends with U+3002; a version or an octet past 255 is no address.
+    expect(
+      linkHostMismatch('\u8A73\u7D30\u306F\u3053\u3061\u3089\u3002\u6B21\u3078', 'https://docs.example'),
+    ).toBeUndefined();
+    expect(linkHostMismatch('\u30C6\u30B9\u30C8\u3002React', 'https://docs.example')).toBeUndefined();
+    for (const text of ['1.2.3', 'v1.2.3.4', '1.2.3.4.5', '8.8.8.256', 'Chrome 131.0.6778.85'])
+      expect(linkHostMismatch(text, 'https://github.com/a/b/releases')).toBeUndefined();
   });
 
   it('reads a file name whose extension is a top-level domain as a domain, unless the link goes to that file', () => {

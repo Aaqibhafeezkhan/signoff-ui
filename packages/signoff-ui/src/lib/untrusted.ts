@@ -185,14 +185,25 @@ export function safeUrl(url: string | null | undefined, options: SafeUrlOptions 
 }
 
 /**
- * Each host link text names, anywhere in it. Group 1: in a URL (`https://github.com/x`), after
- * `www.`, or in an email address, read with the rest of the URL. Group 2: a word that reads as a
- * domain (`Visit github.com →`, `/github.com`), read with its path, if any, as group 3; not the
- * name before an `@` (`first.last@`). Each starts only where a word does, so that long text is
- * read once, not once from each of its characters.
+ * Each host link text names, anywhere in it. Group 3: in a URL (`https://github.com/x`), after
+ * `www.`, or in an email address, read with the rest of the URL; the name before its `@` is group
+ * 1 in a URL (`https://github.com@evil.example`) and group 2 in an email address. Group 4: a word
+ * that reads as a domain (`Visit github.com →`, `/github.com`) or an IP address (`8.8.8.8`), read
+ * with its path, if any, as group 5; not the name before an `@` (`first.last@`). Each starts only
+ * where a word does, so that long text is read once, not once from each of its characters.
  */
 const NAMED_HOST =
-  /(?:(?<![a-z\d+.-])[a-z\d+.-]*:\/\/(?:[^\s/@]*@)?|\bwww\.|[^\s@<>()[\]]@)([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*)\S*|(?<![\p{L}\p{M}\p{N}-]|[\p{L}\p{M}\p{N}-]\.)((?:[\p{L}\p{M}\p{N}-]+\.)+\p{L}[\p{L}\p{M}\p{N}-]+)(?![\p{L}\p{M}\p{N}-]|[.@][\p{L}\p{M}\p{N}-])\.?([/?#:]\S*)?/giu;
+  /(?:(?<![a-z\d+.-])[a-z\d+.-]*:\/\/(?:([^\s/?#@]*)@)?|\bwww\.|(?<![^\s@<>()[\]/])([^\s@<>()[\]/]+)@)([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*)\S*|(?<![\p{L}\p{M}\p{N}-]|[\p{L}\p{M}\p{N}-]\.)((?:[\p{L}\p{M}\p{N}-]+\.)+\p{L}[\p{L}\p{M}\p{N}-]+|(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d))(?![\p{L}\p{M}\p{N}-]|[.@][\p{L}\p{M}\p{N}-])\.?([/?#:]\S*)?/giu;
+/** A whole word that reads as a domain or an IP address, as group 4 of `NAMED_HOST` does. */
+const DOMAIN =
+  /^(?:(?:[\p{L}\p{M}\p{N}-]+\.)+\p{L}[\p{L}\p{M}\p{N}-]+|(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d))$/u;
+/**
+ * The full stops a URL reads as dots: ideographic (U+3002), full-width (U+FF0E) and halfwidth
+ * ideographic (U+FF61), so `github` U+3002 `com` goes to github.com. Only between letters or digits,
+ * and not beside Chinese, Japanese or Korean, where U+3002 ends a sentence.
+ */
+const OTHER_DOT =
+  /(?<=[\p{L}\p{N}])(?<![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}])[\u3002\uFF0E\uFF61](?=[\p{L}\p{N}])(?![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}])/gu;
 /** A file's or a product's name, which reads like a domain and is not one: `README.md`, `Next.js`. */
 const FILE_NAME =
   /\.(?:[cm]?[jt]sx?|json|mdx?|s?css|html?|py|rb|go|rs|sh|txt|ya?ml|toml|lock|vue|svelte|php|java|kt|swift|cpp|cs|sql|xml|csv|log|zip|pdf|png|jpe?g|gif|svg|webp)$/i;
@@ -208,6 +219,14 @@ function normalHost(host: string): string | undefined {
   }
 }
 
+/** Whether a word in a name, such as the one before an `@`, reads as a domain other than `target`. */
+function namesOtherDomain(name: string, target: string): boolean {
+  return name.split(/[^\p{L}\p{M}\p{N}.-]/u).some((word) => {
+    const domain = word.replace(/^\.+|\.+$/g, '');
+    return DOMAIN.test(domain) && normalHost(domain) !== target;
+  });
+}
+
 /** The last segment of a URL's path, decoded and in lowercase: `readme.md` for `/a/b/README.md`. */
 function lastSegment(url: URL): string {
   const segment = url.pathname.split('/').pop() ?? '';
@@ -221,7 +240,8 @@ function lastSegment(url: URL): string {
 /**
  * The host a link goes to, when its text could make a person think it goes elsewhere: the text
  * names another host anywhere in it (`Visit github.com →`), counting any word that reads as a
- * domain and is not a file's name, or names one in look-alike letters (the host is in punycode,
+ * domain or an IP address and is not a file's name, or a domain before an `@`
+ * (`github.com@evil.example`), or names one in look-alike letters (the host is in punycode,
  * `xn--`), or has characters that do not show, or the URL puts a name before the host
  * (`https://github.com@evil.example`). Otherwise `undefined`, and the link needs nothing beside it.
  */
@@ -246,10 +266,15 @@ export function linkHostMismatch(text: string, href: string): string | undefined
   // selector inside an emoji, as in a red heart or a woman at a laptop.
   if (revealText(trimmed).some((part) => typeof part !== 'string')) return target;
   // Those left are an emoji's, and split no name: read without them, so that one after a host does
-  // not keep the text from naming it.
-  const shown = trimmed.replace(/\u200D|\uFE0E|\uFE0F/gu, '');
+  // not keep the text from naming it. Full stops a URL reads as dots read as dots.
+  const shown = trimmed.replace(/\u200D|\uFE0E|\uFE0F/gu, '').replace(OTHER_DOT, '.');
+  const mailto = url.protocol === 'mailto:';
   let named = false;
-  for (const [, host, domain, path] of shown.matchAll(NAMED_HOST)) {
+  for (const [, user, local, host, domain, path] of shown.matchAll(NAMED_HOST)) {
+    // A domain before an @ reads as the host, as in the URL: `https://github.com@evil.example`, and
+    // `github.com@evil.example`, unless that is the email address a mailto link writes to.
+    const before = user ?? (mailto ? undefined : local);
+    if (before && namesOtherDomain(before, target)) return target;
     // A name such as `README.md` is a file's, unless its extension is a top-level domain too, as in
     // `docs.rs`: then only when the link goes to that file.
     if (
