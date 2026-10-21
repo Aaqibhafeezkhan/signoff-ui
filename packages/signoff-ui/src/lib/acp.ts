@@ -3,10 +3,10 @@
  * `session/request_permission` requests folded into one AI SDK `UIMessage` for `AgentMessage` and
  * `ToolCallTimeline`, and a tool call's diff content as `DiffReview` files. The types mirror the parts
  * of ACP that are read here, structurally, so `@agentclientprotocol/sdk` objects fit without it being
- * a dependency. The permission converters (`decisionsFromAcpOptions`, `toAcpPermissionResponse`…)
- * are in lib/policy.ts.
+ * a dependency. The AI SDK types come from ./ai-types, so the entry needs no `ai` either. The
+ * permission converters (`decisionsFromAcpOptions`, `toAcpPermissionResponse`…) are in lib/policy.ts.
  */
-import type { ChatStatus, DynamicToolUIPart, UIMessage } from 'ai';
+import type { ChatStatus, DynamicToolUIPart, UIMessage } from './ai-types';
 import type { FileChange } from './diff';
 import {
   acpToolName,

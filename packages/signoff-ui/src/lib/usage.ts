@@ -1,5 +1,4 @@
-import type { LanguageModelUsage } from 'ai';
-import type { RunUsage } from './ai';
+import type { LanguageModelUsage, RunUsage } from './ai-types';
 
 /** USD per million tokens. */
 export interface ModelPricing {

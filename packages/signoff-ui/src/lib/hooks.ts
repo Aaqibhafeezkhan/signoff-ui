@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { ChatStatus } from 'ai';
-import { getAllToolParts, observeToolTimings, type AnyUIPart, type ToolTimings } from './ai';
+import { getAllToolParts, observeToolTimings, type AnyUIPart, type ChatStatus, type ToolTimings } from './ai';
 
 export type { ToolTiming, ToolTimings } from './ai';
 

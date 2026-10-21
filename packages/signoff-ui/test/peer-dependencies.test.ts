@@ -1,7 +1,12 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import type { ChatStatus, LanguageModelUsage, UIMessage } from 'ai';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { AcpTurn, toAcpMessage } from '../src/acp';
+import type { AgUiRunState, fromAgUiMessages, UseAgUiAgentResult } from '../src/ag-ui';
+import type { addUsage, RunUsage } from '../src/core';
 
 /*
  * npm enforces an optional peer's range whenever the app has that package, whether or not it imports
@@ -9,11 +14,16 @@ import { describe, expect, it } from 'vitest';
  * a caret takes one minor (`^0.15.0` is 0.15.x only), so every app on another assistant-ui minor, the
  * next one included, couldn't `npm i signoff-ui`. `signoff-ui/assistant-ui` imports only assistant-ui's
  * types, and they compile from 0.15 on (0.14's approval has no `display` or `prompt`).
+ *
+ * npm 7+ and pnpm install a required peer on their own, so while `ai` was one, an app on AG-UI or ACP
+ * got the AI SDK, its provider packages and zod (11 packages, 25 MB with 0.10.0) for types it never
+ * needed. The two entries now declare the AI SDK types they return (lib/ai-types.ts).
  */
 
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 const pkg = JSON.parse(read('../package.json')) as {
   peerDependencies: Record<string, string>;
+  peerDependenciesMeta: Record<string, { optional?: boolean }>;
   devDependencies: Record<string, string>;
 };
 const range = pkg.peerDependencies['@assistant-ui/react']!;
@@ -73,5 +83,85 @@ describe('the optional @assistant-ui/react peer', () => {
     expect(floor).toBeDefined();
     expect(readme).toContain(`needs \`@assistant-ui/react\` ${floor} or later`);
     expect(readme).toContain('--legacy-peer-deps');
+  });
+});
+
+const src = fileURLToPath(new URL('../src/', import.meta.url));
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+
+/**
+ * The packages each module imports, for every module `entry` reaches through its imports and
+ * re-exports, type-only ones included, as an app's TypeScript follows them.
+ */
+function reach(dir: string, entry: string, extensions: readonly string[]): Map<string, string[]> {
+  const packages = new Map<string, string[]>();
+  const visit = (file: string) => {
+    if (packages.has(file)) return;
+    const code = readFileSync(join(dir, file), 'utf8');
+    const specifiers = [
+      ...code.matchAll(/^(?:import|export)\b[^;]*?\bfrom\s+['"]([^'"]+)['"]/gm),
+      ...code.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g),
+    ].map((m) => m[1]!);
+    packages.set(
+      file,
+      specifiers.filter((s) => !s.startsWith('.')),
+    );
+    for (const specifier of specifiers.filter((s) => s.startsWith('.'))) {
+      const base = posix.join(posix.dirname(file), specifier).replace(/\.js$/, '');
+      const found = extensions.map((ext) => base + ext).find((f) => existsSync(join(dir, f)));
+      if (found) visit(found);
+    }
+  };
+  visit(entry);
+  return packages;
+}
+
+const importing = (graph: Map<string, string[]>, name: string) =>
+  [...graph].filter(([, packages]) => packages.includes(name)).map(([file]) => file);
+
+describe('the optional ai peer', () => {
+  it('is optional, so npm and pnpm leave the AI SDK out unless the app installs it', () => {
+    expect(pkg.peerDependencies.ai).toBeDefined();
+    expect(pkg.peerDependenciesMeta.ai).toEqual({ optional: true });
+  });
+
+  it('is imported for its types only, so nothing fails at run time without it', () => {
+    const files = readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) => /\.tsx?$/.test(f));
+    const imports = files.flatMap((file) => [
+      ...readFileSync(join(src, file), 'utf8').matchAll(/^(?:import|export)\b([^;]*?)\bfrom\s+'ai'/gm),
+    ]);
+    expect(imports.length).toBeGreaterThan(0);
+    expect(imports.map((m) => m[0]).filter((statement) => !/^(?:import|export) type\b/.test(statement))).toEqual([]);
+  });
+
+  it('is not needed by the AG-UI and ACP entries, types included', () => {
+    for (const entry of ['ag-ui.ts', 'acp.ts'])
+      expect(importing(reach(src, entry, ['.ts', '.tsx']), 'ai'), entry).toEqual([]);
+  });
+
+  it.skipIf(!existsSync(join(dist, 'index.d.ts')))('is not in the declarations the two entries ship', () => {
+    for (const entry of ['ag-ui.d.ts', 'acp.d.ts']) {
+      const graph = reach(dist, entry, ['.d.ts']);
+      expect(graph.size, entry).toBeGreaterThan(2);
+      expect(importing(graph, 'ai'), entry).toEqual([]);
+    }
+  });
+
+  it("returns what the AI SDK's types take, so the messages go to AgentMessage or useChat as they are", () => {
+    // Checked by `tsc` (pnpm typecheck), against the AI SDK the repository installs.
+    expectTypeOf<ReturnType<typeof toAcpMessage>>().toExtend<UIMessage>();
+    expectTypeOf<ReturnType<typeof fromAgUiMessages>>().toExtend<UIMessage[]>();
+    expectTypeOf<UseAgUiAgentResult['messages']>().toExtend<UIMessage[]>();
+    expectTypeOf<AcpTurn['status']>().toEqualTypeOf<ChatStatus>();
+    expectTypeOf<AgUiRunState['status']>().toEqualTypeOf<ChatStatus>();
+    expectTypeOf<UseAgUiAgentResult['usage']>().toEqualTypeOf<RunUsage | undefined>();
+    expectTypeOf<ReturnType<typeof addUsage>>().toExtend<LanguageModelUsage>();
+    expectTypeOf<LanguageModelUsage>().toExtend<RunUsage>();
+  });
+
+  it('is in Getting started, with what an AG-UI or ACP app can leave out', () => {
+    const guide = read('../../../examples/playground/content/docs/getting-started.md');
+    expect(guide).toContain('`ai` is an optional peer dependency');
+    expect(guide).toContain('`signoff-ui/ag-ui` and `signoff-ui/acp` declare their own types');
   });
 });
