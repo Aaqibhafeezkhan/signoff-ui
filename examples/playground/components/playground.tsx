@@ -25,7 +25,7 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
   lastAssistantMessageIsCompleteWithToolCalls,
 } from 'ai';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MockAgentTransport, PlaybackClock, type AgentUIMessage, type ReviewOutput } from '@/lib/mock-agent';
 import { MODEL, PRICING, PROMPT, REPO } from '@/lib/scenario';
 import { toolMeta } from '@/lib/tools';
@@ -42,6 +42,12 @@ const METER_LABELS = {
 };
 
 const CLIENT_TOOLS = ['review_changes'];
+
+// Once every tool call has its answer (the command's approval, the review's result), useChat sends
+// the next request itself.
+const sendAutomaticallyWhen = ({ messages }: { messages: AgentUIMessage[] }) =>
+  lastAssistantMessageIsCompleteWithApprovalResponses({ messages }) ||
+  lastAssistantMessageIsCompleteWithToolCalls({ messages });
 
 function toReviewOutput(result: DiffReviewResult): ReviewOutput {
   return {
@@ -100,12 +106,14 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
   const chat = useChat<AgentUIMessage>({
     id: `playground-${mode}`,
     transport,
-    sendAutomaticallyWhen: ({ messages }) =>
-      lastAssistantMessageIsCompleteWithApprovalResponses({ messages }) ||
-      lastAssistantMessageIsCompleteWithToolCalls({ messages }),
+    sendAutomaticallyWhen,
   });
   const { messages, status, sendMessage, setMessages, stop, addToolApprovalResponse, addToolOutput } = chat;
   const running = status === 'submitted' || status === 'streaming';
+  // Every tool call has its answer (the reader approved the command or applied the review), and
+  // useChat is about to send the next request: the run goes on, though its status still reads
+  // 'ready'. The render that folds an applied review away comes in this moment.
+  const handingBack = status === 'ready' && sendAutomaticallyWhen({ messages });
 
   const startRun = useCallback(() => {
     setMessages([]);
@@ -270,20 +278,26 @@ export function Playground({ liveAvailable }: { liveAvailable: boolean }) {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [follow]);
-  useEffect(() => {
+  // The two effects below run with the render that changes the run (layout effects), before the
+  // browser can report a scroll. A review folding away shortens the page, and the browser moves the
+  // scroll position to fit, with a scroll event at its next frame. Handled first, that event finds
+  // the end of the run above the screen, as if the reader had scrolled past it, and following
+  // stops: the run then went on without them, now and then in Firefox.
+  useLayoutEffect(() => {
     // Only while the end is off screen: below it as the run grows, or above it once a review folds
     // away. While the run is shorter than the screen its end is in view already, and lining it up
     // with the bottom would pull the run's heading down, away from the top of the screen.
     const box = endRef.current?.getBoundingClientRect();
-    if (stickRef.current && running && box && (box.bottom > window.innerHeight || box.top < 0)) {
+    if (stickRef.current && (running || handingBack) && box && (box.bottom > window.innerHeight || box.top < 0)) {
       endRef.current?.scrollIntoView({ block: 'end' });
     }
-  }, [messages, running]);
+  }, [messages, running, handingBack]);
 
-  const done = status === 'ready' && derived.state === 'done';
+  // Not while handing back, when the run only looks finished: no "Run complete" for a frame.
+  const done = status === 'ready' && derived.state === 'done' && !handingBack;
   // When the run finishes, the reasoning and the reviewed diff fold away above the answer; a reader
   // who was following stays with the end of the run rather than the sections below it.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!done || !stickRef.current) return;
     const id = setTimeout(() => {
       const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
