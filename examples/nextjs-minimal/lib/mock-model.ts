@@ -57,14 +57,24 @@ const LIMITER = [
   '',
 ].join('\n');
 
-/** Results the model has seen so far, by tool name. */
+/**
+ * The results of this run's tools: those after the last user message. useChat sends the whole
+ * conversation, so each message you send starts the run again instead of replaying the last ending.
+ */
 function toolResults(prompt: Prompt) {
-  return prompt.flatMap((message) =>
-    message.role === 'tool' ? message.content.filter((part) => part.type === 'tool-result') : [],
-  );
+  const start = prompt.findLastIndex((message) => message.role === 'user');
+  return prompt
+    .slice(start + 1)
+    .flatMap((message) =>
+      message.role === 'tool' ? message.content.filter((part) => part.type === 'tool-result') : [],
+    );
 }
 
 function script(prompt: Prompt): Chunk[] {
+  // Each run's tool calls get IDs of their own, as a real model's do: useChat's addToolOutput answers
+  // the first call it finds with an ID, so a second run that reused them would answer the first run's.
+  const run = prompt.filter((message) => message.role === 'user').length;
+  const id = (name: string) => `call_${name}_${run}`;
   const results = toolResults(prompt);
   const review = results.find((part) => part.toolName === 'review_changes');
   const command = results.find((part) => part.toolName === 'run_command');
@@ -75,8 +85,8 @@ function script(prompt: Prompt): Chunk[] {
       { type: 'reasoning-delta', id: 'r1', delta: 'Rate limiting belongs in the route. Read it, and any middleware.' },
       { type: 'reasoning-end', id: 'r1' },
       ...text('t1', 'I will read the **chat route** and the middleware first.'),
-      toolCall('call_read_route', 'read_file', { path: 'app/api/chat/route.ts' }),
-      toolCall('call_read_middleware', 'read_file', { path: 'middleware.ts' }),
+      toolCall(id('read_route'), 'read_file', { path: 'app/api/chat/route.ts' }),
+      toolCall(id('read_middleware'), 'read_file', { path: 'middleware.ts' }),
       { type: 'finish', usage: usage(4_200, 0, 180), finishReason: { unified: 'tool-calls', raw: undefined } },
     ];
   }
@@ -84,7 +94,7 @@ function script(prompt: Prompt): Chunk[] {
   if (!review) {
     return [
       ...text('t2', 'There is no middleware, so the limit goes in the route. Here is the change, for you to review.'),
-      toolCall('call_review', 'review_changes', {
+      toolCall(id('review'), 'review_changes', {
         files: [
           { path: 'app/api/chat/route.ts', oldContent: ROUTE, newContent: LIMITED },
           { path: 'lib/ratelimit.ts', newContent: LIMITER },
@@ -108,7 +118,7 @@ function script(prompt: Prompt): Chunk[] {
         't3',
         `The ${applied === 1 ? 'hunk you accepted is' : `${applied} hunks you accepted are`} applied. The limiter needs two packages.`,
       ),
-      toolCall('call_install', 'run_command', { command: 'pnpm add @upstash/ratelimit @upstash/redis' }),
+      toolCall(id('install'), 'run_command', { command: 'pnpm add @upstash/ratelimit @upstash/redis' }),
       { type: 'finish', usage: usage(5_900, 5_000, 90), finishReason: { unified: 'tool-calls', raw: undefined } },
     ];
   }

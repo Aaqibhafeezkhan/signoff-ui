@@ -1,7 +1,12 @@
-// Keeps the examples that ask for a version range of signoff-ui on the version this repository
-// publishes: `^<version>`, from packages/signoff-ui/package.json. `pnpm version-packages` runs it
-// after `changeset version`, so the release pull request moves them to the version it publishes.
-// Examples that ask for `latest` follow npm on their own and are left alone.
+// Keeps the examples that ask for signoff-ui on the version this repository publishes:
+// `^<version>`, from packages/signoff-ui/package.json. `pnpm version-packages` runs it after
+// `changeset version`, so the release pull request moves them to the version it publishes.
+//
+// `latest` counts as stale too, and is replaced by the range. A copy or an old checkout of an
+// example that asks for `latest` installs whatever is newest, a breaking 0.x minor included, and
+// for a day after each release pnpm 11's default minimum release age resolves it to the version
+// before, while the example's code and README describe the new one; a range only the new version
+// satisfies installs it. Only a workspace link (the playground, never copied out) is left alone.
 //
 // In the workspace every example builds against the local source (`overrides` in
 // pnpm-workspace.yaml), and pnpm-lock.yaml records the override, not the range: changing the range
@@ -27,8 +32,8 @@ for (const entry of readdirSync(join(root, 'examples'), { withFileTypes: true })
     continue;
   }
   const asked = JSON.parse(text).dependencies?.[name];
-  // A version range (`^0.6.0`, `~0.6.0`, `0.6.0`), not `latest` or a workspace link.
-  if (typeof asked !== 'string' || !/^[\^~]?\d/.test(asked) || asked === range) continue;
+  // Another range (`^0.6.0`, `~0.6.0`, `0.6.0`) or a dist-tag such as `latest`, not a workspace link.
+  if (typeof asked !== 'string' || asked.startsWith('workspace:') || asked === range) continue;
   stale.push(`examples/${entry.name} (${asked})`);
   if (!check) writeFileSync(file, text.replace(`"${name}": "${asked}"`, `"${name}": "${range}"`));
 }

@@ -1,8 +1,8 @@
 packages:
   - packages/*
   - examples/*
-# The examples ask for the published package (`latest`, or `^<version>` in examples/coding-agent),
-# so they also run copied out of the repository; in the workspace they build against the local source.
+# The examples ask for the published package (`^<version>`, which `pnpm version-packages` moves with each
+# release), so they also run copied out of the repository; in the workspace they build against the local source.
 overrides:
   'signoff-ui': 'workspace:*'
   # @copilotkit/runtime (examples/copilotkit) reaches @ai-sdk/provider-utils 3, which asks for undici ^5.29.0.
