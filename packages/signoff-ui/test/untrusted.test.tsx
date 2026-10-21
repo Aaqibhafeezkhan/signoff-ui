@@ -59,7 +59,24 @@ describe('ApprovalCard: a command shows what runs', () => {
     );
     expect(card().textContent).not.toContain('\n');
     expect(visibleText(card())).toContain('npm test↵ ×60--script-shell=./x.sh');
-    expect(card()).toHaveTextContent('60 blank characters');
+    expect(card()).toHaveTextContent('60 line breaks');
+  });
+
+  it('counts the line breaks of a run of blank lines, not its characters', () => {
+    // CRLF, with spaces on each line: 60 line breaks, 240 characters.
+    render(
+      <ApprovalCard
+        toolName="run_command"
+        input={{ command: `npm test${'  \r\n'.repeat(60)}--script-shell=./x.sh` }}
+      />,
+    );
+    expect(visibleText(card())).toContain('npm test↵ ×60--script-shell=./x.sh');
+    expect(card()).toHaveTextContent('60 line breaks');
+  });
+
+  it('shows a variation selector after a letter, where it shows nothing', () => {
+    render(<ApprovalCard toolName="run_command" input={{ command: 'cat src/notes\uFE0F.txt' }} />);
+    expect(visibleText(card())).toContain('cat src/notesU+FE0F.txt');
   });
 
   it('wraps the command, so no filler before its end pushes that end out of view to the side', () => {
@@ -142,6 +159,21 @@ describe('Markdown: a link whose text names another host shows where it goes', (
     expect(screen.getByRole('link', { name: 'https://github.com/x' })).toHaveTextContent(/^https:\/\/github\.com\/x$/);
   });
 
+  it('shows the host beside a domain with a variation selector in it or after it', () => {
+    render(
+      <Markdown>
+        {'[github.com\uFE0F](https://evil.example/login) and [git\uFE0Fhub.com/login](https://evil.example/login)'}
+      </Markdown>,
+    );
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', 'https://evil.example/login');
+      expect(link).toHaveTextContent(/evil\.example$/);
+      expect(link).toHaveAccessibleName(/Links to evil\.example/);
+    }
+  });
+
   it('leaves a link with an emoji in its text alone', () => {
     render(
       <Markdown>
@@ -215,12 +247,12 @@ describe('revealText', () => {
   it('marks a run of characters that do not show once, with each code point', () => {
     expect(revealText(`a${RLO}b`)).toEqual([
       'a',
-      { kind: 'invisible', text: RLO, count: 1, codes: ['U+202E'], shown: 'U+202E' },
+      { kind: 'invisible', text: RLO, count: 1, lines: 0, codes: ['U+202E'], shown: 'U+202E' },
       'b',
     ]);
     expect(revealText(`a${ZWSP.repeat(240)}`)).toEqual([
       'a',
-      { kind: 'invisible', text: ZWSP.repeat(240), count: 240, codes: ['U+200B'], shown: 'U+200B ×240' },
+      { kind: 'invisible', text: ZWSP.repeat(240), count: 240, lines: 0, codes: ['U+200B'], shown: 'U+200B ×240' },
     ]);
     // Unicode tags, which can spell out a hidden instruction: astral, counted as characters.
     const tags = Array.from('ignore', (c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('');
@@ -228,6 +260,23 @@ describe('revealText', () => {
     expect(mark.count).toBe(6);
     expect(mark.codes[0]).toBe('U+E0069');
     expect(mark.shown).toBe('U+E0069 … ×6');
+  });
+
+  it('marks a variation selector that is in no emoji, as after a letter', () => {
+    const marked = (text: string) =>
+      revealText(text)
+        .filter((p) => typeof p !== 'string')
+        .map((p) => (p as { shown: string }).shown);
+    expect(marked('cat src/notes\uFE0F.txt')).toEqual(['U+FE0F']);
+    expect(marked('git\uFE0Ehub.com')).toEqual(['U+FE0E']);
+    expect(marked('\uFE0Fstart')).toEqual(['U+FE0F']);
+    // After a digit, only a keycap keeps it.
+    expect(marked('notes1\uFE0F.txt')).toEqual(['U+FE0F']);
+    expect(marked('1\uFE0F\u20E3 #\uFE0F\u20E3')).toEqual([]);
+    // Two in a row: the second follows no emoji.
+    expect(marked('\u2764\uFE0F\uFE0F')).toEqual(['U+FE0F']);
+    // Emoji keep theirs: a heart, a copyright sign, a flag of joined emoji.
+    expect(marked('\u2764\uFE0F \u00A9\uFE0F \u{1F3F3}\uFE0F\u200D\u{1F308}')).toEqual([]);
   });
 
   it('marks control characters, ANSI escapes included, and a carriage return inside a line', () => {
@@ -243,7 +292,7 @@ describe('revealText', () => {
   it('with blanks, marks a long run of spaces and tabs, and spaces that are not U+0020', () => {
     expect(revealText(`a${' '.repeat(16)}b`, { blanks: true })).toEqual([
       'a',
-      { kind: 'blank', text: ' '.repeat(16), count: 16, codes: [], shown: '␣ ×16' },
+      { kind: 'blank', text: ' '.repeat(16), count: 16, lines: 0, codes: [], shown: '␣ ×16' },
       'b',
     ]);
     // A tab counts 8 columns.
@@ -254,22 +303,28 @@ describe('revealText', () => {
   it('with blanks, marks a run of 3 blank lines or more, line breaks and all, and leaves 2 as they are', () => {
     expect(revealText('a\n\n\n\nb', { blanks: true })).toEqual([
       'a',
-      { kind: 'blank', text: '\n\n\n\n', count: 4, codes: [], shown: '↵ ×4' },
+      { kind: 'blank', text: '\n\n\n\n', count: 4, lines: 4, codes: [], shown: '↵ ×4' },
       'b',
     ]);
-    // Spaces and the carriage returns of CRLF on those lines are part of the run.
+    // Spaces and the carriage returns of CRLF on those lines are part of the run, and the mark
+    // counts its line breaks.
     expect(revealText(`a${'  \r\n'.repeat(4)}b`, { blanks: true })).toEqual([
       'a',
-      { kind: 'blank', text: '  \r\n'.repeat(4), count: 16, codes: [], shown: '↵ ×16' },
+      { kind: 'blank', text: '  \r\n'.repeat(4), count: 16, lines: 4, codes: [], shown: '↵ ×4' },
       'b',
     ]);
+    expect(revealText(`a${'\r\n'.repeat(60)}b`, { blanks: true })[1]).toMatchObject({
+      count: 120,
+      lines: 60,
+      shown: '↵ ×60',
+    });
     // Two blank lines, as between Python definitions, stay as they are.
     const code = 'import os\n\n\ndef main():\n    pass\r\n\r\n\r\nmain()';
     expect(revealText(code, { blanks: true })).toEqual([code]);
     // Below that, a line's spaces count on their own, and the line break before them stays.
     expect(revealText(`a\n\n${' '.repeat(16)}b`, { blanks: true })).toEqual([
       'a\n\n',
-      { kind: 'blank', text: ' '.repeat(16), count: 16, codes: [], shown: '␣ ×16' },
+      { kind: 'blank', text: ' '.repeat(16), count: 16, lines: 0, codes: [], shown: '␣ ×16' },
       'b',
     ]);
     // Without blanks, line breaks are left as they are.
@@ -335,6 +390,20 @@ describe('linkHostMismatch', () => {
     expect(linkHostMismatch('👩\u200D💻 Docs', 'https://react.dev/learn')).toBeUndefined();
     // A bidi override beside one still names the host.
     expect(linkHostMismatch(`❤\uFE0F Sponsor${RLO}`, 'https://github.com/sponsors/x')).toBe('github.com');
+  });
+
+  it('names the host for a variation selector in no emoji, which shows nothing', () => {
+    for (const text of [
+      'github.com\uFE0F',
+      'github.com\uFE0E',
+      'git\uFE0Fhub.com/login',
+      'github.com\uFE0F/login',
+      'git1\uFE0Fhub.com',
+    ])
+      expect(linkHostMismatch(text, 'https://evil.example/login')).toBe('evil.example');
+    // One an emoji keeps does not hide the name either: ℹ, an emoji, reads as i in a host.
+    expect(linkHostMismatch('githubℹ\uFE0F.com', 'https://evil.example/login')).toBe('evil.example');
+    expect(linkHostMismatch('github.com', 'https://evil.example/login')).toBe('evil.example');
   });
 
   it('names the host when the URL puts a name before it, whatever the text says', () => {

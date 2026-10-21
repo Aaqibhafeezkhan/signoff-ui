@@ -18,6 +18,8 @@ const ANY_INVISIBLE = /(?![\t\n\r])[\p{Cc}\p{Default_Ignorable_Code_Point}\p{Zl}
 const OTHER_SPACE = /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]/u;
 const ANY_BLANK = /[ \t]{2}|[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]|\n(?:[ \t\r]*\n){3}/u;
 const PICTOGRAPH = /\p{Extended_Pictographic}/u;
+/** A character that can be an emoji, which a variation selector after it shows as one or as text. */
+const EMOJI = /\p{Emoji}/u;
 const IN_EMOJI = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\uFE0F]/u;
 /** A run of spaces and tabs this wide, a tab counting 8, shows as a mark: about a third of a narrow card. */
 const BLANK_RUN = 16;
@@ -43,11 +45,13 @@ export interface RevealedMark {
   kind: 'invisible' | 'blank';
   /** The characters. */
   text: string;
-  /** How many there are. */
+  /** How many characters there are. */
   count: number;
+  /** For a run of blank lines, how many line breaks it has, which the mark shows (`↵ ×60`); 0 for any other mark. */
+  lines: number;
   /** Their code points, each once, in order (`U+202E`); empty for a blank run. */
   codes: string[];
-  /** What the mark shows: `U+202E`, `U+200B ×240`, `␣ ×240`, and `↵ ×60` for a run with line breaks. */
+  /** What the mark shows: `U+202E`, `U+200B ×240`, `␣ ×240`, and `↵ ×60` for a run of 60 line breaks. */
   shown: string;
 }
 
@@ -79,21 +83,25 @@ export function revealText(text: string, options: RevealTextOptions = {}): Revea
   let mark: RevealedMark | undefined;
   /** The spaces, tabs and line breaks since the last other character, which may make a long run. */
   let run = '';
-  const blank = (blanks: string, symbol: string) => {
+  const blank = (blanks: string, lines: number) => {
     if (plain) parts.push(plain);
     plain = '';
     const count = blanks.length;
-    parts.push({ kind: 'blank', text: blanks, count, codes: [], shown: `${symbol} ×${count}` });
+    // A run of blank lines shows how many lines it pushes down, not its characters: the spaces on
+    // those lines and the carriage returns of CRLF count in `count` only.
+    const shown = lines ? `↵ ×${lines}` : `␣ ×${count}`;
+    parts.push({ kind: 'blank', text: blanks, count, lines, codes: [], shown });
   };
   const flushRun = () => {
+    const lines = run.split('\n').length - 1;
     // Enough blank lines to push what follows out of view below are one mark, line breaks and all.
-    if (run.split('\n').length - 1 > BLANK_LINES) blank(run, '↵');
+    if (lines > BLANK_LINES) blank(run, lines);
     else {
       // Otherwise each line's spaces count on their own, and the line breaks stay as they are.
       for (const piece of run.split(/(\r?\n)/)) {
         let width = 0;
         for (const char of piece) width += char === '\t' ? 8 : char === ' ' ? 1 : 0;
-        if (width >= BLANK_RUN) blank(piece, '␣');
+        if (width >= BLANK_RUN) blank(piece, 0);
         else plain += piece;
       }
     }
@@ -103,11 +111,17 @@ export function revealText(text: string, options: RevealTextOptions = {}): Revea
     if (char === '\t' || char === '\n') return false;
     if (char === '\r') return i < chars.length - 1 && chars[i + 1] !== '\n';
     // The joiner between two emoji that make one (woman, joiner, laptop), and a variation selector
-    // after a character that shows, such as the one that makes a heart an emoji. Compared by code
-    // point: a bundler may print the escape in a string as the character itself, which does not show.
+    // after a character that can be an emoji, such as the one that makes a heart an emoji; after a
+    // digit, `#` or `*`, only in a keycap (1, U+FE0F, U+20E3). After a letter one shows nothing, and
+    // would hide in a word or a host: `git` U+FE0F `hub.com`. Compared by code point: a bundler may
+    // print the escape in a string as the character itself, which does not show.
     const code = char.codePointAt(0);
     if (code === 0x200d) return !(IN_EMOJI.test(chars[i - 1] ?? '') && PICTOGRAPH.test(chars[i + 1] ?? ''));
-    if (code === 0xfe0e || code === 0xfe0f) return i === 0 || INVISIBLE.test(chars[i - 1]!);
+    if (code === 0xfe0e || code === 0xfe0f) {
+      const before = chars[i - 1];
+      if (before === undefined || !EMOJI.test(before)) return true;
+      return /^[\d#*]$/.test(before) && chars[i + 1]?.codePointAt(0) !== 0x20e3;
+    }
     return INVISIBLE.test(char) || (!!options.blanks && OTHER_SPACE.test(char));
   };
   chars.forEach((char, i) => {
@@ -116,7 +130,7 @@ export function revealText(text: string, options: RevealTextOptions = {}): Revea
       if (!mark) {
         if (plain) parts.push(plain);
         plain = '';
-        mark = { kind: 'invisible', text: '', count: 0, codes: [], shown: '' };
+        mark = { kind: 'invisible', text: '', count: 0, lines: 0, codes: [], shown: '' };
         parts.push(mark);
       }
       mark.text += char;
@@ -226,14 +240,17 @@ export function linkHostMismatch(text: string, href: string): string | undefined
   // Characters that do not show, as `revealText` marks them: not the joiner or the variation
   // selector inside an emoji, as in a red heart or a woman at a laptop.
   if (revealText(trimmed).some((part) => typeof part !== 'string')) return target;
-  const domain = DOMAIN_TEXT.exec(trimmed)?.[1];
+  // Those left are an emoji's, and split no name: read without them, so that one after a host does
+  // not keep the text from naming it.
+  const shown = trimmed.replace(/\u200D|\uFE0E|\uFE0F/gu, '');
+  const domain = DOMAIN_TEXT.exec(shown)?.[1];
   // A name such as `README.md` is a file's, unless its extension is a top-level domain too, as in
   // `docs.rs`: then only when the link goes to that file.
   const fileName =
     !!domain &&
     FILE_NAME.test(domain) &&
-    (!TLD_EXTENSION.test(domain) || (trimmed === domain && lastSegment(url) === domain.toLowerCase()));
-  const named = NAMED_HOST.exec(trimmed)?.[1] ?? (domain && !fileName ? domain : undefined);
+    (!TLD_EXTENSION.test(domain) || (shown === domain && lastSegment(url) === domain.toLowerCase()));
+  const named = NAMED_HOST.exec(shown)?.[1] ?? (domain && !fileName ? domain : undefined);
   if (named === undefined) return undefined;
   return normalHost(named) !== target || target.split('.').some((label) => label.startsWith('xn--'))
     ? target

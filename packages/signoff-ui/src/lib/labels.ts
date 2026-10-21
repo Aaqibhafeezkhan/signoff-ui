@@ -298,8 +298,11 @@ export interface SignoffLabels {
   untrusted: {
     /** A mark in place of characters that do not show, such as a bidi control or a zero-width space; `codes` lists each once. */
     invisible: (count: number, codes: readonly string[]) => string;
-    /** A mark in place of a long run of spaces and tabs, or of blank lines, in a command or a path. */
-    blank: (count: number) => string;
+    /**
+     * A mark in place of a long run of spaces and tabs, or of blank lines, in a command or a path:
+     * `lines` is how many line breaks a run of blank lines has, which its mark shows, and 0 for spaces.
+     */
+    blank: (count: number, lines: number) => string;
     /** Beside a link whose text names another host than the one it goes to. */
     linksTo: (host: string) => string;
   };
@@ -608,7 +611,7 @@ export const agentMessageLabels: SignoffLabels['agentMessage'] = { attachedImage
 export const untrustedLabels: SignoffLabels['untrusted'] = {
   invisible: (count, codes) =>
     count === 1 ? `Invisible character ${codes[0]}` : `${count} invisible characters: ${codes.join(', ')}`,
-  blank: (count) => `${count} blank characters`,
+  blank: (count, lines) => (lines ? `${lines} line breaks` : `${count} blank characters`),
   linksTo: (host) => `Links to ${host}`,
 };
 

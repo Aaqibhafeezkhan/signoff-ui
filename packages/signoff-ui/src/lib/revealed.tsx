@@ -18,7 +18,7 @@ export function Revealed({ text, blanks = false }: { text: string; blanks?: bool
     <>
       {revealText(text, { blanks }).map((part, i) => {
         if (typeof part === 'string') return part;
-        const name = part.kind === 'blank' ? L.blank(part.count) : L.invisible(part.count, part.codes);
+        const name = part.kind === 'blank' ? L.blank(part.count, part.lines) : L.invisible(part.count, part.codes);
         return (
           <span key={i} data-slot="signoff-untrusted" data-kind={part.kind} title={name} className={MARK_CLASS}>
             <span aria-hidden="true">{part.shown}</span>

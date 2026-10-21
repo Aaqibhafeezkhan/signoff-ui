@@ -388,7 +388,10 @@ export const pt: SignoffLabels = {
   untrusted: {
     invisible: (count, codes) =>
       count === 1 ? `Carácter invisível ${codes[0]}` : `${count} caracteres invisíveis: ${codes.join(', ')}`,
-    blank: (count) => `${count} ${plural(count, 'espaço em branco', 'espaços em branco')}`,
+    blank: (count, lines) =>
+      lines
+        ? `${lines} ${plural(lines, 'quebra de linha', 'quebras de linha')}`
+        : `${count} ${plural(count, 'espaço em branco', 'espaços em branco')}`,
     linksTo: (host) => `Leva a ${host}`,
   },
 };
