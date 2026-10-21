@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { headingId } from './utils';
 
 /*
  * What the README tells someone deciding whether to use the kit, against what ships: one pitch on
@@ -36,23 +37,6 @@ const file = (path: string) =>
   new RegExp(`\`\`\`tsx?\\n// ${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n([\\s\\S]*?)\`\`\``).exec(
     quickstart,
   )?.[1] ?? '';
-
-/**
- * The id the docs site gives a heading: lib/docs.ts's slugify of its plainText, copied rather than
- * imported, so this test doesn't load the playground's component and API modules lib/docs.ts uses.
- */
-const headingId = (heading: string) =>
-  heading
-    // plainText: code, links and emphasis as their text.
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/(\*\*|__|\*|_)(.*?)\1/g, '$2')
-    .trim()
-    // slugify
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .trim()
-    .replace(/\s+/g, '-');
 
 /** The `##` and `###` headings' ids of a Markdown file, outside code blocks (lib/docs.ts's getHeadings). */
 function headingIds(path: string) {

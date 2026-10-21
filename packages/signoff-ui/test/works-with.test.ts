@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ai from 'ai';
 import { describe, expect, it } from 'vitest';
+import { headingId, section } from './utils';
 
 /*
  * "Works with", in the README and in Getting started: what CI tests kept apart from what should
@@ -19,22 +20,6 @@ const readme = read('README.md');
 const guide = read('examples/playground/content/docs/getting-started.md');
 const intro = read('examples/playground/content/docs/introduction.md');
 const ci = read('.github/workflows/ci.yml');
-
-/** A `## ` section, from its heading to the next one. */
-function section(markdown: string, heading: string) {
-  const start = markdown.indexOf(`\n## ${heading}\n`);
-  if (start === -1) return '';
-  const end = markdown.indexOf('\n## ', start + 1);
-  return markdown.slice(start, end === -1 ? undefined : end);
-}
-
-/** The id the docs site gives a heading (lib/docs.ts), for headings of plain text. */
-const headingId = (heading: string) =>
-  heading
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .trim()
-    .replace(/\s+/g, '-');
 
 /** The matrix in a "Works with" section: its header, and each row's tested and untested entries. */
 function matrix(markdown: string) {
@@ -296,10 +281,13 @@ describe('Requirements: browsers', () => {
       .split('\n')
       .find((line) => line.startsWith('- **Browsers.**')) ?? '';
 
-  it("gives Tailwind CSS v4's floor, which builds the kit's stylesheet", () => {
+  it("gives Tailwind CSS v4's floor, which builds the kit's stylesheet, and Edge's from Chrome's", () => {
     expect(json('packages/signoff-ui/package.json').devDependencies?.tailwindcss).toMatch(/^\^4\./);
-    for (const version of ['Chrome and Edge 111', 'Safari 16.4', 'Firefox 128']) expect(browsers).toContain(version);
-    expect(browsers).toContain('(https://tailwindcss.com/docs/compatibility)');
+    // The versions tailwindcss.com/docs/compatibility names. It names no Edge version.
+    expect(browsers).toContain(
+      'Chrome 111, Safari 16.4 and Firefox 128 or later, the minimums of [Tailwind CSS v4](https://tailwindcss.com/docs/compatibility)',
+    );
+    expect(browsers).toContain("Edge 111, which runs Chrome's engine");
   });
 
   it('names the browsers CI runs, each a job', () => {

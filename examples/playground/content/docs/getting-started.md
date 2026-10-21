@@ -24,7 +24,7 @@ To add the components to an app of your own, read on: install them, add the styl
 - **AI SDK** 6 or 7 (`ai@^6.0.0 || ^7.0.102`). The kit imports its types only, so it adds no SDK code to your bundle.
 - **A React app.** Nothing in the kit is tied to a framework. The walkthrough below is a Next.js 16 App Router app, which CI builds and runs in Chrome. In a Vite app, [three things change](/docs/getting-started#vite-and-other-bundlers).
 - **ES modules.** The package is ESM only, with no CommonJS build: load it with `import`, as bundlers and Next.js do. CI builds and tests it on Node 24.
-- **Browsers.** Chrome and Edge 111, Safari 16.4 and Firefox 128 or later. Those are the minimums of [Tailwind CSS v4](https://tailwindcss.com/docs/compatibility), which builds the kit's stylesheet. CI runs the current Chrome, Firefox and WebKit (Safari's engine), not the minimums.
+- **Browsers.** Chrome 111, Safari 16.4 and Firefox 128 or later, the minimums of [Tailwind CSS v4](https://tailwindcss.com/docs/compatibility), which builds the kit's stylesheet, and Edge 111, which runs Chrome's engine. CI runs the current Chrome, Firefox and WebKit (Safari's engine), not the minimums.
 
 [Works with](/docs/getting-started#works-with) has what CI tests, and what should work but isn't tested yet.
 
@@ -567,7 +567,7 @@ The tested entries come from these jobs in [`ci.yml`](https://github.com/dgestev
 - **AI SDK 6** and **React 18**: the library's typecheck and test suite again, on AI SDK 6.0.0 and the latest 6, and on the latest React 18.
 - **Next.js quickstart**: [examples/nextjs-minimal](https://github.com/dgesteves/signoff-ui/tree/main/examples/nextjs-minimal), [Render a run](/docs/getting-started#render-a-run) as an app on AI SDK 7, built and run in Chrome through a review, an approval and the final answer.
 - **Coding agent reference app**: [examples/coding-agent](https://github.com/dgesteves/signoff-ui/tree/main/examples/coding-agent), with no Tailwind, built with webpack from the packed package and run in Chrome on a desktop and a phone-sized screen.
-- **assistant-ui binding**: [examples/assistant-ui](https://github.com/dgesteves/signoff-ui/tree/main/examples/assistant-ui), a Vite app, built from the packed package with `vite build`, then started with `vite dev`, with a review and an approval in Chrome in each.
+- **assistant-ui binding**: [examples/assistant-ui](https://github.com/dgesteves/signoff-ui/tree/main/examples/assistant-ui), a Vite app, built from the packed package with `vite build` and run in Chrome through a review and an approval, then started with `vite dev` and run through the review to the approval card.
 - **Firefox** and **WebKit (Safari's engine)**: the playground and the quickstart in each, and axe in WebKit too. WebKit runs on macOS, where it behaves as Safari does.
 
 **Examples installed fresh from npm** runs daily and on each release's pull request, not on every pull request: each example copied out, installed from npm with no lockfile, and run with `dev` in Chrome.
@@ -631,7 +631,7 @@ import 'signoff-ui/styles.css';
 import { DefaultChatTransport } from 'ai';
 
 // In AgentRun, the walkthrough's useChat with a transport added.
-const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat({
+const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
   // Your server's chat route. Without a transport, useChat posts to /api/chat on the page's own origin.
   transport: new DefaultChatTransport({ api: 'https://api.example.com/chat' }),
   sendAutomaticallyWhen: (chat) =>
