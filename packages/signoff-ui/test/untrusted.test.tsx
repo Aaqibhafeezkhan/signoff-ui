@@ -189,6 +189,20 @@ describe('Markdown: a link whose text names another host shows where it goes', (
     render(<Markdown>{'[g\u0456thub.com](https://g\u0456thub.com/login)'}</Markdown>);
     expect(screen.getByRole('link')).toHaveTextContent('xn--');
   });
+
+  it('shows the host beside a domain among other words, and not beside a file name', () => {
+    render(
+      <Markdown>
+        {
+          '[Visit github.com →](https://evil.example/login) and [Read README.md](https://github.com/a/b/blob/main/README.md)'
+        }
+      </Markdown>,
+    );
+    const visit = screen.getByRole('link', { name: /^Visit github\.com/ });
+    expect(visit).toHaveTextContent(/evil\.example$/);
+    expect(visit).toHaveAccessibleName(/Links to evil\.example/);
+    expect(screen.getByRole('link', { name: 'Read README.md' })).toHaveTextContent(/^Read README\.md$/);
+  });
 });
 
 describe('Sources and attachments link only to safe URLs', () => {
@@ -385,9 +399,49 @@ describe('linkHostMismatch', () => {
     expect(linkHostMismatch(`${RLO}moc.buhtig//:sptth`, 'https://evil.example')).toBe('evil.example');
   });
 
+  it('names the host when a word anywhere in the text names another', () => {
+    for (const text of [
+      'Visit github.com',
+      'github.com →',
+      'github.com!',
+      'github.com/login →',
+      'github.com ❤\uFE0F',
+      'Visit github.com.',
+      '(github.com)',
+      '/github.com',
+      '.github.com',
+      'github.com@',
+      'Docs: https://github.com/x',
+    ])
+      expect(linkHostMismatch(text, 'https://evil.example/login')).toBe('evil.example');
+    // Every host the text names counts, not only the first.
+    expect(linkHostMismatch('evil.example, not https://github.com', 'https://evil.example')).toBe('evil.example');
+    expect(linkHostMismatch('https://evil.example or github.com', 'https://evil.example')).toBe('evil.example');
+  });
+
+  it('names nothing for a file name among words, the name before an @, or a word in a URL', () => {
+    expect(linkHostMismatch('Read README.md', 'https://github.com/a/b/blob/main/README.md')).toBeUndefined();
+    expect(linkHostMismatch('Next.js docs', 'https://nextjs.org/docs')).toBeUndefined();
+    expect(linkHostMismatch('Visit react.dev →', 'https://react.dev/learn')).toBeUndefined();
+    expect(linkHostMismatch('jane.doe@github.com', 'mailto:jane.doe@github.com')).toBeUndefined();
+    // An autolink: the words in its path and query are not where it goes.
+    const autolink = 'https://www.npmjs.com/package/lodash.debounce?from=evil.example';
+    expect(linkHostMismatch(autolink, autolink)).toBeUndefined();
+    expect(linkHostMismatch('github.com/vercel/next.js', 'https://github.com/vercel/next.js')).toBeUndefined();
+  });
+
+  it('reads long text once, not once from each of its characters', () => {
+    const start = performance.now();
+    for (const text of ['a'.repeat(100_000), 'ab.'.repeat(30_000), `https://${'a'.repeat(100_000)}`])
+      linkHostMismatch(text, 'https://evil.example/login');
+    // Read from each character, the first alone takes seconds.
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('names nothing for the joiner and the variation selector inside an emoji', () => {
     expect(linkHostMismatch('❤\uFE0F Sponsor', 'https://github.com/sponsors/x')).toBeUndefined();
     expect(linkHostMismatch('👩\u200D💻 Docs', 'https://react.dev/learn')).toBeUndefined();
+    expect(linkHostMismatch('github.com ❤\uFE0F', 'https://github.com/sponsors/x')).toBeUndefined();
     // A bidi override beside one still names the host.
     expect(linkHostMismatch(`❤\uFE0F Sponsor${RLO}`, 'https://github.com/sponsors/x')).toBe('github.com');
   });

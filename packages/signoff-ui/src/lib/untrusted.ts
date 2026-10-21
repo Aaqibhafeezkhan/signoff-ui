@@ -184,11 +184,15 @@ export function safeUrl(url: string | null | undefined, options: SafeUrlOptions 
   return options.files && (scheme === 'data' || scheme === 'blob') ? url : undefined;
 }
 
-/** A host link text names: in a URL (`https://github.com/x`), after `www.`, or in an email address. */
+/**
+ * Each host link text names, anywhere in it. Group 1: in a URL (`https://github.com/x`), after
+ * `www.`, or in an email address, read with the rest of the URL. Group 2: a word that reads as a
+ * domain (`Visit github.com →`, `/github.com`), read with its path, if any, as group 3; not the
+ * name before an `@` (`first.last@`). Each starts only where a word does, so that long text is
+ * read once, not once from each of its characters.
+ */
 const NAMED_HOST =
-  /(?:[a-z][a-z\d+.-]*:\/\/(?:[^\s/@]*@)?|\bwww\.|[^\s@<>()[\]]@)([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*)/iu;
-/** Link text that is a domain, with or without a path: `github.com`, `github.com/x`. */
-const DOMAIN_TEXT = /^((?:[\p{L}\p{N}-]+\.)+\p{L}[\p{L}\p{N}-]+)\.?(?:[/?#:]\S*)?$/u;
+  /(?:(?<![a-z\d+.-])[a-z\d+.-]*:\/\/(?:[^\s/@]*@)?|\bwww\.|[^\s@<>()[\]]@)([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*)\S*|(?<![\p{L}\p{M}\p{N}-]|[\p{L}\p{M}\p{N}-]\.)((?:[\p{L}\p{M}\p{N}-]+\.)+\p{L}[\p{L}\p{M}\p{N}-]+)(?![\p{L}\p{M}\p{N}-]|[.@][\p{L}\p{M}\p{N}-])\.?([/?#:]\S*)?/giu;
 /** A file's or a product's name, which reads like a domain and is not one: `README.md`, `Next.js`. */
 const FILE_NAME =
   /\.(?:[cm]?[jt]sx?|json|mdx?|s?css|html?|py|rb|go|rs|sh|txt|ya?ml|toml|lock|vue|svelte|php|java|kt|swift|cpp|cs|sql|xml|csv|log|zip|pdf|png|jpe?g|gif|svg|webp)$/i;
@@ -216,9 +220,10 @@ function lastSegment(url: URL): string {
 
 /**
  * The host a link goes to, when its text could make a person think it goes elsewhere: the text
- * names another host, or names one in look-alike letters (the host is in punycode, `xn--`), or has
- * characters that do not show, or the URL puts a name before the host (`https://github.com@evil.example`).
- * Otherwise `undefined`, and the link needs nothing beside it.
+ * names another host anywhere in it (`Visit github.com →`), counting any word that reads as a
+ * domain and is not a file's name, or names one in look-alike letters (the host is in punycode,
+ * `xn--`), or has characters that do not show, or the URL puts a name before the host
+ * (`https://github.com@evil.example`). Otherwise `undefined`, and the link needs nothing beside it.
  */
 export function linkHostMismatch(text: string, href: string): string | undefined {
   let url: URL;
@@ -243,16 +248,19 @@ export function linkHostMismatch(text: string, href: string): string | undefined
   // Those left are an emoji's, and split no name: read without them, so that one after a host does
   // not keep the text from naming it.
   const shown = trimmed.replace(/\u200D|\uFE0E|\uFE0F/gu, '');
-  const domain = DOMAIN_TEXT.exec(shown)?.[1];
-  // A name such as `README.md` is a file's, unless its extension is a top-level domain too, as in
-  // `docs.rs`: then only when the link goes to that file.
-  const fileName =
-    !!domain &&
-    FILE_NAME.test(domain) &&
-    (!TLD_EXTENSION.test(domain) || (shown === domain && lastSegment(url) === domain.toLowerCase()));
-  const named = NAMED_HOST.exec(shown)?.[1] ?? (domain && !fileName ? domain : undefined);
-  if (named === undefined) return undefined;
-  return normalHost(named) !== target || target.split('.').some((label) => label.startsWith('xn--'))
-    ? target
-    : undefined;
+  let named = false;
+  for (const [, host, domain, path] of shown.matchAll(NAMED_HOST)) {
+    // A name such as `README.md` is a file's, unless its extension is a top-level domain too, as in
+    // `docs.rs`: then only when the link goes to that file.
+    if (
+      domain &&
+      FILE_NAME.test(domain) &&
+      (!TLD_EXTENSION.test(domain) || (!path && lastSegment(url) === domain.toLowerCase()))
+    )
+      continue;
+    if (normalHost(host ?? domain!) !== target) return target;
+    named = true;
+  }
+  // The text names only the host it goes to: still shown when that host is in look-alike letters.
+  return named && target.split('.').some((label) => label.startsWith('xn--')) ? target : undefined;
 }
