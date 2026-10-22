@@ -144,3 +144,64 @@ Rules the server keeps for everyone, such as one that denies `git push`, go firs
 The route gets whatever the client sent, so `parseApprovalRules` checks it: each field and its type, at most 100 rules, 20 argument patterns in a rule, 500 characters in a string, and three `*` in a pattern, `**` counting as one. Matching takes time in proportion to the argument's length times the pattern's, whatever the number of `*`, and each rule's matching is bounded at about 30 steps for each character it reads ([the patterns](/docs/components/use-approval-policy#the-patterns)). So a call's matching grows with the number of rules times the length of its arguments: 100 rules of 500 characters, built to take the most steps for each character, take about 0.3 seconds on one plain string of 20,000 characters and 5 seconds on 400,000 (Node 24, Apple M1 Max). A deny rule reads a string up to twice, whole and then by command, and an array up to four times, each item counting as one character at least: on 20,000 and 400,000 characters with a `;` in every 1,000, 100 such deny rules take about 0.5 and 10 seconds, on an array of two such strings about 1 and 20 seconds, and on an array of 40,000 empty strings, or of 10,000 different one-character strings, about 0.1 seconds. On a route that takes rules from the client, cap the length of the arguments they read, such as with `.max()` on the strings and arrays of the tool's input schema: the AI SDK asks `toolApproval` only about a call that passes it. Other limits go in the second argument, such as `parseApprovalRules(rules, { maxWildcards: 1 })`. A rule that fails a check is left out.
 
 A rule the server doesn't get still holds on the page: the server asks, and the policy answers without showing anyone a card. That covers rules with a `when`, which `getRules()` leaves out: `when` is code, and without it the rule would cover more calls than it does. A deny rule left out would lose to an allow rule the server has, so it takes the allow rules it could overrule with it, and the server asks about those calls instead of approving them. `getRules()` leaves out the allow rules on the tools a deny rule with a `when` covers. `parseApprovalRules` does the same for a deny rule that fails a check, and keeps no allow rule when that rule's tool can't be read, when the rule comes after the first 100, or when the deny rules it leaves out name more than 10 tools. `toPlainRules(rules)` does what `getRules()` does, for rules kept outside the hook.
+
+### Your organization's policy first
+
+Policy your organization keeps as code goes first the same way, and a person's rules are their own grants on top of it. With `@ai-sdk/policy-opa`, the policy's rules live in a `.rego` file, and `opaPolicy` decides each call with them. It answers `{ type: 'not-applicable' }` for a call none of them matches (`default decision := { "decision": "not-applicable" }` in the policy), and the person's rules decide that one:
+
+```ts
+import { opaPolicy, wasmPolicyClient } from '@ai-sdk/policy-opa';
+
+// Once, at startup: the policy compiled to WASM (`opa build -t wasm`).
+const policy = opaPolicy({ client: await wasmPolicyClient({ wasm }), path: 'agent/call/decision' });
+// opaPolicy returns a function, though its type allows a map of tools too.
+if (typeof policy !== 'function') throw new TypeError('Expected a toolApproval function');
+const org = policy;
+const yours = toToolApproval(parseApprovalRules(rules));
+
+streamText({
+  // model, messages, tools…
+  toolApproval: async (options) => {
+    // No execute: the page answers it with a DiffReview, which is the approval.
+    if (options.toolCall.toolName === 'review_changes') return 'not-applicable';
+    const decided = await org(options);
+    // opaPolicy answers in the object form: compare its type.
+    const type = typeof decided === 'object' ? decided.type : decided;
+    return type === undefined || type === 'not-applicable' ? yours(options) : decided;
+  },
+});
+```
+
+Compare the `type`, not the status: `decided === 'not-applicable'`, as for `toToolApproval`'s server rules above, is never true of `opaPolicy`'s answer, and the SDK would run every call the policy has no rule for without asking anyone. The policy's denials and approvals stand, whatever the person's rules say: they reach the page decided, as "Blocked by policy" and "Auto-approved", and when it can't be evaluated, `opaPolicy` denies the call, so the person's rules never stand in for a policy that is down. A call it sends to a person (`requires-approval`) gets a card, with the policy's `reason` as its description (`approval.requestReason`), and a rule of the person's that covers it answers it on the page, as for any call the server asks about.
+
+### Risk from MCP annotations
+
+Without `risk`, a card shows no risk. An MCP server says what its tools do in their annotations, and `riskFromMcpAnnotations(annotations)` gives a risk level from them, the first that applies:
+
+| The tool's annotations                         | Risk     |
+| ---------------------------------------------- | -------- |
+| `destructiveHint: true`                        | `high`   |
+| `readOnlyHint: true`                           | `low`    |
+| `readOnlyHint: false` or `openWorldHint: true` | `medium` |
+| none of these                                  | none     |
+
+Only hints the server set count: the MCP spec reads a missing `destructiveHint` or `openWorldHint` as `true`, which would rate every tool with no annotations as risky. AI SDK 7's MCP client (`@ai-sdk/mcp`) puts the annotations on each call's part, as `toolMetadata.annotations`:
+
+```tsx
+import { AgentMessage, getAllToolParts, getToolPartName, riskFromMcpAnnotations, type ToolMeta } from 'signoff-ui';
+
+// A risk for each MCP tool in the message, from what its server says.
+const tools: Record<string, ToolMeta> = {};
+for (const part of getAllToolParts(message.parts)) {
+  const risk = riskFromMcpAnnotations(part.toolMetadata?.annotations);
+  if (risk) tools[getToolPartName(part)] = { risk };
+}
+
+<AgentMessage
+  message={message}
+  tools={tools}
+  // …
+/>;
+```
+
+It is a hint, not a guarantee: a server describes its own tools, and one you don't trust can mark a tool that deletes as read-only. Show the risk to a person, and keep it out of what decides a call: rules and `toolApproval` go by the tool and its arguments.
