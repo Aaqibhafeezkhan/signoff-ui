@@ -2,11 +2,14 @@
 
 signoff-ui is built in the open, and this page is the plan: what is in review, what comes next, and what waits until someone needs it. To weigh in, add a reaction or a comment on an item's issue: that decides what gets built first, and it is what moves an item out of "Waiting for your feedback".
 
+## Merged, in the next release
+
+- Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
+- `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
+
 ## In review
 
 - The examples do what their READMEs say: each new message restarts the quickstart's scripted run, and the examples pin signoff-ui. [#171](https://github.com/dgesteves/signoff-ui/pull/171)
-- Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
-- `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
 - Accessibility and touch in the approval card and the review: Approve all keeps focus, a focused card says what it will run, code reads left to right on right-to-left pages, buttons show in forced colours, and fields no longer zoom on iOS. [#174](https://github.com/dgesteves/signoff-ui/pull/174)
 - Support tiers (tested in CI, or documented only), and new integrations wait four weeks after launch unless someone asks for one. [#175](https://github.com/dgesteves/signoff-ui/pull/175)
 
