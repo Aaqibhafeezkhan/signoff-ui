@@ -56,7 +56,7 @@ const rows = [
 ];
 
 // The package a bundled module belongs to: the last node_modules segment of its path.
-const packageOf = (id) => /.*node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id)?.[1].replace('\\', '/');
+const packageOf = (id) => /.*node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id)?.[1].replaceAll('\\', '/');
 
 const overBudget = [];
 const bundledButExcluded = [];

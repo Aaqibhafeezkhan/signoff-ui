@@ -100,6 +100,8 @@ export async function run(argv, { env = process.env, fetch = globalThis.fetch, r
   const dryRun = argv.includes('--dry-run');
   const { name, version } = JSON.parse(readFileSync(join(root, 'packages/signoff-ui/package.json'), 'utf8'));
   const tag = `${name}@${version}`;
+  // A scoped name's slash is %2f in the registry's URLs.
+  const npmName = name.replaceAll('/', '%2f');
   const repo = env.GITHUB_REPOSITORY || 'dgesteves/signoff-ui';
   const api = `${env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repo}`;
   const registry = (env.NPM_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '');
@@ -117,13 +119,12 @@ export async function run(argv, { env = process.env, fetch = globalThis.fetch, r
     if (response.ok) return true;
     throw new Error(`${url} answered ${response.status}: ${await response.text()}`);
   };
-  const onNpm = () =>
-    exists(`${registry}/${name.replace('/', '%2f')}/${version}`, { headers: { accept: 'application/json' } });
+  const onNpm = () => exists(`${registry}/${npmName}/${version}`, { headers: { accept: 'application/json' } });
   const hasTag = () => exists(`${api}/git/ref/tags/${encodeURIComponent(tag)}`, { headers });
   const hasRelease = () => exists(`${api}/releases/tags/${encodeURIComponent(tag)}`, { headers });
   /** The commit npm's provenance says the version was published from, or undefined. */
   const publishedFrom = async () => {
-    const url = `${registry}/-/npm/v1/attestations/${name.replace('/', '%2f')}@${version}`;
+    const url = `${registry}/-/npm/v1/attestations/${npmName}@${version}`;
     const response = await fetch(url, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
