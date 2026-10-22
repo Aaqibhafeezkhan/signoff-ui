@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import type { ChatStatus, UIMessage } from 'ai';
-import type { RunUsage } from './lib/ai';
+import type { ChatStatus, RunUsage, UIMessage } from './lib/ai-types';
 import {
   answerAgUiInterrupt,
   createAgUiRun,

@@ -21,7 +21,7 @@ To add the components to an app of your own, read on: install them, add the styl
 ## Requirements
 
 - **React** 18.2 or later, or 19 (`react@^18.2.0 || ^19.0.0`). CI runs the test suite on both.
-- **AI SDK** 6 or 7 (`ai@^6.0.0 || ^7.0.102`). The kit imports its types only, so it adds no SDK code to your bundle.
+- **AI SDK** 6 or 7 (`ai@^6.0.0 || ^7.0.102`), an optional peer. The kit imports its types only, so it adds no SDK code to your bundle, and an AG-UI or ACP app can [leave it out](/docs/getting-started#from-npm).
 - **A React app.** Nothing in the kit is tied to a framework. The walkthrough below is a Next.js 16 App Router app, which CI builds and runs in Chrome. In a Vite app, [three things change](/docs/getting-started#vite-and-other-bundlers).
 - **ES modules.** The package is ESM only, with no CommonJS build: load it with `import`, as bundlers and Next.js do. CI builds and tests it on Node 24.
 - **Browsers.** Chrome 111, Safari 16.4 and Firefox 128 or later, the minimums of [Tailwind CSS v4](https://tailwindcss.com/docs/compatibility), which builds the kit's stylesheet, and Edge 111, which runs Chrome's engine. CI runs the current Chrome, Firefox and WebKit (Safari's engine), not the minimums.
@@ -40,7 +40,7 @@ The same components come two ways: as an npm package, or as source files the sha
 npm i signoff-ui ai
 ```
 
-`ai` is a peer dependency, for the message part types. `@assistant-ui/react` is an optional one, for `signoff-ui/assistant-ui` ([assistant-ui](/docs/chat-ui#assistant-ui)). The package ships ES modules with `'use client'` kept per file, a precompiled stylesheet, and `signoff-ui/core` for server code.
+`ai` is an optional peer dependency: the components' props use its message part types, and the kit imports none of its code. An AG-UI or ACP app can install `signoff-ui` without it, since `signoff-ui/ag-ui` and `signoff-ui/acp` declare their own types. Without `ai`, TypeScript reads the AI SDK types in the components' props as `any`, and with `skipLibCheck: false` it reports them missing, so add `ai` as a dev dependency to have them checked. `@assistant-ui/react` is optional too, for `signoff-ui/assistant-ui` ([assistant-ui](/docs/chat-ui#assistant-ui)). The package ships ES modules with `'use client'` kept per file, a precompiled stylesheet, and `signoff-ui/core` for server code.
 
 ### With the shadcn CLI
 

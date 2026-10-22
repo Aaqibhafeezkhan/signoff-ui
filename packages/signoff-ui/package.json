@@ -106,6 +106,9 @@
   "peerDependenciesMeta": {
     "@assistant-ui/react": {
       "optional": true
+    },
+    "ai": {
+      "optional": true
     }
   },
   "dependencies": {

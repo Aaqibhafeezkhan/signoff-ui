@@ -2,11 +2,10 @@
  * AG-UI to AI SDK message parts, so the components render any AG-UI agent (LangGraph, CrewAI,
  * Mastra, Pydantic AI...). The types below mirror the parts of AG-UI 1.0 that are read
  * here, structurally, so `@ag-ui/core` and `@ag-ui/client` objects fit without either being a
- * dependency.
+ * dependency. The AI SDK types come from ./ai-types, so the entry needs no `ai` either.
  */
-import type { ChatStatus, DynamicToolUIPart, UIMessage } from 'ai';
+import type { ChatStatus, DynamicToolUIPart, RunUsage, SubagentPart, SubagentStatus, UIMessage } from './ai-types';
 import { addUsage } from './usage';
-import type { RunUsage, SubagentPart, SubagentStatus } from './ai';
 
 /** An AG-UI event. Only `type` is required here; the fields each event type carries are read as needed. */
 export interface AgUiEvent {

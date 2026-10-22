@@ -25,6 +25,8 @@ let clientModules = 0;
 for (const file of modules(src)) {
   const out = join(dist, file.replace(/\.tsx?$/, '.js'));
   if (!existsSync(out)) {
+    // Imported for its types only (lib/ai-types.ts): it ships declarations and no JavaScript to mark.
+    if (existsSync(out.replace(/\.js$/, '.d.ts'))) continue;
     problems.push(`${file}: no built module at ${relative(root, out)}`);
     continue;
   }
