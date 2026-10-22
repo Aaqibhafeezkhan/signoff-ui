@@ -21,6 +21,8 @@ Review what your agent changed and approve what it may do: React components for 
 
 **Website and docs:** [signoff-ui.vercel.app](https://signoff-ui.vercel.app), with a playground where a scripted coding agent asks for a review and an approval, driven from the keyboard, with no API key.
 
+**Feedback wanted:** say where it breaks in the [launch feedback thread](https://github.com/dgesteves/signoff-ui/discussions/200), see what's next in the [roadmap](https://github.com/dgesteves/signoff-ui/blob/main/ROADMAP.md), or pick up a [good first issue](https://github.com/dgesteves/signoff-ui/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22). If signoff-ui is useful to you, a star helps other people find it.
+
 <!-- npm-readme:video -->
 
 https://github.com/user-attachments/assets/caf5f11c-6f12-430b-8b72-845c406ded7a
