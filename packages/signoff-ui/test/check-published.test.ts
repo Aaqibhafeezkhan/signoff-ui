@@ -248,6 +248,15 @@ describe('check-published npm, with pending changesets', () => {
     });
   });
 
+  // The version pull request's merge run was replaced: main's 0.9.0 was never published, and the
+  // error names it, not the next version package.json holds on the release branch.
+  it('fails, naming the version on main that VERSION names, when npm never got it', async () => {
+    const world = services({ npm: ['0.8.0'], tags: ['signoff-ui@0.8.0'] });
+    const { code, log } = await check(['npm'], '0.9.1', world, { VERSION: '0.9.0' });
+    expect(code).toBe(1);
+    expect(log).toMatch(/^::error::signoff-ui@0\.9\.0 is the version on main, but npm doesn't have it/);
+  });
+
   it('only warns when npm or GitHub can’t be reached', async () => {
     const { code, log } = await check(['npm'], '0.9.0', services({ down: true }));
     expect(code).toBe(0);

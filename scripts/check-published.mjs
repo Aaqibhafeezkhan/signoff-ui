@@ -1,9 +1,9 @@
 // What the release workflow (.github/workflows/release.yml) checks, and repairs, on npm and GitHub
-// for the version of signoff-ui in packages/signoff-ui/package.json. RELEASING.md says when each
-// runs, and what to do when one fails.
+// for the version of signoff-ui on main (VERSION, or packages/signoff-ui/package.json's). RELEASING.md
+// says when each runs, and what to do when one fails.
 //
 //   node scripts/check-published.mjs npm
-//     With pending changesets, the version in package.json is the last release: npm has it, or it
+//     With pending changesets, the version on main is the last release: npm has it, or it
 //     has its tag (npm can take minutes to serve a version it has just accepted). With neither, the
 //     Release run for the version pull request's merge was replaced before it started, or its
 //     publish failed, and that version was never published: exit 1.
@@ -21,7 +21,8 @@
 //
 // Environment: VERSION (the version on main, read before changesets/action, which switches to the
 // release branch and versions the package there; packages/signoff-ui/package.json's by default),
-// GH_TOKEN (without it, GitHub is read anonymously and nothing can be created), GITHUB_REPOSITORY (dgesteves/signoff-ui by default), GITHUB_SHA, GITHUB_API_URL, NPM_REGISTRY
+// GH_TOKEN (without it, GitHub is read anonymously and nothing can be created), GITHUB_REPOSITORY
+// (dgesteves/signoff-ui by default), GITHUB_SHA, GITHUB_API_URL, NPM_REGISTRY
 // (https://registry.npmjs.org by default) and PUBLISHED_PACKAGES (changesets/action's
 // `published-packages` output, [{ "name", "version" }]).
 import { Buffer } from 'node:buffer';

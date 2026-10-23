@@ -130,7 +130,7 @@ jobs:
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
 
-      # With pending changesets, the version in package.json is the last release: npm has it, or it
+      # With pending changesets, the version on main (VERSION) is the last release: npm has it, or it
       # was tagged moments ago. If neither, the run for the version pull request's merge was
       # replaced by this one before it started, and that version was never published: this step
       # fails and names it. Re-run that run (RELEASING.md). It comes right after changesets/action,
@@ -161,7 +161,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.changesets.outputs.pr-number }}
 
-      # With no pending changesets, signoff-ui@<version in package.json> gets its tag and GitHub
+      # With no pending changesets, signoff-ui@<version on main> gets its tag and GitHub
       # release, with its CHANGELOG.md entry, if npm has it and they are missing: after a publish
       # whose tag or release failed, on a re-run (which publishes nothing new), or on the next push.
       # The tag goes on the commit the version was published from: this run's, or the one npm's
