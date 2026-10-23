@@ -289,6 +289,20 @@ describe('a version run', () => {
     expect(ran.map((step) => step.run)).not.toContain('node scripts/check-published.mjs release');
   });
 
+  // changesets/action versions the package on changeset-release/main and leaves the checkout there,
+  // so package.json holds the next version after it: every push with pending changesets failed the
+  // check, naming a version that was never meant to be on npm yet.
+  it('reads the version on main before changesets/action versions the package, for both checks', () => {
+    const order = release?.steps.map(label) ?? [];
+    const read = release?.steps.find((step) => step.id === 'main');
+    expect(read?.if).toBeUndefined();
+    expect(read?.run).toContain("require('./packages/signoff-ui/package.json').version");
+    expect(order.indexOf(label(read!))).toBeLessThan(order.indexOf(label(changesets!)));
+    const checks = release?.steps.filter((step) => /check-published\.mjs (npm|release)$/.test(step.run ?? '')) ?? [];
+    expect(checks).toHaveLength(2);
+    for (const step of checks) expect(step.env?.VERSION).toBe('${{ steps.main.outputs.version }}');
+  });
+
   const check = 'The version on main is on npm';
   const merge = 'Merge the version pull request once its CI passes';
   const autoMergeRun = (fails: string[] = []) =>
@@ -338,6 +352,7 @@ describe('a publish', () => {
     const step = release?.steps.find((s) => s.run === repair);
     expect(step?.env).toEqual({
       GH_TOKEN: '${{ steps.app-token.outputs.token || github.token }}',
+      VERSION: '${{ steps.main.outputs.version }}',
       PUBLISHED_PACKAGES: '${{ steps.changesets.outputs.published-packages }}',
     });
     expect(step?.if).toBe("${{ !cancelled() && steps.changesets.outputs.has-changesets == 'false' }}");

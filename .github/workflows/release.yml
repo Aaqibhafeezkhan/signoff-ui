@@ -110,6 +110,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # With pending changesets, changesets/action switches to changeset-release/main and versions
+      # the package there, so package.json then holds the next version, not main's.
+      - name: Read the version on main
+        id: main
+        run: echo "version=$(node -p "require('./packages/signoff-ui/package.json').version")" >> "$GITHUB_OUTPUT"
+
       # Opens or updates a "Version packages" pull request from pending changesets; once that is
       # merged, publishes to npm and creates the tag and the GitHub release. `version-packages` also
       # moves the examples that ask for a version range of signoff-ui to the version it publishes
@@ -135,6 +141,7 @@ jobs:
         run: node scripts/check-published.mjs npm
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          VERSION: ${{ steps.main.outputs.version }}
 
       # Without the App only. Its checks show on the version commit, but GitHub doesn't count them for
       # the pull request: approve its waiting CI run, or push an empty commit (RELEASING.md).
@@ -164,6 +171,7 @@ jobs:
         run: node scripts/check-published.mjs release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          VERSION: ${{ steps.main.outputs.version }}
           # What this run published, as changesets/action lists it ([{ "name", "version" }]).
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
 

@@ -19,8 +19,9 @@
 //     nothing new) or on the next push. With --dry-run it says what it would create, and creates
 //     nothing.
 //
-// Environment: GH_TOKEN (without it, GitHub is read anonymously and nothing can be created),
-// GITHUB_REPOSITORY (dgesteves/signoff-ui by default), GITHUB_SHA, GITHUB_API_URL, NPM_REGISTRY
+// Environment: VERSION (the version on main, read before changesets/action, which switches to the
+// release branch and versions the package there; packages/signoff-ui/package.json's by default),
+// GH_TOKEN (without it, GitHub is read anonymously and nothing can be created), GITHUB_REPOSITORY (dgesteves/signoff-ui by default), GITHUB_SHA, GITHUB_API_URL, NPM_REGISTRY
 // (https://registry.npmjs.org by default) and PUBLISHED_PACKAGES (changesets/action's
 // `published-packages` output, [{ "name", "version" }]).
 import { Buffer } from 'node:buffer';
@@ -98,7 +99,9 @@ export function changelogEntry(changelog, version) {
 export async function run(argv, { env = process.env, fetch = globalThis.fetch, root = ROOT, log = console.log } = {}) {
   const [command] = argv;
   const dryRun = argv.includes('--dry-run');
-  const { name, version } = JSON.parse(readFileSync(join(root, 'packages/signoff-ui/package.json'), 'utf8'));
+  const pkg = JSON.parse(readFileSync(join(root, 'packages/signoff-ui/package.json'), 'utf8'));
+  const { name } = pkg;
+  const version = env.VERSION || pkg.version;
   const tag = `${name}@${version}`;
   // A scoped name's slash is %2f in the registry's URLs.
   const npmName = name.replaceAll('/', '%2f');

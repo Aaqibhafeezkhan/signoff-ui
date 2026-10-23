@@ -238,6 +238,16 @@ describe('check-published npm, with pending changesets', () => {
     expect(world.posts()).toEqual([]);
   });
 
+  // changesets/action has versioned the package on changeset-release/main by the time this runs, so
+  // package.json holds the next version: the workflow passes main's as VERSION.
+  it('checks the version on main that VERSION names, not the next one in package.json', async () => {
+    const world = services({ npm: ['0.8.0'], tags: ['signoff-ui@0.8.0'] });
+    expect(await check(['npm'], '0.9.0', world, { VERSION: '0.8.0' })).toEqual({
+      code: 0,
+      log: 'npm has signoff-ui@0.8.0, or it has its tag: the version on main was released.',
+    });
+  });
+
   it('only warns when npm or GitHub can’t be reached', async () => {
     const { code, log } = await check(['npm'], '0.9.0', services({ down: true }));
     expect(code).toBe(0);
