@@ -65,9 +65,7 @@ describe('Reasoning', () => {
 
   it('keeps controlled open state independent of streaming and calls onOpenChange', () => {
     const onOpenChange = vi.fn();
-    const { rerender } = render(
-      <Reasoning text="Thinking..." streaming open={false} onOpenChange={onOpenChange} />,
-    );
+    const { rerender } = render(<Reasoning text="Thinking..." streaming open={false} onOpenChange={onOpenChange} />);
     const toggle = screen.getByRole('button', { name: 'Thinking' });
 
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
