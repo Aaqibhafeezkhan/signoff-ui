@@ -17,9 +17,10 @@ describe('Reasoning', () => {
 
     expect(screen.getByRole('button', { name: 'Thinking' })).toHaveAttribute('aria-expanded', 'true');
 
+    vi.setSystemTime(1000);
     rerender(<Reasoning text="Finished thinking." streaming={false} />);
 
-    expect(screen.getByRole('button', { name: 'Reasoning' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Thought for 1.00s' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it("keeps the reader's choice when streaming ends", () => {
@@ -29,9 +30,13 @@ describe('Reasoning', () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    vi.setSystemTime(1000);
     rerender(<Reasoning text="Finished thinking." streaming={false} />);
 
-    expect(screen.getByRole('button', { name: 'Reasoning' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Thought for 1.00s' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('shows the measured duration when streaming ends', () => {
@@ -67,12 +72,13 @@ describe('Reasoning', () => {
 
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
+    vi.setSystemTime(1000);
     rerender(<Reasoning text="Finished thinking." streaming={false} open={false} onOpenChange={onOpenChange} />);
-    expect(screen.getByRole('button', { name: 'Reasoning' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Thought for 1.00s' })).toHaveAttribute('aria-expanded', 'false');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reasoning' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thought for 1.00s' }));
 
     expect(onOpenChange).toHaveBeenCalledWith(true);
-    expect(screen.getByRole('button', { name: 'Reasoning' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Thought for 1.00s' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
