@@ -1,7 +1,7 @@
 // Runs the README quickstart (examples/nextjs-minimal) end to end in Chrome: a tool call, a failed
 // tool, a diff review whose result goes back to the agent, an approval, the resumed run with
-// sources, the run meter, and a second turn timed on its own. Fails on any page error, including
-// hydration mismatches.
+// sources, the run meter, and a second message that plays the run again, to the ending a rejected
+// review gives, timed and metered on its own. Fails on any page error, including hydration mismatches.
 //
 //   pnpm build:lib && pnpm --filter nextjs-minimal build
 //   pnpm smoke:nextjs   # starts the built example on :3210, or tests BASE_URL if set
@@ -92,19 +92,31 @@ try {
   if (!/21\.6k/.test(meter)) throw new Error(`The run meter does not show the run's 21.6k input tokens:\n${meter}`);
   console.log('pass  quickstart: tool calls, a failed tool, review, approval, resumed run, sources, run meter');
 
-  // A second turn is timed on its own: its active time is not added to the first turn's.
+  // A second message plays the run again, as the README says, rather than the first run's ending:
+  // the review comes back, and rejecting it gives the other ending. The turn is timed on its own (its
+  // active time is not added to the first turn's) and metered on its own.
   const first = await runTotal(page);
-  await page.getByRole('textbox', { name: 'Message the agent' }).fill('Thanks. Anything else?');
+  await page.getByRole('textbox', { name: 'Message the agent' }).fill('Try it again');
   await page.getByRole('button', { name: 'Send' }).click();
   const done = page.locator('[data-slot="signoff-agent-status"][data-state="done"]');
   await done.waitFor({ state: 'detached' });
-  await done.waitFor({ timeout: 30_000 });
+  await review.waitFor({ timeout: 30_000 }).catch(() => {
+    throw new Error('The second message shows no review: it replays the first run instead of starting it again');
+  });
+  await review.getByRole('button', { name: 'Reject all' }).click();
+  await review.locator('[data-slot="signoff-diff-submit"]').click();
+  await page.getByText('Nothing was applied, so the route stays as it is.').waitFor({ timeout: 30_000 });
+  await done.waitFor();
+  // 4.2k + 5.1k + 5.6k: the second run's own requests.
+  const secondMeter = await page.locator('[data-slot="signoff-run-meter"]').innerText();
+  if (!/14\.9k/.test(secondMeter))
+    throw new Error(`The run meter does not show the second run's 14.9k input tokens:\n${secondMeter}`);
   const second = await runTotal(page);
   if (!(second.total < first.total))
     throw new Error(`The second turn's active time adds up the first's: ${first.total}ms, then ${second.total}ms`);
   if (second.ttft === undefined) throw new Error('The second turn has no time to first token');
   console.log(
-    `pass  second turn timed on its own: ${first.total}ms then ${second.total}ms active, TTFT ${second.ttft}ms`,
+    `pass  second message runs again, to the rejected ending: ${first.total}ms then ${second.total}ms active, TTFT ${second.ttft}ms`,
   );
 
   await page.goto(`${BASE}/static`, { waitUntil: 'networkidle' });
