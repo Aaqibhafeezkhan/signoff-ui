@@ -9,7 +9,7 @@ import { headingId, section } from './utils';
  * Support tiers, on the limits page, and the freeze on new integrations in CONTRIBUTING.md. Tier 1
  * names the CI jobs that run on every pull request, so it can't outlive or miss one; both tiers
  * point at the "Works with" matrix in Getting started rather than keep a second one. The freeze
- * has no launch date to go stale: it reads the same before the launch and after it.
+ * names the day it ends, four weeks after the 2026-10-22 launch.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -103,17 +103,9 @@ describe('CONTRIBUTING: new integrations', () => {
 
   it('holds new integrations until four weeks after the public launch, unless an issue asks for one', () => {
     expect(freeze).not.toBe('');
-    expect(freeze).toContain('Until the public launch and for the first four weeks after it');
+    expect(freeze).toContain('Until Thursday 2026-11-19, four weeks after the public launch on 2026-10-22');
     for (const kind of ['chat kit', 'protocol adapter', 'agent SDK']) expect(freeze, kind).toContain(kind);
     expect(freeze).toContain('The exception is an integration someone needs and asks for in an issue.');
-  });
-
-  it('reads the same before and after the launch: it gives no date', () => {
-    expect(freeze).not.toBe('');
-    expect(freeze).not.toMatch(/\b20\d\d\b/);
-    expect(freeze).not.toMatch(
-      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/,
-    );
   });
 
   it('says how to ask, through the feature request form', () => {

@@ -66,7 +66,7 @@ pnpm add --save-dev react@^18.2.0 react-dom@^18.2.0 @types/react@^18 @types/reac
 
 ## New integrations
 
-Until the public launch and for the first four weeks after it, the kit adds no new integration: no new chat kit, protocol adapter or agent SDK, whether as a package entry, a registry item, an example or a docs page. Fixes, docs and tests for the integrations it has go on as usual.
+Until Thursday 2026-11-19, four weeks after the public launch on 2026-10-22, the kit adds no new integration: no new chat kit, protocol adapter or agent SDK, whether as a package entry, a registry item, an example or a docs page. Fixes, docs and tests for the integrations it has go on as usual.
 
 The exception is an integration someone needs and asks for in an issue. Open a [feature request](https://github.com/dgesteves/signoff-ui/issues/new?template=feature_request.yml) that says what you are building and what it runs on (the chat kit, protocol or agent SDK, and its version), or add your case to an open one. After those four weeks, propose a new integration in an issue first, as any larger change.
 
