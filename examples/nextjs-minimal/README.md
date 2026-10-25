@@ -20,7 +20,7 @@ pnpm build:lib
 pnpm --filter nextjs-minimal dev   # http://localhost:3200
 ```
 
-Send any message: the scripted model ignores it and plays the same run every time. Accept or reject the hunks, then approve or deny the command, to see the different endings.
+Send any message: the scripted model ignores it, and each message you send plays the same run. Accept or reject the hunks, then approve or deny the command, to see the different endings; send another message to try another one.
 
 | File                                             | What it is                                                                                                  |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
@@ -34,4 +34,4 @@ For a real model, install a provider (`pnpm add @ai-sdk/openai`), set its API ke
 
 Before `run_command` runs anything real, know what the approval does: it keeps the agent from running a command the person didn't agree to, and it doesn't protect your server from whoever calls it. The route takes `messages` from the request as they come, so a caller can send an approved `run_command` the model never proposed, and the AI SDK runs it. Run the tool in a sandbox, and check the messages' shape with `validateUIMessages` from `ai`. Keep the rules that must hold in `toolApproval` on the server: it decides again on every approved call. If you don't need edited arguments, set `experimental_toolApprovalSecret` in `streamText`: the server then refuses an approval for any call it didn't ask about, an edited one included. [`examples/coding-agent`](../coding-agent#what-an-approval-is) validates its messages and keeps a rule on the server.
 
-In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`); CI builds it and runs [`scripts/smoke-nextjs-minimal.mjs`](../../scripts/smoke-nextjs-minimal.mjs), which applies the review and approves the command in Chrome and waits for the final answer. Copied on its own, it installs the latest `signoff-ui` from npm.
+In this repository the example builds against the local library (see `overrides` in `pnpm-workspace.yaml`); CI builds it and runs [`scripts/smoke-nextjs-minimal.mjs`](../../scripts/smoke-nextjs-minimal.mjs), which applies the review and approves the command in Chrome, waits for the final answer, then sends a second message and rejects its review. Copied on its own, it installs `signoff-ui` from npm at the range in `package.json`, the release its code is written for: `pnpm version-packages` moves the range with each release, and `pnpm examples:check` fails in CI when it falls behind.

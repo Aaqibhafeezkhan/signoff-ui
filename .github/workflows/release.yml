@@ -110,6 +110,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # With pending changesets, changesets/action switches to changeset-release/main and versions
+      # the package there, so package.json then holds the next version, not main's.
+      - name: Read the version on main
+        id: main
+        run: echo "version=$(node -p "require('./packages/signoff-ui/package.json').version")" >> "$GITHUB_OUTPUT"
+
       # Opens or updates a "Version packages" pull request from pending changesets; once that is
       # merged, publishes to npm and creates the tag and the GitHub release. `version-packages` also
       # moves the examples that ask for a version range of signoff-ui to the version it publishes
@@ -124,7 +130,7 @@ jobs:
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
 
-      # With pending changesets, the version in package.json is the last release: npm has it, or it
+      # With pending changesets, the version on main (VERSION) is the last release: npm has it, or it
       # was tagged moments ago. If neither, the run for the version pull request's merge was
       # replaced by this one before it started, and that version was never published: this step
       # fails and names it. Re-run that run (RELEASING.md). It comes right after changesets/action,
@@ -135,6 +141,7 @@ jobs:
         run: node scripts/check-published.mjs npm
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          VERSION: ${{ steps.main.outputs.version }}
 
       # Without the App only. Its checks show on the version commit, but GitHub doesn't count them for
       # the pull request: approve its waiting CI run, or push an empty commit (RELEASING.md).
@@ -154,7 +161,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR: ${{ steps.changesets.outputs.pr-number }}
 
-      # With no pending changesets, signoff-ui@<version in package.json> gets its tag and GitHub
+      # With no pending changesets, signoff-ui@<version on main> gets its tag and GitHub
       # release, with its CHANGELOG.md entry, if npm has it and they are missing: after a publish
       # whose tag or release failed, on a re-run (which publishes nothing new), or on the next push.
       # The tag goes on the commit the version was published from: this run's, or the one npm's
@@ -164,6 +171,7 @@ jobs:
         run: node scripts/check-published.mjs release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          VERSION: ${{ steps.main.outputs.version }}
           # What this run published, as changesets/action lists it ([{ "name", "version" }]).
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
 

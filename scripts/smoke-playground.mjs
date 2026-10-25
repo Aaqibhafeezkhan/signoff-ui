@@ -84,10 +84,11 @@ try {
   // Each page has its own canonical address and a description short enough for search results.
   const decode = (text) =>
     text
-      .replace(/&amp;/g, '&')
       .replace(/&#x27;/g, "'")
       .replace(/&quot;/g, '"')
-      .replace(/&lt;/g, '<');
+      .replace(/&lt;/g, '<')
+      // Last, so that `&amp;lt;` reads as `&lt;`, not `<`.
+      .replace(/&amp;/g, '&');
   const metaOf = (html, key) =>
     decode(new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)"`).exec(html)?.[1] ?? '') || undefined;
   const pages = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);

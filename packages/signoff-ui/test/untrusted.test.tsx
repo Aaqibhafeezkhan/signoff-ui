@@ -384,6 +384,31 @@ describe('safeUrl', () => {
       expect(safeUrl(url)).toBeUndefined();
     expect(safeUrl('java\tscript:alert(1)', { files: true })).toBeUndefined();
   });
+
+  it('reads the scheme past any spaces and control characters before it', () => {
+    const before = ' \u0000\t\n\u001f\u007f\u0085 ';
+    expect(safeUrl(`${before}https://a.example`)).toBe(`${before}https://a.example`);
+    expect(safeUrl(`${before}mailto:a@b.example`)).toBe(`${before}mailto:a@b.example`);
+    expect(safeUrl(`${before}/x`)).toBe(`${before}/x`);
+    expect(safeUrl(`${before}data:image/png;base64,AAAA`, { files: true })).toBe(`${before}data:image/png;base64,AAAA`);
+    expect(safeUrl(`${before}javascript:alert(1)`)).toBeUndefined();
+    expect(safeUrl(`${before}JavaScript:alert(1)`, { files: true })).toBeUndefined();
+    // Only before it: inside the scheme, they make it another one.
+    expect(safeUrl(`${before}java\u0001script:alert(1)`)).toBeUndefined();
+    expect(safeUrl(`${before}:x`)).toBeUndefined();
+  });
+
+  it('reads a long run of spaces or control characters once, not once from each of them', () => {
+    for (const character of [' ', '\u0001', '\t', '\u0085']) {
+      const run = character.repeat(100_000);
+      const start = performance.now();
+      expect(safeUrl(`${run}x`)).toBe(`${run}x`);
+      expect(safeUrl(`${run}javascript:alert(1)`)).toBeUndefined();
+      expect(safeUrl(`${run}https://a.example`)).toBe(`${run}https://a.example`);
+      // Read again from each character, the first takes about 30 seconds.
+      expect(performance.now() - start).toBeLessThan(100);
+    }
+  });
 });
 
 describe('linkHostMismatch', () => {

@@ -54,6 +54,18 @@ describe('Sources', () => {
     expect(screen.getByText('ai-sdk.dev')).toBeInTheDocument();
   });
 
+  it('lays out by its own width, not the viewport', () => {
+    // jsdom has no layout, so this checks the classes rather than the rendered columns.
+    const { container, rerender } = render(<Sources sources={sources} variant="cards" />);
+    expect(container.firstElementChild).toHaveClass('@container');
+    expect(screen.getByRole('list', { name: 'Sources' })).toHaveClass('@lg:grid-cols-2');
+
+    rerender(<Sources sources={sources} />);
+    expect(container.firstElementChild).toHaveClass('@container');
+    // Only a titled source shows its host name beside the title.
+    expect(screen.getByText('upstash.com')).toHaveClass('hidden', '@lg:inline');
+  });
+
   it('can hide the visible heading while keeping the accessible name', () => {
     render(<Sources sources={sources} label={null} />);
     expect(screen.getByRole('list', { name: 'Sources' })).toBeInTheDocument();
