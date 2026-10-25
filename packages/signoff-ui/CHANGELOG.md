@@ -2,6 +2,12 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.10.2
+
+### Patch Changes
+
+- [#209](https://github.com/dgesteves/signoff-ui/pull/209) [`ddec46d`](https://github.com/dgesteves/signoff-ui/commit/ddec46dfa49e848cc5b629181f144afbcdf5b413) Thanks [@Mittalnew](https://github.com/Mittalnew)! - Make Sources respond to its own width instead of the viewport
+
 ## 0.10.1
 
 ### Patch Changes
