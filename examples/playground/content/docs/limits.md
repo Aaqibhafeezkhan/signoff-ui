@@ -10,25 +10,25 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | ACP converters from `/acp`                                         |   1.6 kB |
 | `toToolApproval` from `/core` (approval rules in a route handler)  |   2.5 kB |
 | `useApprovalPolicy` (the rules without markup)                     |   4.1 kB |
-| `useAgUiAgent` from `/ag-ui`                                       |   3.5 kB |
+| `useAgUiAgent` from `/ag-ui`                                       |   3.6 kB |
 | `applyHunks`, `parseFileChange` from `/core` (with jsdiff)         |   6.7 kB |
 | `Sources`                                                          |  10.4 kB |
 | `AgentStatus`                                                      |  11.4 kB |
 | `RunMeter`                                                         |  12.5 kB |
-| `useDiffReview` (the review without markup)                        |  16.3 kB |
-| `ApprovalCard`                                                     |  21.8 kB |
+| `useDiffReview` (the review without markup)                        |  16.4 kB |
+| `ApprovalCard`                                                     |  22.3 kB |
 | `ToolCallTimeline`                                                 |  22.7 kB |
-| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  36.0 kB |
-| `DiffReview`                                                       |  44.1 kB |
-| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  55.0 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  90.7 kB |
-| Everything in the main entry                                       | 128.0 kB |
+| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  36.8 kB |
+| `DiffReview`                                                       |  44.3 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  55.8 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  91.5 kB |
+| Everything in the main entry                                       | 129.0 kB |
 
 Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 66.3 kB. An app with its own renderer can [import `AgentMessage` without it](/docs/components/agent-message#your-own-markdown-renderer), and CI checks that react-markdown stays out of that bundle. Each component carries the English labels of the sections it reads, not the others.
 
 `DiffReview`'s diff worker is a separate file the bundler emits, loaded only when a file is too large to diff while rendering: 18 kB minified, with jsdiff, in a Vite build.
 
-`styles.css` adds 9.9 kB gzipped, 269 kB uncompressed. Most of that is the selector each rule carries so that it styles the components' own elements and never your content inside them. With Tailwind v4, `tailwind.css` adds the tokens, and your build generates only the utilities the components use.
+`styles.css` adds 10.7 kB gzipped, 289 kB uncompressed (gzipped as `pnpm size` does). Most of that is the selector each rule carries so that it styles the components' own elements and never your content inside them. With Tailwind v4, `tailwind.css` adds the tokens, and your build generates only the utilities the components use.
 
 ## Large diffs
 
