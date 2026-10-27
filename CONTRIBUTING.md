@@ -41,9 +41,12 @@ pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 buil
 pnpm build:playground && pnpm smoke:playground
 pnpm a11y             # axe in Chrome, across the built playground, components page and docs
 pnpm --filter nextjs-minimal build && pnpm smoke:nextjs
-pnpm examples:check   # examples/coding-agent asks for the version of signoff-ui this repository publishes
+pnpm examples:check   # the examples ask for the version of signoff-ui this repository publishes (the playground links the local one)
 pnpm --filter coding-agent test && pnpm smoke:coding-agent
+pnpm audit --prod --audit-level=moderate   # production dependencies, against advisories of moderate severity or higher
 ```
+
+If `pnpm audit` fails on a pull request that doesn't change dependencies, a new advisory was published for a package `main` already has. A maintainer fixes `main`: re-resolves the package to a fixed release within its range, adds an override, or adds the advisory to `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml` with the reason. Then update your branch. If it fails with a registry error instead, re-run the job.
 
 `pnpm media` regenerates `docs/media` from a running playground (Chrome and ffmpeg required).
 

@@ -9,6 +9,23 @@ overrides:
   # undici 5 has advisories fixed only in 6.28.1 and later. provider-utils 3 uses undici's Agent and fetch,
   # the same calls provider-utils 4 makes with undici ^6.28.0, so it gets undici 6 here.
   '@ai-sdk/provider-utils@3>undici': ^6.28.1
+# `pnpm audit` (ci.yml for the production dependencies, audit.yml for all of them) skips these advisories: no
+# release fixes them within the range the packages that bring them ask for. Remove one once a release does.
+auditConfig:
+  ignoreGhsas:
+    # zod (high): memory exhaustion validating oversized constrained collections, fixed only in zod 4.6.6. The
+    # published signoff-ui package doesn't depend on zod, the registry items reach it only as ai's peer (the app's
+    # own zod), and the examples that use zod ask for ^4.6.6. zod 3 comes only through @ag-ui/client and
+    # @ag-ui/proto, in signoff-ui's dev dependencies and in the site, where they run only in the browser, on the
+    # components page's scripted AG-UI run; and, in examples/copilotkit, through those and @copilotkit/runtime,
+    # @copilotkit/shared, @copilotkit/a2ui-renderer and @a2ui/web_core, which its API route loads when you run the
+    # example. No route of the site loads zod 3. The latest @ag-ui/client (1.0.3) and @copilotkit/runtime (1.81.0)
+    # still ask for zod 3: remove this when they move to zod 4.
+    - GHSA-mrhx-c7xc-m3w5
+    # katex (low): prototype pollution already in the page can bypass its `trust` option, fixed in 0.18.2.
+    # Only examples/copilotkit has it: @copilotkit/react-core (1.81.0 too) and the streamdown, mermaid and
+    # math plugins it brings all ask for katex ^0.16.
+    - GHSA-238p-pmpm-9mq7
 allowBuilds:
   '@parcel/watcher': false
   '@scarf/scarf': false

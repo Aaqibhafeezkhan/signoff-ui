@@ -85,6 +85,15 @@ jobs:
       - name: Accessibility in Chrome (axe with real layout and contrast, dark and light)
         run: pnpm a11y
 
+      # GitHub's dependency graph reads only the first YAML document of pnpm 12's lockfile, pnpm's own
+      # packages, so Dependabot doesn't alert on what this repository and its site install. audit.yml
+      # runs the whole tree daily; the advisories both skip are in pnpm-workspace.yaml, with the reason.
+      # Last, and after a failed step too: an advisory published since a pull request was opened fails
+      # the job without skipping the other checks or hiding their results.
+      - name: Production dependencies, against known advisories of moderate severity or higher
+        if: ${{ !cancelled() }}
+        run: pnpm audit --prod --audit-level=moderate
+
   ai-sdk-6:
     name: AI SDK 6
     if: github.event_name != 'schedule'
@@ -231,9 +240,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Copied on its own, the example installs signoff-ui from npm at its range: it must include the
+      # Copied on its own, an example installs signoff-ui from npm at its range: it must include the
       # version this repository publishes. `pnpm version-packages` moves it with each release.
-      - name: The example asks for the version this repository publishes
+      - name: The examples ask for the version this repository publishes
         run: pnpm examples:check
 
       - name: Build library
