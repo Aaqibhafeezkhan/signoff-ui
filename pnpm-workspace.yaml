@@ -14,11 +14,15 @@ overrides:
 auditConfig:
   ignoreGhsas:
     # zod (high): memory exhaustion validating oversized constrained collections, fixed only in zod 4.6.6. The
-    # examples that use zod ask for ^4.6.6, but @ag-ui/client and @ag-ui/proto 1.0.3 and @copilotkit/runtime
-    # 1.81.0, the latest of each, still ask for zod 3, which has no fix. In the site, @ag-ui/client runs only
-    # in the browser, on the components page's scripted AG-UI run.
+    # published signoff-ui package doesn't depend on zod, the registry items reach it only as ai's peer (the app's
+    # own zod), and the examples that use zod ask for ^4.6.6. zod 3 comes only through @ag-ui/client and
+    # @ag-ui/proto, in signoff-ui's dev dependencies and in the site, where they run only in the browser, on the
+    # components page's scripted AG-UI run; and, in examples/copilotkit, through those and @copilotkit/runtime,
+    # @copilotkit/shared, @copilotkit/a2ui-renderer and @a2ui/web_core, which its API route loads when you run the
+    # example. No route of the site loads zod 3. The latest @ag-ui/client (1.0.3) and @copilotkit/runtime (1.81.0)
+    # still ask for zod 3: remove this when they move to zod 4.
     - GHSA-mrhx-c7xc-m3w5
-    # KaTeX (low): prototype pollution already in the page can bypass its `trust` option, fixed in 0.18.2.
+    # katex (low): prototype pollution already in the page can bypass its `trust` option, fixed in 0.18.2.
     # Only examples/copilotkit has it: @copilotkit/react-core (1.81.0 too) and the streamdown, mermaid and
     # math plugins it brings all ask for katex ^0.16.
     - GHSA-238p-pmpm-9mq7

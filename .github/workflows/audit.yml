@@ -2,9 +2,9 @@ name: Audit
 
 # GitHub's dependency graph reads only the first YAML document of pnpm 12's lockfile, pnpm's own
 # packages, so Dependabot doesn't alert on what this repository and its site install. ci.yml fails a
-# pull request on an advisory in a production dependency; this audits the whole tree, dev
-# dependencies too, at every severity: daily, for advisories published since, and on a pull request
-# that changes the lockfile or the audit settings. The advisories it skips are in
+# pull request on an advisory of moderate severity or higher in a production dependency; this audits
+# the whole tree, dev dependencies too, at every severity: daily, for advisories published since, and
+# on a pull request that changes the lockfile or the audit settings. The advisories it skips are in
 # pnpm-workspace.yaml, with the reason.
 on:
   schedule:

@@ -6,6 +6,7 @@ signoff-ui is built in the open, and this page is the plan: what is in review, w
 
 - Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
 - `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
+- `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#211](https://github.com/dgesteves/signoff-ui/pull/211)
 
 ## In review
 
@@ -52,7 +53,6 @@ signoff-ui is built in the open, and this page is the plan: what is in review, w
 
 ### Project
 
-- `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#189](https://github.com/dgesteves/signoff-ui/issues/189)
 - Checks on real devices: an iPhone, VoiceOver, NVDA and Firefox on macOS. Help wanted. [#190](https://github.com/dgesteves/signoff-ui/issues/190)
 
 ### Good first issues
