@@ -178,8 +178,13 @@ export interface SafeUrlOptions {
 export function safeUrl(url: string | null | undefined, options: SafeUrlOptions = {}): string | undefined {
   if (!url) return undefined;
   // A scheme ends at the first colon, before any slash, question mark or hash; without one, the URL
-  // is relative. Browsers skip leading spaces and control characters, so this does too.
-  const scheme = /^[\p{Cc} ]*([^:/?#]*):/u.exec(url)?.[1]?.toLowerCase();
+  // is relative. Browsers skip leading spaces and control characters, so this does too, after
+  // reading the scheme: a regex that skips them first reads a long run of them with no colon again
+  // from each of its characters.
+  const scheme = /^([^:/?#]*):/u
+    .exec(url)?.[1]
+    ?.replace(/^[\p{Cc} ]+/u, '')
+    .toLowerCase();
   if (scheme === undefined || scheme === 'http' || scheme === 'https' || scheme === 'mailto') return url;
   return options.files && (scheme === 'data' || scheme === 'blob') ? url : undefined;
 }

@@ -402,4 +402,24 @@ describe('diff content', () => {
       { type: 'diff', path: 'gone.ts', oldText: 'y\n', newText: '' },
     ]);
   });
+
+  it('takes a root with any number of slashes at its end', () => {
+    for (const root of ['/repo', '/repo/', '/repo///']) {
+      expect(fromAcpDiffs([{ type: 'diff', path: '/repo/a.ts', newText: '' }], { root })[0]!.path).toBe('a.ts');
+      expect(toAcpDiffs([{ path: 'a.ts', newContent: '' }], { root })[0]!.path).toBe('/repo/a.ts');
+    }
+    for (const root of ['/', '///']) {
+      expect(fromAcpDiffs([{ type: 'diff', path: '/a.ts', newText: '' }], { root })[0]!.path).toBe('a.ts');
+      expect(toAcpDiffs([{ path: 'a.ts', newContent: '' }], { root })[0]!.path).toBe('/a.ts');
+    }
+  });
+
+  it('reads a root with a long run of slashes once, not once from each of them', () => {
+    const root = `${'/'.repeat(100_000)}x`;
+    const start = performance.now();
+    expect(fromAcpDiffs([{ type: 'diff', path: `${root}/a.ts`, newText: '' }], { root })[0]!.path).toBe('a.ts');
+    expect(toAcpDiffs([{ path: 'a.ts', newContent: '' }], { root })[0]!.path).toBe(`${root}/a.ts`);
+    // Read again from each slash, each takes about 20 seconds.
+    expect(performance.now() - start).toBeLessThan(100);
+  });
 });

@@ -21,6 +21,8 @@ Review what your agent changed and approve what it may do: React components for 
 
 **Website and docs:** [signoff-ui.vercel.app](https://signoff-ui.vercel.app), with a playground where a scripted coding agent asks for a review and an approval, driven from the keyboard, with no API key.
 
+**Feedback wanted:** say where it breaks in the [launch feedback thread](https://github.com/dgesteves/signoff-ui/discussions/200), see what's next in the [roadmap](https://github.com/dgesteves/signoff-ui/blob/main/ROADMAP.md), or pick up a [good first issue](https://github.com/dgesteves/signoff-ui/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22). If signoff-ui is useful to you, a star helps other people find it.
+
 <!-- npm-readme:video -->
 
 https://github.com/user-attachments/assets/caf5f11c-6f12-430b-8b72-845c406ded7a
@@ -272,7 +274,7 @@ What CI tests on every pull request, and what should work, through the same mess
 - [Coding agent](examples/coding-agent), the reference app: approval rules, reviews whose comments go back to the agent, and a scripted model, so no API key.
 - [Docs](https://signoff-ui.vercel.app/docs): [Getting started](https://signoff-ui.vercel.app/docs/getting-started), [Inside your chat UI](https://signoff-ui.vercel.app/docs/chat-ui), [AG-UI agents](https://signoff-ui.vercel.app/docs/ag-ui), [theming](https://signoff-ui.vercel.app/docs/getting-started#theming), [accessibility](https://signoff-ui.vercel.app/docs/accessibility), [labels and translations](https://signoff-ui.vercel.app/docs/labels), [performance and limits](https://signoff-ui.vercel.app/docs/limits), and a page per component with its props, keyboard and styling hooks. Also as [`/llms.txt`](https://signoff-ui.vercel.app/llms.txt) and [`/llms-full.txt`](https://signoff-ui.vercel.app/llms-full.txt) for coding agents.
 - Formerly `@dgesteves/agent-ui-kit`: [Migrating](https://signoff-ui.vercel.app/docs/migrating-from-agent-ui-kit) is a package swap and one command.
-- [Changelog](packages/signoff-ui/CHANGELOG.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
+- [Changelog](packages/signoff-ui/CHANGELOG.md), [roadmap](ROADMAP.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
 
 ## How it compares
 

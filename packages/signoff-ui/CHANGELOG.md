@@ -2,6 +2,22 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.10.2
+
+### Patch Changes
+
+- [#209](https://github.com/dgesteves/signoff-ui/pull/209) [`ddec46d`](https://github.com/dgesteves/signoff-ui/commit/ddec46dfa49e848cc5b629181f144afbcdf5b413) Thanks [@Mittalnew](https://github.com/Mittalnew)! - Make Sources respond to its own width instead of the viewport
+
+## 0.10.1
+
+### Patch Changes
+
+- [#173](https://github.com/dgesteves/signoff-ui/pull/173) [`e264d59`](https://github.com/dgesteves/signoff-ui/commit/e264d5962abc2510f40a6247fc0dec5068eef533) - `ai` is an optional peer dependency, so npm and pnpm no longer install the AI SDK, its provider packages and zod in an app that doesn't use them: an AG-UI or ACP app now installs 11 fewer packages, about 25 MB. `signoff-ui/ag-ui` and `signoff-ui/acp` declare the AI SDK types they return (`UIMessage`, `ChatStatus` and token usage) themselves, so they type-check without `ai`, and their messages still go to `AgentMessage` and `useChat` as they are, on AI SDK 6 and 7. The components' props keep the AI SDK's own types: without `ai`, TypeScript reads them as `any`, so install it, as a dev dependency if nothing else needs it, to have them checked. The shadcn `ag-ui` item no longer lists `ai` either.
+
+- [#172](https://github.com/dgesteves/signoff-ui/pull/172) [`b458d6f`](https://github.com/dgesteves/signoff-ui/commit/b458d6fb7bce3bec35d9f291d64cd7055802d39d) - `riskFromMcpAnnotations(annotations)`, in `signoff-ui/core` and the main entry, gives an approval card a risk level from what an MCP server says about its tool: `high` for `destructiveHint: true`, `low` for `readOnlyHint: true`, and `medium` for `readOnlyHint: false` or `openWorldHint: true`. Only hints the server set count, so a tool with no annotations still shows no risk, rather than the `high` the MCP spec's defaults would give it. With AI SDK 7's MCP client, read them from a call's part as `part.toolMetadata?.annotations`. It is a hint, not a guarantee: a server you don't trust can mark any tool read-only. `RiskLevel` is now exported from `signoff-ui/core` too. The `useApprovalPolicy` docs add a recipe for an organization's `@ai-sdk/policy-opa` policy first, with a person's rules deciding the calls it has no rule for.
+
+- [#204](https://github.com/dgesteves/signoff-ui/pull/204) [`e35edea`](https://github.com/dgesteves/signoff-ui/commit/e35edeaf433a63e85597cc911d57b2c319f62778) - `safeUrl`, and so links and images in `Markdown`, `Sources` and file attachments in `AgentMessage`, no longer slow down on a URL from the agent that starts with a long run of spaces or control characters and has no colon: 100,000 of them took about 30 seconds and blocked the page, and now take under a millisecond. The scheme is still read past them, so ` javascript:alert(1)` still renders as text. `fromAcpDiffs` and `toAcpDiffs` no longer slow down on a `root` with a long run of slashes that are not at its end either.
+
 ## 0.10.0
 
 ### Minor Changes

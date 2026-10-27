@@ -3,10 +3,10 @@
  * `session/request_permission` requests folded into one AI SDK `UIMessage` for `AgentMessage` and
  * `ToolCallTimeline`, and a tool call's diff content as `DiffReview` files. The types mirror the parts
  * of ACP that are read here, structurally, so `@agentclientprotocol/sdk` objects fit without it being
- * a dependency. The permission converters (`decisionsFromAcpOptions`, `toAcpPermissionResponse`…)
- * are in lib/policy.ts.
+ * a dependency. The AI SDK types come from ./ai-types, so the entry needs no `ai` either. The
+ * permission converters (`decisionsFromAcpOptions`, `toAcpPermissionResponse`…) are in lib/policy.ts.
  */
-import type { ChatStatus, DynamicToolUIPart, UIMessage } from 'ai';
+import type { ChatStatus, DynamicToolUIPart, UIMessage } from './ai-types';
 import type { FileChange } from './diff';
 import {
   acpToolName,
@@ -233,6 +233,16 @@ function contentText(call: AcpToolCall): string | undefined {
 }
 
 /**
+ * `root` ending in one `/`, however many it ended in. A loop: a regex for the slashes at the end
+ * reads a long run of slashes elsewhere in `root` again from each of them.
+ */
+function rootPrefix(root: string): string {
+  let end = root.length;
+  while (end > 0 && root[end - 1] === '/') end--;
+  return root.slice(0, end) + '/';
+}
+
+/**
  * A tool call's diff content as `DiffReview` files. ACP paths are absolute: pass the session's
  * `cwd` as `root` to show them relative to it. A diff with no `oldText` is a new file.
  */
@@ -240,7 +250,7 @@ export function fromAcpDiffs(
   content: readonly AcpToolCallContent[] | null | undefined,
   { root }: { root?: string | undefined } = {},
 ): FileChange[] {
-  const prefix = root ? root.replace(/\/+$/, '') + '/' : undefined;
+  const prefix = root ? rootPrefix(root) : undefined;
   return (content ?? []).flatMap((c) =>
     c.type === 'diff'
       ? [
@@ -262,7 +272,7 @@ export function toAcpDiffs(
   files: readonly Pick<FileChange, 'path' | 'oldContent' | 'newContent'>[],
   { root }: { root?: string | undefined } = {},
 ): Extract<AcpToolCallContent, { type: 'diff' }>[] {
-  const prefix = root ? root.replace(/\/+$/, '') + '/' : '';
+  const prefix = root ? rootPrefix(root) : '';
   return files.map((file) => ({
     type: 'diff',
     path: file.path.startsWith('/') ? file.path : prefix + file.path,

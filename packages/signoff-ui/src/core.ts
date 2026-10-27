@@ -102,6 +102,7 @@ export {
   type ToolApprovalStatusLike,
   type ToToolApprovalOptions,
 } from './lib/policy';
+export { riskFromMcpAnnotations } from './lib/risk';
 export {
   revealText,
   safeUrl,
@@ -117,6 +118,7 @@ export {
   mergeLabels,
   type OfferedChoices,
   type RangeLabel,
+  type RiskLevel,
   type SignoffLabels,
   type SignoffLabelsInput,
 } from './lib/labels';
