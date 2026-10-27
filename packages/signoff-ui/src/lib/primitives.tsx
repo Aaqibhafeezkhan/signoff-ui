@@ -29,10 +29,14 @@ export function Img({ alt, ...props }: ComponentPropsWithoutRef<'img'> & { alt: 
   return createElement('img', { alt, ...props });
 }
 
-/** Keyboard key hint. Purely visual: shortcuts are also described in text for assistive tech. */
+/**
+ * Keyboard key hint. Purely visual: shortcuts are also described in text for assistive tech. Left to
+ * right in a right-to-left page too, so `⇧N` does not show as `N⇧`.
+ */
 export function Kbd({ className, ...props }: ComponentPropsWithoutRef<'kbd'>) {
   return (
     <kbd
+      dir="ltr"
       className={cn(
         'border-signoff-border-strong bg-signoff-bg/40 font-signoff-mono text-signoff-fg-muted inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] border px-1 text-[11px] leading-none font-medium',
         className,

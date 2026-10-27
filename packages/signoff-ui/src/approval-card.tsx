@@ -771,6 +771,7 @@ export function ApprovalCard({
   const run = commandOf(runInput);
   const summary = L.summary({
     risk: risk && L.risk[risk],
+    // Whole, however long, unlike the arguments below: what runs is never cut in what is announced.
     command: run && spoken(run.command, all.untrusted),
     cwd: run?.cwd && spoken(run.cwd, all.untrusted),
     args:

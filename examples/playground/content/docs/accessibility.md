@@ -16,7 +16,7 @@ Code blocks, tables, diff hunks and the compact run meter scroll sideways when t
 
 Tool completions and failures (calls that settle together, such as parallel calls, in one announcement), approval decisions, review progress ("Hunk 2 of 4 accepted. 2 remaining.") and agent state changes go through live regions. State announcements are debounced, and only approvals and errors are assertive.
 
-A focused approval card reads its title, its reason, then what a sighted person sees around the buttons: the risk, what will run ("Runs pnpm add zod in ~/app."), and the calls a decision for the session or always would remember ("A lasting decision covers run_command with command pnpm add\*."), before its keys. A lasting decision is announced with the rule it saved ("Approved for this session: run_command with command pnpm add\*."). A critical action's first press that is let go, by Escape or by focus leaving, says "Confirmation cancelled." rather than the button quietly reading Approve again. Applying a review says what was sent ("Review sent: 3 of 4 accepted, 1 comment.").
+A focused approval card reads its title, its reason, then what a sighted person sees around the buttons: the risk, what will run ("Runs pnpm add zod in ~/app."), and the calls a decision for the session or always would remember ("A lasting decision covers run_command with command pnpm add\*."), before its keys. A lasting decision is announced with the rule it saved ("Approved for this session: run_command with command pnpm add\*."). A critical action's first press that is let go, by Escape or by focus leaving, says "Confirmation cancelled." rather than the button quietly reading Approve again. Applying a review says what was sent ("Review sent: 3 of 4 accepted, 1 comment."). When `onSubmit` returns a promise, that is said once the promise resolves, and nothing is said if it rejects: saying what failed is your app's.
 
 ## Not color alone
 
@@ -30,7 +30,7 @@ On a touch screen (`pointer: coarse`), every text field is 16px or more: the den
 
 ## Right to left
 
-In a right-to-left page, code and what runs stay left to right, so the bidi algorithm cannot reorder them: commands and their directory, JSON, rule patterns, diff lines, hunk ranges and file paths. A comment, or an argument being edited, takes the direction of its own text. The rest of the layout is not mirrored yet.
+In a right-to-left page, code and what runs stay left to right, so the bidi algorithm cannot reorder them: commands and their directory, JSON, rule patterns, diff lines, hunk ranges, file paths and key caps (`⇧N`). A comment, or an argument being edited, takes the direction of its own text. The rest of the layout is not mirrored yet.
 
 ## In the reader's language
 

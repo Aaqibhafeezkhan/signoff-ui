@@ -25,7 +25,7 @@ import { Revealed } from './lib/revealed';
 import { hasHidden } from './lib/untrusted';
 import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronIcon, CommentIcon, UndoIcon, XIcon } from './lib/icons';
 import { Kbd, LiveRegion } from './lib/primitives';
-import { cn, type HeadingLevel } from './lib/utils';
+import { cn, isPromiseLike, type HeadingLevel } from './lib/utils';
 import { diffReviewLabels, commonLabels } from './lib/labels';
 import { useLabels, WithLabels } from './labels';
 import {
@@ -256,7 +256,7 @@ export function DiffReview({
   const T = L.diffReview;
   const title = titleProp ?? T.title;
   const Heading = `h${headingLevel}` as const;
-  // What Apply sent, said until the review has something else to say.
+  // What Apply sent, said until the review has something else to say: `after` is what it said then.
   const [sent, setSent] = useState<{ text: string; after: string }>();
   const review = useDiffReview({
     files,
@@ -274,10 +274,11 @@ export function DiffReview({
       ((result, helpers) => {
         const returned = onSubmit(result, helpers);
         const total = result.accepted + result.rejected + result.pending;
-        setSent({
-          text: T.submitted(result.accepted, total, result.comments.length),
-          after: latest.current.announcement,
-        });
+        const text = T.submitted(result.accepted, total, result.comments.length);
+        const say = () => setSent({ text, after: latest.current.announcement });
+        // A returned promise means the review went once it resolves. If it rejects, the app says what failed.
+        if (isPromiseLike(returned)) returned.then(say, () => {});
+        else say();
         return returned;
       }),
     readOnly,
@@ -289,6 +290,9 @@ export function DiffReview({
     labels,
   });
   const { items, counts, comparing, isMac } = review;
+  // Once the review says something else, "Review sent" is over, even if the review later repeats
+  // what it said before Apply.
+  if (sent && sent.after !== review.announcement) setSent(undefined);
 
   const [viewState, setViewState] = useState<DiffViewMode>(defaultView);
   const view = viewProp ?? viewState;
@@ -601,7 +605,7 @@ export function DiffReview({
             </div>
           </div>
         )}
-        <LiveRegion>{sent?.after === review.announcement ? sent.text : review.announcement}</LiveRegion>
+        <LiveRegion>{sent ? sent.text : review.announcement}</LiveRegion>
       </section>
     </WithLabels>
   );

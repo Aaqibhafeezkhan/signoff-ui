@@ -8,9 +8,10 @@ import { APPROVAL_DECISIONS } from '../src/lib/policy';
 /*
  * In a right-to-left page (Arabic or Hebrew labels), the bidi algorithm reorders text that has no
  * direction of its own: `~/acme/chat-app` showed as `acme/chat-app/~`, the pattern `pnpm add*` as
- * `*pnpm add`, and diff lines lost their trailing `;` to the other end. What runs, and the code
- * under review, are left to right wherever the page is not: `dir="ltr"`, which also isolates them.
- * What the reviewer writes takes the direction of its own text (`dir="auto"`).
+ * `*pnpm add`, the key cap `⇧N` as `N⇧`, and diff lines lost their trailing `;` to the other end.
+ * What runs, the code under review and the keys are left to right wherever the page is not:
+ * `dir="ltr"`, which also isolates them. What the reviewer writes takes the direction of its own
+ * text (`dir="auto"`).
  */
 
 const ltr = (el: Element | null | undefined) => expect(el?.closest('[dir]')).toHaveAttribute('dir', 'ltr');
@@ -43,6 +44,10 @@ describe('in a right-to-left page', () => {
     expect(rule).toHaveValue('pnpm add*');
     ltr(rule);
     ltr(screen.getAllByText('run_command')[0]);
+    // A key cap of two glyphs too: Shift+N showed as `N⇧`.
+    const keyCap = Array.from(document.querySelectorAll('kbd')).find((kbd) => kbd.textContent === '⇧N');
+    expect(keyCap).toBeDefined();
+    ltr(keyCap);
     await user.click(screen.getByRole('button', { name: 'Edit arguments' }));
     ltr(screen.getByRole('textbox', { name: 'Arguments, as JSON' }));
   });
