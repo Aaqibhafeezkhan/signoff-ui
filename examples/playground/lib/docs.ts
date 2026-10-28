@@ -99,7 +99,7 @@ export const GUIDES: DocPage[] = [
     href: '/docs/api',
     title: 'API index',
     description:
-      'Every export of each entry point, with its signature and description, read from the published types: components, hooks, helpers and types.',
+      'Every export of each entry point, read from the published types: a link to the component page that documents it, or its signature and description.',
   },
   {
     slug: 'comparison',
@@ -171,12 +171,12 @@ const EXPORTS_MARKER = /^<!-- exports: (\S+) -->$/gm;
 /**
  * A guide's Markdown, as the page, its .md, search, Ask and llms-full.txt read it. In the API index,
  * each `<!-- exports: <entry point> -->` line becomes that entry point's exports, and every entry
- * point must have one.
+ * point must have one, so an API index without any fails the build too.
  */
 export function readGuide(doc: DocPage) {
   const markdown = readSource(doc.slug);
   const named = [...markdown.matchAll(EXPORTS_MARKER)].map((match) => match[1]!);
-  if (named.length === 0) return markdown;
+  if (doc.slug !== 'api' && named.length === 0) return markdown;
   const index = apiIndexMarkdown();
   const file = `content/docs/${doc.slug}.md`;
   const unknown = named.filter((name) => !index.has(name));
@@ -203,6 +203,11 @@ function componentSections() {
   return sections;
 }
 
+/** Text that matches itself in a RegExp: every metacharacter escaped, as src/lib/policy.ts does it. */
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
+
 /** A declaration longer than this shows only its first line. */
 const MAX_DECLARATION_LINES = 30;
 
@@ -218,10 +223,12 @@ const MAX_MENTIONS = 4;
 let apiIndex: Map<string, string> | undefined;
 
 /**
- * Each entry point's exports as Markdown, for the API index: a `###` heading each, with the
- * declaration and the description, then the component page that documents it or else the pages
- * that use it in code (the migration guide's renames aside). The exports another entry point lists
- * come first, as links.
+ * Each entry point's exports as Markdown, for the API index. First the exports another entry point
+ * lists, as links, then the ones a component page documents, as one line of links to their sections
+ * there: a section of their own here would only repeat the first line, and would take the places
+ * in Ask's and the MCP server's results that the component page's own sections should get. Then a
+ * `###` heading for each other export, with its declaration (inline code when it is one line), its
+ * description, and the pages that use it in code (the migration guide's renames aside).
  */
 function apiIndexMarkdown() {
   if (apiIndex) return apiIndex;
@@ -242,21 +249,25 @@ function apiIndexMarkdown() {
     spans: [...page.markdown.replace(/^```[^\n]*\n[\s\S]*?^```$/gm, '').matchAll(/`([^`\n]+)`/g)].map((m) => m[1]!),
   }));
   const mentions = (name: string) => {
-    const word = new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
+    const word = new RegExp(`(?<![\\w$.])${escapeRegExp(name)}(?![\\w$])`);
     return code
       .filter((page) => word.test(page.blocks) || page.spans.some((span) => span.startsWith(name) && word.test(span)))
       .slice(0, MAX_MENTIONS);
   };
   // Each heading is the export's name, or the name and its entry point when an export listed
-  // before it has the name (signoff-ui/custom-markdown's AgentMessage), so every id is unique.
+  // before it has the name, so every id is unique.
   const headings = new Map<string, string>();
   const used = new Set<string>();
   for (const point of entryPoints) {
     for (const item of point.exports) {
+      if (documented.has(item.name)) continue;
       headings.set(`${point.name} ${item.name}`, used.has(item.name) ? `${item.name} (${point.name})` : item.name);
       used.add(item.name);
     }
   }
+  /** Where an export is shown: its component page's section, or its heading here. */
+  const target = (entryPoint: string, name: string) =>
+    documented.get(name)?.href ?? `#${slugify(headings.get(`${entryPoint} ${name}`)!)}`;
   const sections = entryPoints.map((point): [string, string] => {
     const from = new Map<string, string[]>();
     for (const { name, entryPoint } of point.shared) from.set(entryPoint, [...(from.get(entryPoint) ?? []), name]);
@@ -264,28 +275,31 @@ function apiIndexMarkdown() {
       const link = `[\`${other}\`](#${slugify(other)})`;
       if (entryPoints.find((p) => p.name === other)!.exports.length === names.length)
         return `It also exports everything in ${link}.`;
-      const links = names.map((name) => `[\`${name}\`](#${slugify(headings.get(`${other} ${name}`)!)})`);
+      const links = names.map((name) => `[\`${name}\`](${target(other, name)})`);
       return `It also exports these, listed under ${link}: ${links.join(', ')}.`;
     });
-    const blocks = point.exports.map((item) => {
-      const page = documented.get(item.name);
-      // A type a component page has a table for shows its first line here, and so does a long one.
-      const lines = item.declaration.split('\n').length;
-      const isType = item.kind === 'interface' || item.kind === 'type';
-      const declaration =
-        lines > MAX_DECLARATION_LINES || (isType && page && lines > 1) ? firstLine(item.declaration) : item.declaration;
-      const named = page ? [] : mentions(item.name).map((mention) => `[${mention.title}](${mention.href})`);
-      return [
-        `### ${headings.get(`${point.name} ${item.name}`)}`,
-        `\`\`\`ts\n${declaration}\n\`\`\``,
-        item.description,
-        page && `Documented on the [${page.title} page](${page.href}).`,
-        named.length > 0 && `In the docs: ${named.join(', ')}.`,
-      ]
-        .filter(Boolean)
-        .join('\n\n');
-    });
-    return [point.name, [...also, ...blocks].join('\n\n')];
+    const onPages = point.exports
+      .filter((item) => documented.has(item.name))
+      .map((item) => `[\`${item.name}\`](${target(point.name, item.name)})`);
+    const pagesLine = onPages.length > 0 && `On the component pages: ${onPages.join(', ')}.`;
+    const blocks = point.exports
+      .filter((item) => !documented.has(item.name))
+      .map((item) => {
+        const declaration =
+          item.declaration.split('\n').length > MAX_DECLARATION_LINES ? firstLine(item.declaration) : item.declaration;
+        // One line reads as inline code; a code block is for more, or for a line with a backtick.
+        const shown = /[\n`]/.test(declaration) ? `\`\`\`ts\n${declaration}\n\`\`\`` : `\`${declaration}\``;
+        const named = mentions(item.name).map((mention) => `[${mention.title}](${mention.href})`);
+        return [
+          `### ${headings.get(`${point.name} ${item.name}`)}`,
+          shown,
+          item.description,
+          named.length > 0 && `In the docs: ${named.join(', ')}.`,
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+      });
+    return [point.name, [...also, pagesLine, ...blocks].filter(Boolean).join('\n\n')];
   });
   apiIndex = new Map(sections);
   return apiIndex;
@@ -335,7 +349,9 @@ export function toMarkdown(doc: DocPage, markdown: string) {
   const body = markdown
     // Install blocks are ordinary shell commands outside the site.
     .replace(/^```package-install$/gm, '```bash')
-    .replace(/\]\((\/[^)]*)\)/g, `](${SITE_URL}$1)`);
+    .replace(/\]\((\/[^)]*)\)/g, `](${SITE_URL}$1)`)
+    // A link to a heading of the page itself, as the API index has.
+    .replace(/\]\((#[^)]*)\)/g, `](${SITE_URL}${doc.href}$1)`);
   return `# ${doc.title}\n\n> ${doc.description}\n\nSource: ${SITE_URL}${doc.href}\n\n${body.trim()}\n`;
 }
 

@@ -338,6 +338,10 @@ const KIND_RANK: Record<ExportKind, number> = {
   type: 4,
 };
 
+/**
+ * What an export is, for its group on the page. A class or an enum would count as a constant here:
+ * the package exports neither, so neither has a kind of its own yet.
+ */
 function kindOf(symbol: ts.Symbol): ExportKind {
   const { checker } = load();
   if (symbol.flags & ts.SymbolFlags.Interface) return 'interface';
@@ -395,6 +399,16 @@ export function getApiIndex(): EntryPointDoc[] {
     const shared: EntryPointDoc['shared'] = [];
     for (const symbol of point.symbols) {
       const target = aliased(symbol);
+      // The page prints the declaration under the name the .d.ts declares, so it can't list a
+      // default export or one renamed on the way out (`export { a as b }`) without misnaming it.
+      if (symbol.name === 'default')
+        throw new Error(
+          `${point.name} has a default export, which the API index can't name: export it by name, or teach getApiIndex (lib/api.ts) to list it.`,
+        );
+      if (target.name !== symbol.name)
+        throw new Error(
+          `${point.name} exports ${target.name} as ${symbol.name}, and the API index would print ${target.name}'s declaration: export it under its own name, or teach declarationOf (lib/api.ts) to print the name it is exported as.`,
+        );
       const entryPoint = home.get(target)!;
       if (entryPoint !== point.name) {
         shared.push({ name: symbol.name, entryPoint });

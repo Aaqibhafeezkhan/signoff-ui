@@ -7,7 +7,7 @@ How the repository fits together, for a change that reaches past one file. [CONT
 `packages/signoff-ui` is the library, published to npm as `signoff-ui`. Its source is in layers:
 
 - **Pure helpers**, in `src/lib/`: approval rules (`src/lib/policy.ts`), diffs and the review's result (`src/lib/diff.ts`, `src/lib/review.ts`), AI SDK message parts (`src/lib/ai.ts`), usage and cost (`src/lib/usage.ts`), the AG-UI and ACP converters (`src/lib/ag-ui.ts`, `src/lib/acp.ts`), text and URLs from the agent (`src/lib/untrusted.ts`), and the labels (`src/lib/labels.ts`). They have no React and no `'use client'`, so Server Components, Route Handlers and plain Node can call them.
-- **Components and hooks**, in `src/` and a few modules of `src/lib/`, such as `src/lib/hooks.ts`: each file starts with `'use client'`. A component is styled with Tailwind utilities on the `signoff-*` tokens, its root carries `data-signoff`, and what the app passes in to render as its own sits in an element with `data-signoff-slot`.
+- **Components and hooks**, in `src/` and a few modules of `src/lib/`, such as `src/lib/hooks.ts`: each module with hooks, state or event handlers starts with `'use client'`, and one that only renders markup, such as the icons (`src/lib/icons.tsx`), has no directive. A component is styled with Tailwind utilities on the `signoff-*` tokens, its root carries `data-signoff`, and what the app passes in to render as its own sits in an element with `data-signoff-slot`.
 - **Styles**, in `src/styles/`: the tokens (`src/styles/theme.css`), their Tailwind v4 mapping (`src/styles/tokens.css`), and the entry for the precompiled stylesheet (`src/styles/standalone.css`).
 
 The entry points, one per `exports` entry in `package.json`:

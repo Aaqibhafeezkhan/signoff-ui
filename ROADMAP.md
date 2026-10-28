@@ -51,9 +51,7 @@ Nothing from this roadmap right now. Open pull requests are [on GitHub](https://
 
 Comment on one before you start. [CONTRIBUTING.md](CONTRIBUTING.md) has the checks to run.
 
-- `Sources`: lay out cards by the container's width, not the screen's. [#191](https://github.com/dgesteves/signoff-ui/issues/191)
 - Docs tables: join the tab order only while they scroll. [#192](https://github.com/dgesteves/signoff-ui/issues/192)
-- Tests for `Reasoning`: following the stream, the reader's toggle, the measured time. [#193](https://github.com/dgesteves/signoff-ui/issues/193)
 - Drop tailwind-merge, or teach it the kit's classes. [#47](https://github.com/dgesteves/signoff-ui/issues/47)
 - Document ESM only for Jest users. [#48](https://github.com/dgesteves/signoff-ui/issues/48)
 - An AI Elements example app with `DiffReview` and approvals, runnable with no key. [#40](https://github.com/dgesteves/signoff-ui/issues/40)
@@ -73,6 +71,7 @@ These get built when someone who needs them says so on the issue.
 Since this roadmap was published. Each release's changes are in the [changelog](packages/signoff-ui/CHANGELOG.md).
 
 - **0.11.0**: Accessibility and touch in the approval card and the review: Approve all keeps focus, a focused card says what it will run, code reads left to right on right-to-left pages, buttons show in forced colours, and fields no longer zoom on iOS. [#174](https://github.com/dgesteves/signoff-ui/pull/174)
+- **0.10.2**: `Sources` lays out its cards by its own width, not the screen's (good first issue [#191](https://github.com/dgesteves/signoff-ui/issues/191)). [#209](https://github.com/dgesteves/signoff-ui/pull/209)
 - **0.10.1**: Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
 - **0.10.1**: `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
 
@@ -81,6 +80,9 @@ Docs, examples and CI, which take effect on `main` without a release:
 - Support tiers (tested in CI, or documented only), and new integrations wait until Thursday 2026-11-19, four weeks after launch, unless someone asks for one. [#175](https://github.com/dgesteves/signoff-ui/pull/175)
 - The examples do what their READMEs say: each new message restarts the quickstart's scripted run, and the examples pin signoff-ui. [#171](https://github.com/dgesteves/signoff-ui/pull/171)
 - `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#211](https://github.com/dgesteves/signoff-ui/pull/211)
+- The lockfile's packages sent to GitHub's dependency graph on each push to `main`, so its alerts see them again. [#219](https://github.com/dgesteves/signoff-ui/pull/219)
+- Tests for `Reasoning`: following the stream and the measured time (good first issue [#193](https://github.com/dgesteves/signoff-ui/issues/193)). [#207](https://github.com/dgesteves/signoff-ui/pull/207)
+- The ACP page connects with the SDK's app API, which `@agentclientprotocol/sdk` 2 keeps, and its code is tested on SDK 2. [#223](https://github.com/dgesteves/signoff-ui/pull/223)
 
 ## Not planned
 

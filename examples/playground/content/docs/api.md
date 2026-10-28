@@ -1,6 +1,6 @@
-Every export of signoff-ui, by entry point: its declaration and its description, as your editor shows them. Both are read from the package's published types when the site builds, so the page lists exactly what the package exports.
+Every export of signoff-ui, by entry point, read from the package's published types when the site builds, so the page lists exactly what the package exports.
 
-The component pages have props in full, with defaults, examples, keyboard and accessibility, and each export they cover links there. Import an export from the entry point it is listed under. The main entry, `signoff-ui`, also exports everything in `signoff-ui/core`.
+The components, the hooks and the types they take each have a component page, with props in full, defaults, examples, keyboard and accessibility, and each entry point links them there. Every other export is here, with its declaration and its description as your editor shows them. Import an export from the entry point it is listed under. The main entry, `signoff-ui`, also exports everything in `signoff-ui/core`.
 
 ## signoff-ui
 
