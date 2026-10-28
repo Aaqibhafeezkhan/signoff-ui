@@ -24,7 +24,7 @@ export interface RunMeterProps extends Omit<ComponentPropsWithoutRef<'div'>, 'ch
   cost?: number | undefined;
   /** Time to first token, ms. */
   ttftMs?: number | undefined;
-  /** Total (active) run time, ms. */
+  /** Total (active) run time, ms. It reads at least `ttftMs`, which it includes. */
   durationMs?: number | undefined;
   /** The run is in progress: values are live. */
   live?: boolean;
@@ -90,13 +90,16 @@ export function RunMeter({
   const reasoning = usage?.outputTokenDetails?.reasoningTokens;
   // Share of input tokens served from the provider's prompt cache: the main cost lever for agents.
   const cacheHit = input && cached !== undefined ? cached / input : undefined;
+  // The run's time includes its first token. A live total ticks (useRunTiming's every 100 ms) while the
+  // time to first token is exact, so for a tick the total could read less than it.
+  const total = durationMs !== undefined && ttftMs !== undefined ? Math.max(durationMs, ttftMs) : durationMs;
 
   const summary = M.summary({
     input: formatTokens(input),
     output: formatTokens(output),
     cost: totalCost !== undefined ? formatCost(totalCost) : undefined,
     ttft: ttftMs !== undefined ? formatDuration(ttftMs) : undefined,
-    total: durationMs !== undefined ? formatDuration(durationMs) : undefined,
+    total: total !== undefined ? formatDuration(total) : undefined,
   });
 
   if (variant === 'compact') {
@@ -141,10 +144,10 @@ export function RunMeter({
             <span className="text-signoff-fg">{formatDuration(ttftMs)}</span>
           </span>
         )}
-        {durationMs !== undefined && (
+        {total !== undefined && (
           <span aria-hidden="true" className={item} title={M.totalTime}>
             {live && <span className="bg-signoff-accent size-1.5 rounded-full motion-safe:animate-pulse" />}
-            <span className="text-signoff-fg">{formatDuration(durationMs)}</span>
+            <span className="text-signoff-fg">{formatDuration(total)}</span>
           </span>
         )}
       </div>
@@ -234,7 +237,7 @@ export function RunMeter({
         </div>
         <div>
           <dt className={label}>{M.total}</dt>
-          <dd className="font-signoff-mono text-signoff-fg text-sm tabular-nums">{formatDuration(durationMs)}</dd>
+          <dd className="font-signoff-mono text-signoff-fg text-sm tabular-nums">{formatDuration(total)}</dd>
         </div>
         <div>
           <dt className={label}>{M.cacheHit}</dt>

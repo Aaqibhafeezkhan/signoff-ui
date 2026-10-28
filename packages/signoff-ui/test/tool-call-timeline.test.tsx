@@ -83,6 +83,76 @@ describe('ToolCallTimeline', () => {
     expect(screen.getByText('Not on main')).toBeInTheDocument();
   });
 
+  it("does not blame the person for a denial the server's check made after they approved", async () => {
+    // AI SDK 7 checks edited arguments against toolApproval again: `ls` edited to `git push origin main`,
+    // approved, then denied by an always-deny `git push*` rule. The denial carries no reason, and the
+    // part keeps the person's approval.
+    const user = userEvent.setup();
+    const rechecked = toolPart('output-denied', {
+      toolName: 'run_command',
+      input: { command: 'git push origin main' },
+      approval: { id: 'approval_push', approved: true },
+    });
+    render(<ToolCallTimeline parts={[rechecked]} />);
+    await user.click(screen.getByRole('button', { name: /Run command/ }));
+    expect(screen.getByText('Blocked by policy.')).toBeInTheDocument();
+    expect(screen.queryByText(/Denied by user/)).not.toBeInTheDocument();
+  });
+
+  describe('a call a person answers (pendingClientTools)', () => {
+    const REVIEW = { toolCallId: 'call_review', toolName: 'review_changes' };
+    // Reviewed in 3.2s: the person's time, from input-available to the output the page sent.
+    const timings = { call_review: { startedAt: 1_000, runningAt: 1_100, endedAt: 4_300 } };
+
+    it('shows no duration once answered: the time was the person’s', () => {
+      const { rerender } = render(
+        <ToolCallTimeline parts={[toolPart('output-available', REVIEW)]} timings={timings} />,
+      );
+      // Without it, the row reports the review as the tool's run time.
+      expect(screen.getByRole('button', { name: /Review changes/ })).toHaveTextContent('3.20s');
+      rerender(
+        <ToolCallTimeline
+          parts={[toolPart('output-available', REVIEW)]}
+          timings={timings}
+          pendingClientTools={['review_changes']}
+        />,
+      );
+      const row = screen.getByRole('button', { name: /Review changes/ });
+      expect(row).toHaveTextContent('Done');
+      expect(row).not.toHaveTextContent(/\d+ms|\d\.\d+s/);
+    });
+
+    it('reads as waiting on the person while it waits, with no clock', () => {
+      render(
+        <ToolCallTimeline
+          parts={[toolPart('input-available', REVIEW), toolPart('output-available', { toolCallId: 'r' })]}
+          timings={{
+            call_review: { startedAt: 1_000, runningAt: 1_100 },
+            r: { startedAt: 1, runningAt: 1, endedAt: 251 },
+          }}
+          pendingClientTools={['review_changes']}
+        />,
+      );
+      const [review, other] = screen.getAllByRole('listitem');
+      expect(review).toHaveAttribute('data-phase', 'awaiting-approval');
+      expect(within(review!).getByRole('button')).toHaveTextContent('Needs approval');
+      expect(within(review!).getByRole('button')).not.toHaveTextContent(/\d+ms|\d\.\d+s/);
+      // Other calls keep theirs.
+      expect(within(other!).getByRole('button')).toHaveTextContent('250ms');
+    });
+
+    it('still reads "Stopped" when the run ended while it waited', () => {
+      render(
+        <ToolCallTimeline
+          parts={[toolPart('input-available', REVIEW)]}
+          pendingClientTools={['review_changes']}
+          active={false}
+        />,
+      );
+      expect(screen.getByRole('button', { name: /Review changes/ })).toHaveTextContent('Stopped');
+    });
+  });
+
   it('moves between calls with arrow keys, Home and End', async () => {
     const user = userEvent.setup();
     render(
@@ -215,6 +285,43 @@ describe('ToolCallTimeline', () => {
       rerender(<ToolCallTimeline parts={three(['output-available', 'output-available', 'output-denied'])} />);
       act(() => vi.advanceTimersByTime(300));
       expect(status).toHaveTextContent(/^Run command was denied$/);
+    });
+
+    it('announces a denial the server made after approval as the policy’s', () => {
+      const RUN = { toolCallId: 'push', toolName: 'run_command' };
+      const { rerender } = render(
+        <ToolCallTimeline
+          parts={[toolPart('approval-responded', { ...RUN, approval: { id: 'a', approved: true } })]}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(50));
+      rerender(
+        <ToolCallTimeline parts={[toolPart('output-denied', { ...RUN, approval: { id: 'a', approved: true } })]} />,
+      );
+      act(() => vi.advanceTimersByTime(300));
+      expect(screen.getByRole('status')).toHaveTextContent(/^Run command was blocked by policy$/);
+    });
+
+    it('does not announce a person’s answer as a run time, and still announces the others', () => {
+      const parts = (review: ToolPart['state'], read: ToolPart['state']) => [
+        call(review, 'rv', 'review_changes'),
+        call(read, 'rd', 'read_file'),
+      ];
+      const { rerender } = render(
+        <ToolCallTimeline
+          parts={parts('input-available', 'input-available')}
+          pendingClientTools={['review_changes']}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(3_000));
+      rerender(
+        <ToolCallTimeline
+          parts={parts('output-available', 'output-available')}
+          pendingClientTools={['review_changes']}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(300));
+      expect(screen.getByRole('status')).toHaveTextContent(/^Read file finished in 3.0 seconds$/);
     });
 
     it('does not announce calls that had settled before it mounted', () => {

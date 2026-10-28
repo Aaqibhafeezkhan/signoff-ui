@@ -15,12 +15,16 @@ import {
   RunMeter,
   deriveAgentState,
   getToolPartName,
+  humanizeToolName,
   reviewToolOutput,
   useRunTiming,
   type FileChange,
 } from 'signoff-ui';
 
 type Message = UIMessage<{ usage?: LanguageModelUsage }>;
+
+// review_changes waits on a person, like an approval: the page answers it with a DiffReview.
+const CLIENT_TOOLS = ['review_changes'];
 
 export function AgentRun() {
   const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
@@ -30,15 +34,16 @@ export function AgentRun() {
   });
   const [input, setInput] = useState('');
   const last = messages.findLast((m) => m.role === 'assistant');
-  // review_changes waits on a person, like an approval.
-  const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: ['review_changes'] });
+  // The reply to the message you sent last, once it starts: the meter shows this run, not the one before.
+  const reply = last === messages.at(-1) ? last : undefined;
+  const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: CLIENT_TOOLS });
   // A run starts with each message you send and spans its review and approval round trips.
   const timing = useRunTiming(status, messages);
 
   return (
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
     <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
-      <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
+      <AgentStatus state={state} detail={detail && humanizeToolName(detail)} elapsedMs={timing.activeMs} />
       {/* Why the run failed, such as a missing API key: the route's onError sends the message. */}
       {error && <p role="alert">{error.message}</p>}
       {last && (
@@ -48,6 +53,8 @@ export function AgentRun() {
           // Once the run has finished, been stopped or failed, calls that never settled read "Stopped".
           active={state !== 'done' && state !== 'stopped' && state !== 'error'}
           failed={status === 'error'}
+          // The time a review takes is yours, not the tool's: its call shows no duration.
+          pendingClientTools={CLIENT_TOOLS}
           onToolApproval={addToolApprovalResponse}
           // The proposed edit, reviewed hunk by hunk: the agent gets the files as applied, and your comments.
           renderTool={(part) =>
@@ -67,7 +74,7 @@ export function AgentRun() {
         />
       )}
       <RunMeter
-        usage={last?.metadata?.usage}
+        usage={reply?.metadata?.usage}
         pricing={{ input: 2.5, cachedInput: 0.25, output: 10 }}
         ttftMs={timing.ttftMs}
         durationMs={timing.activeMs}
