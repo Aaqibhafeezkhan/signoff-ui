@@ -37,7 +37,7 @@ import { tokenizeTerminal, tokenizeTerminalLine } from '@/lib/terminal';
 const PROMPT = 'The formatDuration test fails. Fix it.';
 const SESSION = 'sess_demo';
 
-/** What an ACP client implements for the agent: the methods `ClientSideConnection` calls. */
+/** What an ACP client handles for the agent: its `session/update` notifications and `session/request_permission` requests. */
 interface AcpClient {
   sessionUpdate(params: AcpSessionNotification): Promise<void>;
   requestPermission(params: AcpRequestPermissionRequest): Promise<AcpRequestPermissionResponse>;

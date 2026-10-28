@@ -1,16 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  AgentSideConnection,
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  type Agent,
-  type Client,
-  type PermissionOption,
-  type ToolCall,
-} from '@agentclientprotocol/sdk';
+import * as sdk from '@agentclientprotocol/sdk';
+import type { ClientApp, ClientContext, PermissionOption, ToolCall } from '@agentclientprotocol/sdk';
 import { render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
@@ -23,19 +15,27 @@ import * as kit from '../src/index';
 
 /*
  * The ACP page's two files, run as copied: its code blocks compiled, their imports this package's
- * source, against an agent over the ACP SDK's own connection. An approved call that then fails
- * reads Failed, with the error, and Stop answers the permission request still open with
- * `cancelled`, as ACP requires of a client that sends session/cancel.
+ * source and the ACP SDK, against an agent over the SDK's own connection. An approved call that
+ * then fails reads Failed, with the error, and Stop answers the permission request still open with
+ * `cancelled`, as ACP requires of a client that sends session/cancel. The blocks also typecheck
+ * against the SDK installed here, so a release that drops what they use fails this file.
  */
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, '../../..');
 const page = readFileSync(join(root, 'examples/playground/content/docs/acp.md'), 'utf8');
+const titles = ['components/use-acp-turn.tsx', 'components/acp-turn.tsx'];
+
+/** The code of a `tsx` block of the page, by its title. */
+function block(title: string) {
+  const code = page.split(`\`\`\`tsx title="${title}"\n`)[1]?.split('\n```')[0];
+  if (!code) throw new Error(`no ${title} block on the page`);
+  return code;
+}
 
 /** A `tsx` block of the page, by its title, as a module. */
 function load<T>(title: string): T {
-  const code = page.split(`\`\`\`tsx title="${title}"\n`)[1]?.split('\n```')[0];
-  if (!code) throw new Error(`no ${title} block on the page`);
-  const { outputText } = ts.transpileModule(code, {
+  const { outputText } = ts.transpileModule(block(title), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
   });
   const modules: Record<string, unknown> = {
@@ -43,6 +43,7 @@ function load<T>(title: string): T {
     'react/jsx-runtime': jsxRuntime,
     'signoff-ui': kit,
     'signoff-ui/acp': acp,
+    '@agentclientprotocol/sdk': sdk,
   };
   const module = { exports: {} as T };
   const require = (id: string) => {
@@ -53,12 +54,50 @@ function load<T>(title: string): T {
   return module.exports;
 }
 
+/**
+ * TypeScript errors in the page's two files, as files of an app next to this package's source
+ * (`signoff-ui` and `signoff-ui/acp`) and the installed SDK, with strict on.
+ */
+function typeErrors() {
+  const sources = new Map(titles.map((title) => [join(here, basename(title)), block(title)]));
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    isolatedModules: true,
+    jsx: ts.JsxEmit.ReactJSX,
+    types: [],
+    paths: { 'signoff-ui': [join(here, '../src/index.ts')], 'signoff-ui/acp': [join(here, '../src/acp.ts')] },
+  };
+  const host = ts.createCompilerHost(options);
+  const { fileExists, readFile, getSourceFile } = host;
+  host.fileExists = (file) => sources.has(file) || fileExists(file);
+  host.readFile = (file) => sources.get(file) ?? readFile(file);
+  host.getSourceFile = (file, language, ...rest) => {
+    const code = sources.get(file);
+    return code === undefined ? getSourceFile(file, language, ...rest) : ts.createSourceFile(file, code, language);
+  };
+  const program = ts.createProgram([...sources.keys()], options, host);
+  return [...sources.keys()].flatMap((file) => {
+    const source = program.getSourceFile(file)!;
+    return [...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source)].map(
+      (diagnostic) =>
+        `${basename(file)}(${source.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1}): ` +
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+    );
+  });
+}
+
 type UseAcpTurn = () => {
   turn: acp.AcpTurn | undefined;
-  client: Client;
-  prompt: (agent: Agent, sessionId: string, text: string) => Promise<void>;
+  client: ClientApp;
+  prompt: (agent: ClientContext, sessionId: string, text: string) => Promise<void>;
   decide: (toolCallId: string, decision: kit.ApprovalDecision) => void;
-  cancel: (agent: Agent, sessionId: string) => Promise<void>;
+  cancel: (agent: ClientContext, sessionId: string) => Promise<void>;
 };
 type AcpTurnView = (props: {
   turn: acp.AcpTurn;
@@ -97,36 +136,36 @@ const ERROR = 'EACCES: permission denied, open /repo/src/config.ts';
  * runs a tool call to its end, it waits on the permission request without watching for
  * session/cancel: only the client's answer ends the wait.
  */
-function connectAgent(client: Client, then: 'completed' | 'failed', log: string[]) {
+function connectAgent(client: ClientApp, then: 'completed' | 'failed', log: string[]) {
   const toAgent = new TransformStream<Uint8Array, Uint8Array>();
   const toClient = new TransformStream<Uint8Array, Uint8Array>();
-  new AgentSideConnection(
-    (conn) => ({
-      initialize: () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }),
-      newSession: () => ({ sessionId: 's1' }),
-      authenticate: () => {},
-      cancel: () => void log.push('session/cancel'),
-      async prompt({ sessionId }) {
-        await conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'tool_call', ...edit } });
-        const { outcome } = await conn.requestPermission({ sessionId, toolCall: edit, options });
-        log.push(`answer: ${outcome.outcome === 'selected' ? outcome.optionId : outcome.outcome}`);
-        if (outcome.outcome === 'cancelled') return { stopReason: 'cancelled' };
-        const text = then === 'failed' ? ERROR : 'Wrote src/config.ts';
-        await conn.sessionUpdate({
-          sessionId,
-          update: {
-            sessionUpdate: 'tool_call_update',
-            toolCallId: edit.toolCallId,
-            status: then,
-            content: [{ type: 'content', content: { type: 'text', text } }],
-          },
-        });
-        return { stopReason: 'end_turn' };
-      },
-    }),
-    ndJsonStream(toClient.writable, toAgent.readable),
-  );
-  return new ClientSideConnection(() => client, ndJsonStream(toAgent.writable, toClient.readable));
+  const { methods } = sdk;
+  sdk
+    .agent()
+    .onNotification(methods.agent.session.cancel, () => void log.push('session/cancel'))
+    .onRequest(methods.agent.session.prompt, async ({ params: { sessionId }, client: conn }) => {
+      await conn.notify(methods.client.session.update, { sessionId, update: { sessionUpdate: 'tool_call', ...edit } });
+      const { outcome } = await conn.request(methods.client.session.requestPermission, {
+        sessionId,
+        toolCall: edit,
+        options,
+      });
+      log.push(`answer: ${outcome.outcome === 'selected' ? outcome.optionId : outcome.outcome}`);
+      if (outcome.outcome === 'cancelled') return { stopReason: 'cancelled' };
+      const text = then === 'failed' ? ERROR : 'Wrote src/config.ts';
+      await conn.notify(methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: edit.toolCallId,
+          status: then,
+          content: [{ type: 'content', content: { type: 'text', text } }],
+        },
+      });
+      return { stopReason: 'end_turn' };
+    })
+    .connect(sdk.ndJsonStream(toClient.writable, toAgent.readable));
+  return client.connect(sdk.ndJsonStream(toAgent.writable, toClient.readable)).agent;
 }
 
 /** An app on the page's hook and view: a prompt, a Stop button, the turn. */
@@ -162,6 +201,10 @@ async function ask(then: 'completed' | 'failed') {
 const row = () => screen.getByRole('button', { name: /Edit src\/config\.ts/ });
 
 describe('the ACP page, over a real connection', () => {
+  it('typechecks against the installed @agentclientprotocol/sdk', { timeout: 60_000 }, () => {
+    expect(typeErrors()).toEqual([]);
+  });
+
   it('returns cancel from useAcpTurn', () => {
     const { result } = renderHook(useAcpTurn);
     expect(Object.keys(result.current)).toEqual(['turn', 'client', 'prompt', 'decide', 'cancel']);
