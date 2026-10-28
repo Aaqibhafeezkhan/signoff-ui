@@ -15,7 +15,7 @@ auditConfig:
   ignoreGhsas:
     # zod (high): memory exhaustion validating oversized constrained collections, fixed only in zod 4.6.6. The
     # published signoff-ui package doesn't depend on zod, the registry items reach it only as ai's peer (the app's
-    # own zod), and the examples that use zod ask for ^4.6.6. zod 3 comes only through @ag-ui/client and
+    # own zod), and the examples that use zod ask for ^4.6.7. zod 3 comes only through @ag-ui/client and
     # @ag-ui/proto, in signoff-ui's dev dependencies and in the site, where they run only in the browser, on the
     # components page's scripted AG-UI run; and, in examples/copilotkit, through those and @copilotkit/runtime,
     # @copilotkit/shared, @copilotkit/a2ui-renderer and @a2ui/web_core, which its API route loads when you run the
@@ -26,6 +26,12 @@ auditConfig:
     # Only examples/copilotkit has it: @copilotkit/react-core (1.81.0 too) and the streamdown, mermaid and
     # math plugins it brings all ask for katex ^0.16.
     - GHSA-238p-pmpm-9mq7
+    # deepmerge (low): mergeObject() allows prototype poisoning of the objects it returns. Only the shadcn CLI
+    # brings it, itself and through @shadcn/registry: a root dev dependency that builds the registry from this
+    # repository's own files (pnpm registry:build). It is never shipped and never runs on untrusted input. No
+    # deepmerge release fixes it (4.3.1, the latest, is affected), and shadcn 4.23.0, the latest, still asks for
+    # ^4.3.1: remove this when shadcn drops deepmerge or a fixed release exists.
+    - GHSA-gcqx-w48m-w2h4
 allowBuilds:
   '@parcel/watcher': false
   '@scarf/scarf': false
