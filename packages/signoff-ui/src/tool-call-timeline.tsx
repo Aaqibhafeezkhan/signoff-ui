@@ -19,6 +19,7 @@ import {
   getToolPartName,
   getToolPhase,
   isAutomaticApproval,
+  isDeniedAfterApproval,
   isInterruptibleToolPart,
   isSettledPhase,
   isSubagentPart,
@@ -98,6 +99,12 @@ export interface ToolCallTimelineProps extends Omit<ComponentPropsWithoutRef<'di
    * have run them failed. Pass it as well for a run restored from history that ended in an error.
    */
   failed?: boolean;
+  /**
+   * Client-side tools a person answers, such as a review: the names `deriveAgentState` takes as
+   * `pendingClientTools`. Their calls show no duration, since the time is the person's, and read as
+   * waiting on them until answered.
+   */
+  pendingClientTools?: readonly string[] | undefined;
   /** Words to use instead of the English defaults: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;
 }
@@ -326,6 +333,7 @@ export function ToolCallTimeline({
   label,
   active = true,
   failed = false,
+  pendingClientTools,
   labels,
   className,
   ...props
@@ -338,8 +346,13 @@ export function ToolCallTimeline({
   const allParts = useMemo(() => getAllToolParts(parts), [parts]);
   const measured = useToolTimings(parts);
   const timings = timingsProp ?? measured;
+  const byPerson = (part: ToolPart) => pendingClientTools?.includes(getToolPartName(part)) ?? false;
   const anyActive =
-    active && allParts.some((p) => !isSettledPhase(getToolPhase(p)) && getToolPhase(p) !== 'awaiting-approval');
+    active &&
+    allParts.some((p) => {
+      const phase = phaseOf(p, byPerson(p));
+      return !isSettledPhase(phase) && phase !== 'awaiting-approval';
+    });
   const now = useNow(anyActive, 100);
   const hydrated = useHydrated();
   // Unsettled calls freeze when the run stops; restored history (never active here) has no end time.
@@ -371,12 +384,16 @@ export function ToolCallTimeline({
   });
   const [onOpenChange] = useState(() => (part: ToolPart, open: boolean) => latestSetOpen.current(part, open));
 
-  // Sub-agents start collapsed. One with a call waiting on approval opens, unless the person closed it.
+  // Sub-agents start collapsed. One with a call waiting on a person (an approval, or a call they answer)
+  // opens, unless the person closed it.
   const [subagentsOpen, setSubagentsOpen] = useState<SubagentsOpen>(() => ({ open: new Set(), closed: new Set() }));
   const isSubagentOpen = (part: SubagentPart) => {
     const id = part.data.subagentRunId;
     if (subagentsOpen.open.has(id)) return true;
-    return !subagentsOpen.closed.has(id) && getAllToolParts([part]).some(isWaiting);
+    return (
+      !subagentsOpen.closed.has(id) &&
+      getAllToolParts([part]).some((p) => phaseOf(p, byPerson(p)) === 'awaiting-approval')
+    );
   };
   const setSubagentOpen = (id: string, open: boolean) =>
     setSubagentsOpen(({ open: opened, closed }) => {
@@ -386,13 +403,14 @@ export function ToolCallTimeline({
       return { open: nextOpen, closed: nextClosed };
     });
 
-  // Waterfall bounds span every call that has timing information. Each call places its bar from its
-  // own times and the span set on the list, so while a call runs and the span grows, the others do
-  // not render again.
+  // Waterfall bounds span every call that has timing information, but one a person answers: its time
+  // is theirs, and it has no bar. Each call places its bar from its own times and the span set on the
+  // list, so while a call runs and the span grows, the others do not render again.
   const bounds = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
     for (const part of allParts) {
+      if (pendingClientTools?.includes(getToolPartName(part))) continue;
       const t = timings[part.toolCallId];
       const end = t?.endedAt ?? clock;
       if (!t?.startedAt || end === undefined) continue;
@@ -400,7 +418,7 @@ export function ToolCallTimeline({
       max = Math.max(max, end);
     }
     return Number.isFinite(min) && max > min ? { min, span: max - min } : undefined;
-  }, [allParts, timings, clock]);
+  }, [allParts, timings, pendingClientTools, clock]);
 
   // Calls that settled since the last announcement, in the order they settled. Calls settled before
   // the timeline mounted (restored history) are never announced.
@@ -413,17 +431,19 @@ export function ToolCallTimeline({
       if (at !== undefined && at > announcedThrough) settled.push({ part, at });
     }
     settled.sort((a, b) => a.at - b.at);
-    const sentences = settled.map(({ part, at }) => {
+    const sentences = settled.flatMap(({ part, at }) => {
       const name = tools?.[getToolPartName(part)]?.label ?? humanizeToolName(getToolPartName(part));
       const phase = getToolPhase(part);
-      if (phase === 'error') return T.failed(name, part.errorText);
-      if (phase === 'denied') return isAutomaticApproval(part.approval) ? T.blockedByPolicy(name) : T.denied(name);
-      return T.finished(name, L.format.durationLong(getDuration(timings[part.toolCallId], at)));
+      if (phase === 'error') return [T.failed(name, part.errorText)];
+      if (phase === 'denied') return [deniedByPolicy(part) ? T.blockedByPolicy(name) : T.denied(name)];
+      // The person just answered it, and its time was theirs: no "finished in" for it.
+      if (pendingClientTools?.includes(getToolPartName(part))) return [];
+      return [T.finished(name, L.format.durationLong(getDuration(timings[part.toolCallId], at)))];
     });
     const text =
       sentences.length > 1 ? sentences.map((s) => (/[.!?]$/.test(s) ? s : `${s}.`)).join(' ') : (sentences[0] ?? '');
     return { text, through: settled.at(-1)?.at ?? announcedThrough };
-  }, [allParts, timings, tools, announcedThrough, T, L.format]);
+  }, [allParts, timings, tools, pendingClientTools, announcedThrough, T, L.format]);
   // Wait a moment, so that calls finishing together (parallel calls) are read out as one.
   const { text: pendingText, through: pendingThrough } = pending;
   useEffect(() => {
@@ -571,6 +591,7 @@ export function ToolCallTimeline({
         key={part.toolCallId}
         part={part}
         meta={tools?.[getToolPartName(part)]}
+        byPerson={byPerson(part)}
         timing={timing}
         // Only a call still going reads the clock: the others keep their props, and their render.
         clock={timing?.startedAt !== undefined && timing.endedAt === undefined ? clock : undefined}
@@ -642,6 +663,13 @@ export function ToolCallTimeline({
 
 /** A call waiting on a person's approval. */
 const isWaiting = (part: ToolPart) => getToolPhase(part) === 'awaiting-approval';
+
+/** A call's phase as the timeline shows it: one a person answers waits on them, not on a tool. */
+const phaseOf = (part: ToolPart, byPerson: boolean): ToolPhase =>
+  byPerson && part.state === 'input-available' ? 'awaiting-approval' : getToolPhase(part);
+
+/** Decided by a policy: without asking, or on the server's check after a person approved it. */
+const deniedByPolicy = (part: ToolPart) => isAutomaticApproval(part.approval) || isDeniedAfterApproval(part);
 
 /** A call's waterfall bar; the list sets the waterfall's span in ms on each. */
 const WATERFALL = 'signoff-tool-call-waterfall';
@@ -727,6 +755,8 @@ function createEntering(first: readonly string[]) {
 interface TimelineItemProps {
   part: ToolPart;
   meta: ToolMeta | undefined;
+  /** A person answers the call (`pendingClientTools`): its time is theirs, so it shows none. */
+  byPerson: boolean;
   timing: ToolTiming | undefined;
   /**
    * Current time while the run is active, when it stopped once inactive (undefined if unknown).
@@ -756,6 +786,7 @@ interface TimelineItemProps {
 const TimelineItem = memo(function TimelineItem({
   part,
   meta,
+  byPerson,
   timing,
   clock,
   interrupted,
@@ -778,7 +809,7 @@ const TimelineItem = memo(function TimelineItem({
   const [enter] = useState(() => entering.isNew(id));
   useEffect(() => entering.rendered(id), [entering, id]);
   const name = getToolPartName(part);
-  const phase = getToolPhase(part);
+  const phase = phaseOf(part, byPerson);
   const label = meta?.label ?? part.title ?? humanizeToolName(name);
   // The SDK sets `input: undefined` until the first input delta arrives.
   const summary =
@@ -786,11 +817,12 @@ const TimelineItem = memo(function TimelineItem({
   const settled = isSettledPhase(phase) || interrupted;
   // Live durations depend on the clock: render them only after hydration.
   const end = timing?.endedAt ?? clock;
-  const duration = (settled || hydrated) && end !== undefined ? getDuration(timing, end) : undefined;
+  const duration = !byPerson && (settled || hydrated) && end !== undefined ? getDuration(timing, end) : undefined;
 
   // Times from the waterfall's start, to keep the numbers small: some browsers compute CSS in floats.
+  // A call a person answers has none: its time is theirs.
   const bar =
-    barsFrom !== undefined && timing?.startedAt && end !== undefined
+    !byPerson && barsFrom !== undefined && timing?.startedAt && end !== undefined
       ? ({ [START]: timing.startedAt - barsFrom, [END]: end - barsFrom } as CSSProperties)
       : undefined;
 
@@ -1018,7 +1050,7 @@ export function ToolCallDetails({
       )}
       {(part.state === 'output-denied' || (part.state === 'approval-responded' && !part.approval.approved)) && (
         <p className="text-signoff-fg-muted text-xs">
-          {T.deniedBy(isAutomaticApproval(part.approval))}
+          {T.deniedBy(deniedByPolicy(part))}
           {part.approval.reason ? (
             <>
               : <span className="text-signoff-fg">{part.approval.reason}</span>

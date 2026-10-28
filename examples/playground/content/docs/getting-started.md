@@ -161,7 +161,7 @@ A Next.js App Router app with AI SDK 7: a client component, a page and a route. 
 npm i signoff-ui ai @ai-sdk/react @ai-sdk/openai zod
 ```
 
-The client renders the last assistant message, its status and its cost, with a minimal composer. `renderTool` puts a `DiffReview` where the agent proposes its edit, and the review's result goes back as the tool's output, shaped for the model by `reviewToolOutput`. The wrapper paints the kit's own background and text colors (`bg-signoff-bg text-signoff-fg`), so the run reads well whatever your page's colors are. Without Tailwind, use the CSS [after the walkthrough](/docs/getting-started#without-tailwind) instead, which covers the layout and the composer too.
+The client renders the last assistant message, its status and its cost, with a minimal composer. `renderTool` puts a `DiffReview` where the agent proposes its edit, and the review's result goes back as the tool's output, shaped for the model by `reviewToolOutput`. The wrapper paints the kit's own background and text colors (`bg-signoff-bg text-signoff-fg`), so the run reads well whatever your page's colors are. In a shadcn/ui app, also [point the kit at your tokens](/docs/getting-started#theming): otherwise the wrapper paints a box in the kit's background color on your page. Without Tailwind, use the CSS [after the walkthrough](/docs/getting-started#without-tailwind) instead, which covers the layout and the composer too.
 
 ```tsx title="app/agent-run.tsx"
 'use client';
@@ -181,12 +181,16 @@ import {
   RunMeter,
   deriveAgentState,
   getToolPartName,
+  humanizeToolName,
   reviewToolOutput,
   useRunTiming,
   type FileChange,
 } from 'signoff-ui';
 
 type Message = UIMessage<{ usage?: LanguageModelUsage }>;
+
+// review_changes waits on a person, like an approval: the page answers it with a DiffReview.
+const CLIENT_TOOLS = ['review_changes'];
 
 export function AgentRun() {
   const { messages, status, error, sendMessage, addToolOutput, addToolApprovalResponse } = useChat<Message>({
@@ -196,15 +200,16 @@ export function AgentRun() {
   });
   const [input, setInput] = useState('');
   const last = messages.findLast((m) => m.role === 'assistant');
-  // review_changes waits on a person, like an approval.
-  const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: ['review_changes'] });
+  // The reply to the message you sent last, once it starts: the meter shows this run, not the one before.
+  const reply = last === messages.at(-1) ? last : undefined;
+  const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: CLIENT_TOOLS });
   // A run starts with each message you send and spans its review and approval round trips.
   const timing = useRunTiming(status, messages);
 
   return (
     // The kit's own background and text colors, so it reads well on any page. Add `dark` for the dark theme.
     <div className="bg-signoff-bg text-signoff-fg mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
-      <AgentStatus state={state} detail={detail} elapsedMs={timing.activeMs} />
+      <AgentStatus state={state} detail={detail && humanizeToolName(detail)} elapsedMs={timing.activeMs} />
       {/* Why the run failed, such as a missing API key: the route's onError sends the message. */}
       {error && <p role="alert">{error.message}</p>}
       {last && (
@@ -214,6 +219,8 @@ export function AgentRun() {
           // Once the run has finished, been stopped or failed, calls that never settled read "Stopped".
           active={state !== 'done' && state !== 'stopped' && state !== 'error'}
           failed={status === 'error'}
+          // The time a review takes is yours, not the tool's: its call shows no duration.
+          pendingClientTools={CLIENT_TOOLS}
           onToolApproval={addToolApprovalResponse}
           // The proposed edit, reviewed hunk by hunk: the agent gets the files as applied, and your comments.
           renderTool={(part) =>
@@ -233,7 +240,7 @@ export function AgentRun() {
         />
       )}
       <RunMeter
-        usage={last?.metadata?.usage}
+        usage={reply?.metadata?.usage}
         pricing={{ input: 2.5, cachedInput: 0.25, output: 10 }}
         ttftMs={timing.ttftMs}
         durationMs={timing.activeMs}
@@ -361,10 +368,11 @@ What each part is for:
 
 - **`review_changes` without `execute`.** The AI SDK ends the step at the call and leaves it to the client. `DiffReview`'s `onSubmit` gets each file with only the accepted hunks applied (`content`) and its decision, the rejected hunks with their lines, and the comments with theirs. `reviewToolOutput` turns that into one summary sentence and those lists, and `addToolOutput` sends it to the model as the tool's result.
 - **`sendAutomaticallyWhen`.** Continues the run once the review is in (`lastAssistantMessageIsCompleteWithToolCalls`) and once every approval has an answer (`lastAssistantMessageIsCompleteWithApprovalResponses`).
-- **`pendingClientTools`.** `useChat` is `ready` while the review waits on you; naming the tool makes `deriveAgentState` read it as waiting, not done.
+- **`pendingClientTools`.** `useChat` is `ready` while the review waits on you; naming the tool makes `deriveAgentState` read it as waiting, not done. Given to `AgentMessage` too, it keeps the review's call from showing a duration: the time it took was yours.
 - **`stopWhen`.** The AI SDK stops after one step by default, so without it the run ends at the first tool call and never reaches the review.
 - **`toolApproval`.** The `reason` shows on the approval card, as `approval.requestReason`.
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.
+- **`reply`.** When you send a new message, the last assistant message is still the previous run's until the reply starts. The meter takes the usage of the reply only, so a new run starts from "–", not from the last run's tokens and cost.
 - **`onError`.** A tool that throws becomes an `output-error` part, and its `errorText` goes through `onError`. By default that hides every message behind "An error occurred.", so the timeline would show that instead of `ENOENT`. In production, pass through the errors you're happy for users to read and keep the rest generic.
 
 For an agent that writes long answers, pass `throttle: 50` to `useChat` (`experimental_throttle` in AI SDK 6). `AgentMessage` parses only about the last 1,000 characters of the streaming text again on each delta, but a long list or code block is parsed again until it ends, and text with a link reference or footnote definition, some code fences in list items, or a line outside fenced code that starts with `<`, is parsed whole on every delta, which takes longer the longer the text ([Known limitations](/docs/limits#known-limitations)); throttled, the messages update at most once every 50 ms.
@@ -597,7 +605,7 @@ run_command: tool({
 }),
 ```
 
-The rest of the walkthrough is the same. CI typechecks the library and runs its tests against the latest AI SDK 6 and the oldest supported 6.0.0, as well as 7.
+The approval card then shows no reason: the reason is `toolApproval`'s, which the card reads as `approval.requestReason`, and AI SDK 6 has neither. The rest of the walkthrough is the same. CI typechecks the library and runs its tests against the latest AI SDK 6 and the oldest supported 6.0.0, as well as 7.
 
 ## Next.js
 

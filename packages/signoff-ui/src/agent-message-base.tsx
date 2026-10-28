@@ -100,6 +100,11 @@ export interface AgentMessageProps extends Omit<ComponentPropsWithoutRef<'articl
   allowedImageHosts?: readonly string[] | undefined;
   /** Externally measured tool timings. Measured client-side when omitted. */
   timings?: ToolTimings | undefined;
+  /**
+   * Client-side tools a person answers, such as a review: the names you give `deriveAgentState`.
+   * Their calls show no duration, since the time is the person's. See `ToolCallTimeline`'s.
+   */
+  pendingClientTools?: readonly string[] | undefined;
   /** Words to use instead of the English defaults, for the message and all it renders: see `SignoffLabelsProvider`. */
   labels?: SignoffLabelsInput | undefined;
 }
@@ -130,6 +135,7 @@ export function AgentMessageBase({
   sourcesVariant = 'chips',
   allowedImageHosts,
   timings: timingsProp,
+  pendingClientTools,
   labels,
   className,
   ...props
@@ -250,6 +256,7 @@ export function AgentMessageBase({
                   timings={timings}
                   active={active}
                   failed={failed}
+                  pendingClientTools={pendingClientTools}
                   renderExtra={
                     onToolApproval
                       ? (part) =>
