@@ -17,7 +17,7 @@ A client receives `session/update` notifications while `session/prompt` runs, an
 ```tsx title="components/use-acp-turn.tsx"
 'use client';
 
-import type { Agent, Client, RequestPermissionResponse } from '@agentclientprotocol/sdk';
+import * as acp from '@agentclientprotocol/sdk';
 import { useRef, useState } from 'react';
 import type { ApprovalDecision } from 'signoff-ui';
 import {
@@ -33,21 +33,29 @@ import {
 /** One prompt turn at a time: the client half of the connection, and what the components render. */
 export function useAcpTurn() {
   const [turn, setTurn] = useState<AcpTurn>();
-  const waiting = useRef(new Map<string, (response: RequestPermissionResponse) => void>());
-  // Pass it to the connection: new ClientSideConnection(() => client, stream).
-  const [client] = useState<Client>(() => ({
-    sessionUpdate: (params) => setTurn((t) => t && reduceAcpTurn(t, params)),
-    requestPermission: (params) =>
-      new Promise((resolve) => {
-        waiting.current.set(params.toolCall.toolCallId, resolve);
-        setTurn((t) => t && requestAcpPermission(t, params));
-      }),
-  }));
+  const waiting = useRef(new Map<string, (response: acp.RequestPermissionResponse) => void>());
+  // Connect it to the agent: client.connect(stream).agent is what prompt and cancel take.
+  const [client] = useState(() =>
+    acp
+      .client()
+      .onNotification(acp.methods.client.session.update, ({ params }) => setTurn((t) => t && reduceAcpTurn(t, params)))
+      .onRequest(
+        acp.methods.client.session.requestPermission,
+        ({ params }) =>
+          new Promise((resolve) => {
+            waiting.current.set(params.toolCall.toolCallId, resolve);
+            setTurn((t) => t && requestAcpPermission(t, params));
+          }),
+      ),
+  );
 
-  async function prompt(agent: Agent, sessionId: string, text: string) {
+  async function prompt(agent: acp.ClientContext, sessionId: string, text: string) {
     setTurn(createAcpTurn());
     try {
-      const response = await agent.prompt({ sessionId, prompt: [{ type: 'text', text }] });
+      const response = await agent.request(acp.methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: 'text', text }],
+      });
       setTurn((t) => t && endAcpTurn(t, response));
     } catch (error) {
       setTurn((t) => t && endAcpTurn(t, { error: { message: String(error) } }));
@@ -62,8 +70,8 @@ export function useAcpTurn() {
   }
 
   // For a Stop button. After session/cancel, ACP has the client answer each open request with cancelled.
-  async function cancel(agent: Agent, sessionId: string) {
-    await agent.cancel({ sessionId });
+  async function cancel(agent: acp.ClientContext, sessionId: string) {
+    await agent.notify(acp.methods.agent.session.cancel, { sessionId });
     for (const [toolCallId, resolve] of waiting.current) {
       resolve({ outcome: { outcome: 'cancelled' } });
       setTurn((t) => t && answerAcpPermission(t, toolCallId, 'cancelled'));
@@ -77,7 +85,7 @@ export function useAcpTurn() {
 
 `cancel` stops the turn. It sends `session/cancel`, then answers each permission request still open with `cancelled`, as ACP requires of a client that cancels: an agent that waits on that answer would otherwise never return from `session/prompt`, and the turn would stay `streaming`. The agent then ends the turn with `stopReason: 'cancelled'`, and a call whose request was canceled reads as denied.
 
-The connection itself, `ClientSideConnection` from `@agentclientprotocol/sdk` over the agent's stdio or a bridge, is up to your app: these functions only fold what it receives.
+The connection itself is up to your app: `client.connect(stream)`, with `ndJsonStream` over the agent's stdio or a bridge, returns a connection. Its `agent` is what `prompt` and `cancel` take, once your app has sent `initialize` and `session/new` through it. These functions only fold what it receives. The hook uses the app API of `@agentclientprotocol/sdk` (`client()` and `methods`), which SDK 1 has from 1.0 and SDK 2 keeps: SDK 2 removed `ClientSideConnection` and the `Client` and `Agent` interfaces.
 
 ## Render it
 
