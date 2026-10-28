@@ -2,17 +2,9 @@
 
 signoff-ui is built in the open, and this page is the plan: what is in review, what comes next, and what waits until someone needs it. To weigh in, add a reaction or a comment on an item's issue: that decides what gets built first, and it is what moves an item out of "Waiting for your feedback".
 
-## Merged, in the next release
-
-- Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
-- `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
-- `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#211](https://github.com/dgesteves/signoff-ui/pull/211)
-
 ## In review
 
-- The examples do what their READMEs say: each new message restarts the quickstart's scripted run, and the examples pin signoff-ui. [#171](https://github.com/dgesteves/signoff-ui/pull/171)
-- Accessibility and touch in the approval card and the review: Approve all keeps focus, a focused card says what it will run, code reads left to right on right-to-left pages, buttons show in forced colours, and fields no longer zoom on iOS. [#174](https://github.com/dgesteves/signoff-ui/pull/174)
-- Support tiers (tested in CI, or documented only), and new integrations wait four weeks after launch unless someone asks for one. [#175](https://github.com/dgesteves/signoff-ui/pull/175)
+Nothing from this roadmap right now. Open pull requests are [on GitHub](https://github.com/dgesteves/signoff-ui/pulls).
 
 ## Next
 
@@ -75,6 +67,20 @@ These get built when someone who needs them says so on the issue.
 - LangGraph `useStream` converters for LangChain's human-in-the-loop interrupts. Moves when LangGraph JS users ask; today LangGraph works through AG-UI when the interrupt carries the tool call's id. [#196](https://github.com/dgesteves/signoff-ui/issues/196)
 - Composable parts: `useApprovalCard` and the pieces of `DiffReview` as exports. Moves when people building their own UI say which parts they need. [#197](https://github.com/dgesteves/signoff-ui/issues/197)
 - Registry items built on your own shadcn/ui Button, Input and Textarea. Moves when registry users ask for it. [#198](https://github.com/dgesteves/signoff-ui/issues/198)
+
+## Released
+
+Since this roadmap was published. Each release's changes are in the [changelog](packages/signoff-ui/CHANGELOG.md).
+
+- **0.11.0**: Accessibility and touch in the approval card and the review: Approve all keeps focus, a focused card says what it will run, code reads left to right on right-to-left pages, buttons show in forced colours, and fields no longer zoom on iOS. [#174](https://github.com/dgesteves/signoff-ui/pull/174)
+- **0.10.1**: Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
+- **0.10.1**: `ai` becomes an optional peer, so an app that uses only the AG-UI or ACP entries no longer installs the AI SDK. [#173](https://github.com/dgesteves/signoff-ui/pull/173)
+
+Docs, examples and CI, which take effect on `main` without a release:
+
+- Support tiers (tested in CI, or documented only), and new integrations wait until Thursday 2026-11-19, four weeks after launch, unless someone asks for one. [#175](https://github.com/dgesteves/signoff-ui/pull/175)
+- The examples do what their READMEs say: each new message restarts the quickstart's scripted run, and the examples pin signoff-ui. [#171](https://github.com/dgesteves/signoff-ui/pull/171)
+- `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#211](https://github.com/dgesteves/signoff-ui/pull/211)
 
 ## Not planned
 

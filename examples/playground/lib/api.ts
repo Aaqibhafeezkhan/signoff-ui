@@ -8,14 +8,28 @@ import ts from 'typescript';
  * components' own parameter lists in src/ or, where a list has none (a hook's options) or only
  * names a constant, the props' `@default` tags, and styling hooks from their markup. Only the tags
  * are written by hand, in the library's comments: test/api-descriptions.test.ts checks each against
- * the code that sets it.
+ * the code that sets it. The API index (getApiIndex) lists every export of every entry point.
  */
 
 // `next build` runs in examples/playground; the library is built first (pnpm build:lib). Everything
 // here runs while pages prerender, so the file reads are kept out of the server bundle's tracing.
 const KIT = join(process.cwd(), '../../packages/signoff-ui');
 const DIST = join(KIT, 'dist');
-const ENTRIES = ['index.d.ts', 'ag-ui.d.ts'];
+
+interface Manifest {
+  name: string;
+  exports: Record<string, string | { types?: string }>;
+}
+
+/** The entry points that have types, in package.json's order: `signoff-ui`, `signoff-ui/core`, … */
+function entryPoints() {
+  const manifest = JSON.parse(readFileSync(/* turbopackIgnore: true */ join(KIT, 'package.json'), 'utf8')) as Manifest;
+  return Object.entries(manifest.exports).flatMap(([path, target]) =>
+    typeof target === 'object' && target.types
+      ? [{ name: path === '.' ? manifest.name : `${manifest.name}/${path.slice(2)}`, file: join(KIT, target.types) }]
+      : [],
+  );
+}
 
 export interface PropDoc {
   name: string;
@@ -48,11 +62,18 @@ export interface AliasDoc {
   description: string;
 }
 
-let cache: { checker: ts.TypeChecker; exports: Map<string, ts.Symbol> } | undefined;
+let cache:
+  | {
+      checker: ts.TypeChecker;
+      exports: Map<string, ts.Symbol>;
+      entryPoints: Array<{ name: string; symbols: ts.Symbol[] }>;
+    }
+  | undefined;
 
 function load() {
   if (cache) return cache;
-  const entries = ENTRIES.map((file) => join(DIST, file));
+  const points = entryPoints();
+  const entries = points.map((point) => point.file);
   for (const entry of entries) {
     if (!existsSync(/* turbopackIgnore: true */ entry))
       throw new Error(`${entry} is missing: build the library first (pnpm build:lib).`);
@@ -68,15 +89,24 @@ function load() {
     types: [],
   });
   const checker = program.getTypeChecker();
+  // By name, for the component pages: the first entry point's, so `AgentMessage` is the main
+  // entry's and not signoff-ui/custom-markdown's.
   const exports = new Map<string, ts.Symbol>();
-  for (const entry of entries) {
-    const module = checker.getSymbolAtLocation(program.getSourceFile(entry)!);
-    for (const symbol of module ? checker.getExportsOfModule(module) : []) {
-      exports.set(symbol.name, symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
+  const listed = points.map((point) => {
+    const module = checker.getSymbolAtLocation(program.getSourceFile(point.file)!);
+    const symbols = module ? checker.getExportsOfModule(module) : [];
+    for (const symbol of symbols) {
+      if (!exports.has(symbol.name)) exports.set(symbol.name, aliased(symbol, checker));
     }
-  }
-  cache = { checker, exports };
+    return { name: point.name, symbols };
+  });
+  cache = { checker, exports, entryPoints: listed };
   return cache;
+}
+
+/** What an export stands for: the declaration a re-export (`export { x } from`) points to. */
+function aliased(symbol: ts.Symbol, checker = load().checker) {
+  return symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 }
 
 function exported(name: string) {
@@ -277,4 +307,110 @@ export function getType(name: string): TypeDoc {
   return symbol.declarations?.some(ts.isInterfaceDeclaration)
     ? { kind: 'interface', ...getInterface(name) }
     : { kind: 'alias', ...getAlias(name) };
+}
+
+export type ExportKind = 'component' | 'hook' | 'function' | 'constant' | 'interface' | 'type';
+
+export interface ExportDoc {
+  name: string;
+  kind: ExportKind;
+  /** As the published declarations have it, without comments: one line per overload, or a type's body. */
+  declaration: string;
+  description: string;
+}
+
+export interface EntryPointDoc {
+  /** As an app imports it: `signoff-ui/core`. */
+  name: string;
+  /** What is listed under this entry point, components first and types last. */
+  exports: ExportDoc[];
+  /** What it exports too, listed under another entry point. */
+  shared: Array<{ name: string; entryPoint: string }>;
+}
+
+/** The order of the groups on the page: interfaces and type aliases are one group. */
+const KIND_RANK: Record<ExportKind, number> = {
+  component: 0,
+  hook: 1,
+  function: 2,
+  constant: 3,
+  interface: 4,
+  type: 4,
+};
+
+function kindOf(symbol: ts.Symbol): ExportKind {
+  const { checker } = load();
+  if (symbol.flags & ts.SymbolFlags.Interface) return 'interface';
+  if (!(symbol.flags & ts.SymbolFlags.Value)) return 'type';
+  const callable = checker.getSignaturesOfType(checker.getTypeOfSymbol(symbol), ts.SignatureKind.Call).length > 0;
+  if (!callable) return 'constant';
+  if (/^use[A-Z]/.test(symbol.name)) return 'hook';
+  return /^[A-Z]/.test(symbol.name) ? 'component' : 'function';
+}
+
+const printer = ts.createPrinter({ removeComments: true });
+
+/**
+ * A declaration as the .d.ts has it, minus `export declare`, comments and `import("react").`
+ * qualifiers. A destructured parameter reads as `props` (`options` for a function that is not a
+ * component), as an editor's hover shows it, rather than every prop's name.
+ */
+function declarationOf(symbol: ts.Symbol) {
+  const parameter = /^[A-Z]/.test(symbol.name) ? 'props' : 'options';
+  return (symbol.declarations ?? [])
+    .map((declaration) =>
+      printer
+        .printNode(
+          ts.EmitHint.Unspecified,
+          ts.isVariableDeclaration(declaration) ? declaration.parent.parent : declaration,
+          declaration.getSourceFile(),
+        )
+        .replace(/^export /, '')
+        .replace(/^declare /, '')
+        .replace(/\bimport\("[^"]+"\)\./g, '')
+        .replace(/\{ (?:\.\.\.)?\w+(?:: \w+)?(?:, (?:\.\.\.)?\w+(?:: \w+)?)* \}(?=\??: )/g, parameter),
+    )
+    .join('\n');
+}
+
+/**
+ * Every export of every entry point, read from the published declarations. An export more than one
+ * entry point has is listed once: under signoff-ui/core when it is there (the main entry re-exports
+ * all of core, and signoff-ui/acp core's ACP permission helpers), otherwise under the first entry
+ * point in package.json's order; the others name it in `shared`.
+ */
+export function getApiIndex(): EntryPointDoc[] {
+  const { entryPoints: points } = load();
+  const core = points.find((point) => point.name.endsWith('/core'));
+  const byPriority = core ? [core, ...points.filter((point) => point !== core)] : points;
+  const home = new Map<ts.Symbol, string>();
+  for (const point of byPriority) {
+    for (const symbol of point.symbols) {
+      const target = aliased(symbol);
+      if (!home.has(target)) home.set(target, point.name);
+    }
+  }
+  return points.map((point) => {
+    const own: ExportDoc[] = [];
+    const shared: EntryPointDoc['shared'] = [];
+    for (const symbol of point.symbols) {
+      const target = aliased(symbol);
+      const entryPoint = home.get(target)!;
+      if (entryPoint !== point.name) {
+        shared.push({ name: symbol.name, entryPoint });
+        continue;
+      }
+      own.push({
+        name: symbol.name,
+        kind: kindOf(target),
+        declaration: declarationOf(target),
+        description: docs(target),
+      });
+    }
+    const byName = (a: { name: string }, b: { name: string }) =>
+      a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+    own.sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || byName(a, b));
+    shared.sort(byName);
+    return { name: point.name, exports: own, shared };
+  });
 }

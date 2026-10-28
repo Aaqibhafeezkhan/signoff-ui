@@ -2,6 +2,10 @@
 
 Issues and pull requests are welcome. For a larger change, open an issue first, so we can agree on the shape before you write it.
 
+## Where to start
+
+Issues labelled [good first issue](https://github.com/dgesteves/signoff-ui/labels/good%20first%20issue) are the place to start, and the [roadmap](./ROADMAP.md#good-first-issues) lists them: comment on one before you start, so no one else takes it too. Questions and ideas go in [Discussions](https://github.com/dgesteves/signoff-ui/discussions). [ARCHITECTURE.md](./ARCHITECTURE.md) says how the library, the registry, the site and the examples fit together.
+
 ## Setup
 
 Node 24 (see `.nvmrc`) and pnpm (the version in `package.json`'s `packageManager`; `corepack enable` picks it up).
@@ -32,15 +36,20 @@ CI runs all of these; run the ones your change touches before you push.
 pnpm format:check && pnpm lint && pnpm lint:registry
 pnpm build:lib        # also checks 'use client' directives and the shipped CSS
 pnpm size             # each import's gzipped size, against its budget in scripts/size.mjs
+pnpm perf             # DiffReview on large files and ToolCallTimeline on a long run in Chrome, against each case's budget
 pnpm typecheck
 pnpm test             # Vitest, Testing Library and axe in jsdom
 pnpm test:coverage    # the same, with coverage and its thresholds (vitest.config.ts)
+pnpm test:site        # the site's own tests: the docs pages, the API index, Ask, llms.txt, code colours
 pnpm --filter signoff-ui lint:package   # publint and attw
 pnpm registry:check   # registry.json matches src/
+pnpm registry:build   # registry:check, then shadcn build writes each item into the site (public/r)
 pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 build, your content in slots
 pnpm build:playground && pnpm smoke:playground
 pnpm a11y             # axe in Chrome, across the built playground, components page and docs
 pnpm --filter nextjs-minimal build && pnpm smoke:nextjs
+pnpm smoke:assistant-ui   # examples/assistant-ui from the packed package, built and in vite dev, in Chrome
+pnpm --filter copilotkit-example build && pnpm smoke:copilotkit
 pnpm examples:check   # the examples ask for the version of signoff-ui this repository publishes (the playground links the local one)
 pnpm --filter coding-agent test && pnpm smoke:coding-agent
 pnpm audit --prod --audit-level=moderate   # production dependencies, against advisories of moderate severity or higher
@@ -52,6 +61,13 @@ If `pnpm audit` fails on a pull request that doesn't change dependencies, a new 
 
 The smoke tests and `pnpm a11y` drive Google Chrome through Playwright, so they need Chrome installed. Each starts the built app on a port of its own; set `BASE_URL` to test one that is already running, such as `pnpm dev`'s playground on http://localhost:3100.
 
+CI also runs `pnpm smoke:playground` and `pnpm smoke:nextjs` in WebKit (Safari's engine) and in Firefox, and `pnpm a11y` in WebKit. Those run in Playwright's builds of the two browsers: install them once with `pnpm exec playwright-core install webkit firefox`, then pick one with `BROWSER`:
+
+```bash
+BROWSER=webkit pnpm smoke:playground && BROWSER=webkit pnpm a11y
+BROWSER=firefox pnpm smoke:nextjs
+```
+
 The suite also runs against AI SDK 6 and React 18. To do the same, in `packages/signoff-ui` (then restore `package.json` and `pnpm-lock.yaml`):
 
 ```bash
@@ -61,8 +77,8 @@ pnpm add --save-dev react@^18.2.0 react-dom@^18.2.0 @types/react@^18 @types/reac
 
 ## Adding a component
 
-1. Add it under `packages/signoff-ui/src/`. Start the file with `'use client'` if it uses hooks, state or event handlers; keep pure helpers in `src/lib/` without it, so Server Components can call them. Style it with Tailwind utilities and the `signoff-*` color tokens (no fixed colors, so themes apply), and give its root `data-signoff` and a `data-slot` starting with `signoff-`. Put content the app passes in to render as its own (a render prop, a custom preview) in an element with `data-signoff-slot`: `styles.css` styles the kit's elements only, and stops at those (`scripts/kit-scope.mjs`).
-2. Export it from `src/index.ts`, and helpers with no React from `src/core.ts` too.
+1. Add it under `packages/signoff-ui/src/`. Start the file with `'use client'` if it uses hooks, state or event handlers; keep pure helpers in `src/lib/` without it, so Server Components can call them. Style it with Tailwind utilities and the `signoff-*` color tokens (no fixed colors, so themes apply), and give its root `data-signoff` and a `data-slot` starting with `signoff-`. Put content the app passes in to render as its own (a render prop, a custom preview) in an element with `data-signoff-slot`: `styles.css` styles the kit's elements only, and stops at those (`packages/signoff-ui/scripts/kit-scope.mjs`).
+2. Export it from `src/index.ts`, and helpers with no React from `src/core.ts` too. Give each export a doc comment: the [API index](https://signoff-ui.vercel.app/docs/api) shows it with the export's declaration.
 3. Add tests in `packages/signoff-ui/test/`, including an axe check. Every render must be safe on the server: no clock or random reads while rendering (`test/server-render.test.tsx`).
 4. Add it to `ITEMS` in `scripts/registry.mjs` and run `pnpm registry:generate`, which works out the files and dependencies from its imports.
 5. Show it on the components page (`examples/playground/app/components/page.tsx`, with a demo in `examples/playground/components/demos/`), and document it on the docs site: an entry in `examples/playground/lib/components.ts` and how it behaves in `examples/playground/content/components/<slug>.md`. The README lists components in one table; add it there if it is one people should know about.
@@ -77,6 +93,6 @@ Each integration is in a [support tier](https://signoff-ui.vercel.app/docs/limit
 
 ## Changesets
 
-A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm. Its version step, `pnpm version-packages`, also moves `examples/coding-agent` to `signoff-ui@^<new version>`, so a copy of the example installs the release its code is written for. [RELEASING.md](./RELEASING.md) covers the release workflow, its dry run, and what to do when a release step fails.
+A change to the published package needs a changeset: run `pnpm changeset`, pick `signoff-ui`, choose patch for a fix or minor for a feature, and write a line or two for the changelog from a user's point of view. Docs, the examples and CI need none. Merging to `main` opens a "Version packages" pull request, and merging that publishes to npm. Its version step, `pnpm version-packages`, also moves every example but the playground to `signoff-ui@^<new version>`, so a copy of an example installs the release its code is written for; the playground links the local package. [RELEASING.md](./RELEASING.md) covers the release workflow, its dry run, and what to do when a release step fails.
 
 By contributing, you agree that your work is released under the [MIT license](./LICENSE) and that you follow the [code of conduct](./CODE_OF_CONDUCT.md).
