@@ -26,6 +26,12 @@ auditConfig:
     # Only examples/copilotkit has it: @copilotkit/react-core (1.81.0 too) and the streamdown, mermaid and
     # math plugins it brings all ask for katex ^0.16.
     - GHSA-238p-pmpm-9mq7
+    # deepmerge (low): mergeObject() allows prototype poisoning of the objects it returns. Only the shadcn CLI
+    # brings it, itself and through @shadcn/registry: a root dev dependency that builds the registry from this
+    # repository's own files (pnpm registry:build). It is never shipped and never runs on untrusted input. No
+    # deepmerge release fixes it (4.3.1, the latest, is affected), and shadcn 4.23.0, the latest, still asks for
+    # ^4.3.1: remove this when shadcn drops deepmerge or a fixed release exists.
+    - GHSA-gcqx-w48m-w2h4
 allowBuilds:
   '@parcel/watcher': false
   '@scarf/scarf': false
