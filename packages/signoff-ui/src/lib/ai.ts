@@ -382,10 +382,13 @@ function isUnfinishedPart(part: AnyUIPart): boolean {
 
 /**
  * The last step's calls all have their output, one of them a client-side tool's: what AI SDK's
- * `lastAssistantMessageIsCompleteWithToolCalls` sends the next request on.
+ * `lastAssistantMessageIsCompleteWithToolCalls` sends the next request on. Only in a message with
+ * steps, as AI SDK's are: the next request starts a new one. Messages without (AG-UI's) never match.
  */
 function isAnsweredOnClient(parts: readonly AnyUIPart[], names: readonly string[]): boolean {
-  const step = getToolParts(parts.slice(parts.findLastIndex((p) => p.type === 'step-start') + 1));
+  const start = parts.findLastIndex((p) => p.type === 'step-start');
+  if (start === -1) return false;
+  const step = getToolParts(parts.slice(start + 1));
   return (
     step.some((t) => names.includes(getToolPartName(t))) &&
     step.every((t) => (t.state === 'output-available' && t.preliminary !== true) || t.state === 'output-error')

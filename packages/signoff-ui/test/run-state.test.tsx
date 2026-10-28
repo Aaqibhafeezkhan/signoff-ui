@@ -47,6 +47,14 @@ describe('deriveAgentState, when a client-side tool has its output', () => {
     expect(ready(withDenial, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
     // Without the tool's name, the kit cannot tell.
     expect(ready(answered)).toEqual({ state: 'done' });
+    // A message with no steps, as AG-UI's are: no step starts after the answer, so no step can say it ended.
+    const noSteps = [
+      { type: 'text', text: 'Here is the change.', state: 'done' },
+      toolPart('output-available', REVIEW),
+      { type: 'text', text: 'Applied.', state: 'done' },
+    ];
+    expect(ready(noSteps, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
+    expect(ready(noSteps.slice(0, 2), { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
   });
 });
 
