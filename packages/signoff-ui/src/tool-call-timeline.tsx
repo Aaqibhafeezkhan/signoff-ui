@@ -384,12 +384,16 @@ export function ToolCallTimeline({
   });
   const [onOpenChange] = useState(() => (part: ToolPart, open: boolean) => latestSetOpen.current(part, open));
 
-  // Sub-agents start collapsed. One with a call waiting on approval opens, unless the person closed it.
+  // Sub-agents start collapsed. One with a call waiting on a person (an approval, or a call they answer)
+  // opens, unless the person closed it.
   const [subagentsOpen, setSubagentsOpen] = useState<SubagentsOpen>(() => ({ open: new Set(), closed: new Set() }));
   const isSubagentOpen = (part: SubagentPart) => {
     const id = part.data.subagentRunId;
     if (subagentsOpen.open.has(id)) return true;
-    return !subagentsOpen.closed.has(id) && getAllToolParts([part]).some(isWaiting);
+    return (
+      !subagentsOpen.closed.has(id) &&
+      getAllToolParts([part]).some((p) => phaseOf(p, byPerson(p)) === 'awaiting-approval')
+    );
   };
   const setSubagentOpen = (id: string, open: boolean) =>
     setSubagentsOpen(({ open: opened, closed }) => {
@@ -399,13 +403,14 @@ export function ToolCallTimeline({
       return { open: nextOpen, closed: nextClosed };
     });
 
-  // Waterfall bounds span every call that has timing information. Each call places its bar from its
-  // own times and the span set on the list, so while a call runs and the span grows, the others do
-  // not render again.
+  // Waterfall bounds span every call that has timing information, but one a person answers: its time
+  // is theirs, and it has no bar. Each call places its bar from its own times and the span set on the
+  // list, so while a call runs and the span grows, the others do not render again.
   const bounds = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
     for (const part of allParts) {
+      if (pendingClientTools?.includes(getToolPartName(part))) continue;
       const t = timings[part.toolCallId];
       const end = t?.endedAt ?? clock;
       if (!t?.startedAt || end === undefined) continue;
@@ -413,7 +418,7 @@ export function ToolCallTimeline({
       max = Math.max(max, end);
     }
     return Number.isFinite(min) && max > min ? { min, span: max - min } : undefined;
-  }, [allParts, timings, clock]);
+  }, [allParts, timings, pendingClientTools, clock]);
 
   // Calls that settled since the last announcement, in the order they settled. Calls settled before
   // the timeline mounted (restored history) are never announced.
@@ -815,8 +820,9 @@ const TimelineItem = memo(function TimelineItem({
   const duration = !byPerson && (settled || hydrated) && end !== undefined ? getDuration(timing, end) : undefined;
 
   // Times from the waterfall's start, to keep the numbers small: some browsers compute CSS in floats.
+  // A call a person answers has none: its time is theirs.
   const bar =
-    barsFrom !== undefined && timing?.startedAt && end !== undefined
+    !byPerson && barsFrom !== undefined && timing?.startedAt && end !== undefined
       ? ({ [START]: timing.startedAt - barsFrom, [END]: end - barsFrom } as CSSProperties)
       : undefined;
 

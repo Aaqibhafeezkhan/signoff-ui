@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TOOL_STATES, type ToolPart } from '../src/lib/ai';
+import { TOOL_STATES, type AnyUIPart, type ToolPart } from '../src/lib/ai';
 import { ToolCallTimeline } from '../src/tool-call-timeline';
 import { axe, dynamicToolPart, toolPart } from './utils';
 
@@ -150,6 +150,76 @@ describe('ToolCallTimeline', () => {
         />,
       );
       expect(screen.getByRole('button', { name: /Review changes/ })).toHaveTextContent('Stopped');
+    });
+
+    const bar = (item: HTMLElement) => item.querySelector<HTMLElement>('[data-slot="signoff-tool-call-waterfall"]');
+    const place = (item: HTMLElement) =>
+      ['--signoff-waterfall-span', '--signoff-call-start', '--signoff-call-end'].map((name) =>
+        Number(bar(item)?.style.getPropertyValue(name)),
+      );
+
+    it('has no waterfall bar, and leaves the waterfall to the calls that ran', () => {
+      // The person took 3.7s over the review; the read after it took 254ms.
+      const parts = [
+        toolPart('output-available', REVIEW),
+        toolPart('output-available', { toolCallId: 'read', toolName: 'read_file' }),
+      ];
+      const timings = {
+        call_review: { startedAt: 1_000, runningAt: 1_000, endedAt: 4_715 },
+        read: { startedAt: 4_715, runningAt: 4_715, endedAt: 4_969 },
+      };
+      const { rerender } = render(<ToolCallTimeline parts={parts} timings={timings} />);
+      // Without it, the review's bar fills the waterfall and squeezes the read into its last 6%.
+      let [review, read] = screen.getAllByRole('listitem');
+      expect(bar(review!)).not.toBeNull();
+      expect(place(read!)).toEqual([3_969, 3_715, 3_969]);
+      rerender(<ToolCallTimeline parts={parts} timings={timings} pendingClientTools={['review_changes']} />);
+      [review, read] = screen.getAllByRole('listitem');
+      expect(bar(review!)).toBeNull();
+      expect(place(read!)).toEqual([254, 0, 254]);
+    });
+
+    it('has no bar while it waits, and does not stretch the waterfall as the wait goes on', () => {
+      render(
+        <ToolCallTimeline
+          parts={[
+            toolPart('output-available', { toolCallId: 'read', toolName: 'read_file' }),
+            toolPart('input-available', REVIEW),
+          ]}
+          timings={{
+            read: { startedAt: 1_000, runningAt: 1_000, endedAt: 1_254 },
+            call_review: { startedAt: 1_254, runningAt: 1_254 },
+          }}
+          pendingClientTools={['review_changes']}
+        />,
+      );
+      const [read, review] = screen.getAllByRole('listitem');
+      expect(bar(review!)).toBeNull();
+      expect(place(read!)).toEqual([254, 0, 254]);
+    });
+
+    it('opens a sub-agent with such a call waiting, as an approval does', () => {
+      const parts: AnyUIPart[] = [
+        toolPart('input-available', { toolCallId: 'delegate', toolName: 'delegate' }),
+        {
+          type: 'data-signoff-subagent',
+          id: 'sa1',
+          data: {
+            subagentRunId: 'sa1',
+            parentToolCallId: 'delegate',
+            name: 'Coder',
+            status: 'running',
+            parts: [toolPart('input-available', REVIEW)],
+          },
+        },
+      ];
+      const group = () => screen.getByRole('button', { name: /^Coder/ });
+      const { rerender } = render(<ToolCallTimeline parts={parts} />);
+      // Without it, the call reads as running: nothing to open for.
+      expect(group()).toHaveAttribute('aria-expanded', 'false');
+      rerender(<ToolCallTimeline parts={parts} pendingClientTools={['review_changes']} />);
+      expect(group()).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('button', { name: /Review changes/ })).toHaveTextContent('Needs approval');
     });
   });
 

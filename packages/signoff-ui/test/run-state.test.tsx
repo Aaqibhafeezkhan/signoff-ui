@@ -9,9 +9,9 @@ import { RunMeter } from '../src/run-meter';
 import { assistant, toolPart } from './utils';
 
 /*
- * What a run reads as between and after its steps: the moment a person's answer hands the run back
- * to the model, a run that ended with a sub-agent still working, and the meter's total beside its
- * time to first token. test/walkthrough-run.test.tsx drives the same through the walkthrough's app.
+ * What a run reads as once a person has answered it, or when it ended with a sub-agent still
+ * working, and the meter's total beside its time to first token. test/walkthrough-run.test.tsx
+ * drives the same through the walkthrough's app.
  */
 
 const REVIEW = { toolName: 'review_changes', toolCallId: 'call_review' };
@@ -19,42 +19,20 @@ const ready = (parts: unknown[], options: { pendingClientTools?: string[]; clien
   deriveAgentState({ status: 'ready', message: assistant(parts as UIMessage['parts']), ...options });
 
 describe('deriveAgentState, when a client-side tool has its output', () => {
-  const proposed = [{ type: 'step-start' }, { type: 'text', text: 'Here is the change.', state: 'done' }];
-
-  it('reads the render before useChat sends the next request as thinking, not done', () => {
-    // addToolOutput lands the review's result; sendAutomaticallyWhen sends the next request a moment later.
+  // `ready` with every call answered reads done: whether a next request follows is the app's to know.
+  // Read as thinking until then, it would stay thinking when none comes: without sendAutomaticallyWhen,
+  // after stop() or a failed request, in restored history, after a continuation with no step-start.
+  it('reads done, not thinking, once the output is in', () => {
+    const proposed = [{ type: 'step-start' }, { type: 'text', text: 'Here is the change.', state: 'done' }];
     const reviewed = [...proposed, toolPart('output-available', REVIEW)];
-    expect(ready(reviewed, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'thinking' });
-    // An error the page sends as the result continues the run too.
+    expect(ready(reviewed, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
     const failed = [...proposed, toolPart('output-error', REVIEW)];
-    expect(ready(failed, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'thinking' });
-    // So does a tool the app runs itself.
+    expect(ready(failed, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
     const located = [{ type: 'step-start' }, toolPart('output-available', { toolName: 'get_location' })];
-    expect(ready(located, { clientTools: ['get_location'] })).toEqual({ state: 'thinking' });
-  });
-
-  it('reads done once the run has gone past it, or when nothing sends the next request', () => {
-    const answered = [...proposed, toolPart('output-available', REVIEW)];
-    // The next request answered it: its step is over.
-    const answer = [{ type: 'step-start' }, { type: 'text', text: 'Applied.', state: 'done' }];
-    expect(ready([...answered, ...answer], { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
-    // A server tool's result is not the client's to send.
-    expect(
-      ready([{ type: 'step-start' }, toolPart('output-available')], { pendingClientTools: ['review_changes'] }),
-    ).toEqual({ state: 'done' });
-    // Not every call of the step has its output: lastAssistantMessageIsCompleteWithToolCalls sends nothing.
-    const withDenial = [...answered, toolPart('output-denied', { toolCallId: 'call_run', toolName: 'run_command' })];
-    expect(ready(withDenial, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
-    // Without the tool's name, the kit cannot tell.
-    expect(ready(answered)).toEqual({ state: 'done' });
-    // A message with no steps, as AG-UI's are: no step starts after the answer, so no step can say it ended.
-    const noSteps = [
-      { type: 'text', text: 'Here is the change.', state: 'done' },
-      toolPart('output-available', REVIEW),
-      { type: 'text', text: 'Applied.', state: 'done' },
-    ];
-    expect(ready(noSteps, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
-    expect(ready(noSteps.slice(0, 2), { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
+    expect(ready(located, { clientTools: ['get_location'] })).toEqual({ state: 'done' });
+    // A continuation streamed without a start-step chunk, finished.
+    const answered = [...reviewed, { type: 'text', text: 'Applied. Anything else?', state: 'done' }];
+    expect(ready(answered, { pendingClientTools: ['review_changes'] })).toEqual({ state: 'done' });
   });
 });
 

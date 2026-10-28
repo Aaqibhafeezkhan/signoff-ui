@@ -61,6 +61,8 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
 
   const running = status === 'submitted' || status === 'streaming';
   const last = messages.findLast((m) => m.role === 'assistant');
+  // The reply to the message you sent last, once it starts: the meter shows this run, not the one before.
+  const current = last === messages.at(-1) ? last : undefined;
   const { state, detail } = deriveAgentState({ status, message: last, pendingClientTools: CLIENT_TOOLS });
   const timing = useRunTiming(status, messages);
   const files = useMemo(() => filesFromMessages(messages), [messages]);
@@ -135,7 +137,7 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
   // The tool at work; while the run waits, the label says on what.
   const statusDetail = state === 'working' && detail ? (TOOL_META[detail]?.label ?? detail) : undefined;
   const meter = {
-    usage: last?.metadata?.usage,
+    usage: current?.metadata?.usage,
     pricing: PRICING,
     ttftMs: timing.ttftMs,
     durationMs: timing.startedAt !== undefined ? timing.activeMs : undefined,
@@ -252,6 +254,8 @@ export function AgentApp({ liveModel }: { liveModel: string | undefined }) {
                   active={message === last && !ended}
                   // And once the run failed, approved calls whose result never came back.
                   failed={status === 'error'}
+                  // The time a review takes is yours, not the tool's: its call shows no duration.
+                  pendingClientTools={CLIENT_TOOLS}
                   tools={TOOL_META}
                   renderTool={renderTool}
                   onToolApproval={addToolApprovalResponse}

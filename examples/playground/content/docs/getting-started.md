@@ -368,7 +368,7 @@ What each part is for:
 
 - **`review_changes` without `execute`.** The AI SDK ends the step at the call and leaves it to the client. `DiffReview`'s `onSubmit` gets each file with only the accepted hunks applied (`content`) and its decision, the rejected hunks with their lines, and the comments with theirs. `reviewToolOutput` turns that into one summary sentence and those lists, and `addToolOutput` sends it to the model as the tool's result.
 - **`sendAutomaticallyWhen`.** Continues the run once the review is in (`lastAssistantMessageIsCompleteWithToolCalls`) and once every approval has an answer (`lastAssistantMessageIsCompleteWithApprovalResponses`).
-- **`pendingClientTools`.** `useChat` is `ready` while the review waits on you; naming the tool makes `deriveAgentState` read it as waiting, not done, and once you've applied it, as thinking while `useChat` sends the next request. Given to `AgentMessage` too, it keeps the review's call from showing a duration: the time it took was yours.
+- **`pendingClientTools`.** `useChat` is `ready` while the review waits on you; naming the tool makes `deriveAgentState` read it as waiting, not done. Given to `AgentMessage` too, it keeps the review's call from showing a duration: the time it took was yours.
 - **`stopWhen`.** The AI SDK stops after one step by default, so without it the run ends at the first tool call and never reaches the review.
 - **`toolApproval`.** The `reason` shows on the approval card, as `approval.requestReason`.
 - **`addUsage`.** Without it, the meter would show only the last request of a run that paused for the review and the approval.

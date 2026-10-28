@@ -85,7 +85,7 @@ describe('the walkthrough, run in the page', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it.skipIf(!sameStack)(
-    'reports the run, not the person: no review time as a call’s, no done between answers, each turn’s own usage',
+    'reports the run, not the person: no review time as a call’s, each turn’s own usage',
     { timeout: 30_000 },
     async () => {
       vi.stubGlobal('fetch', (_url: string, init: RequestInit) => POST(new Request('http://localhost/api/chat', init)));
@@ -93,23 +93,12 @@ describe('the walkthrough, run in the page', () => {
       const user = userEvent.setup();
       render(<AgentRun />);
 
-      // Every state the pill takes, from each change's old value, and every meter reading.
-      const states: string[] = [];
+      // Every meter reading.
       const readings: string[] = [];
-      const observer = new MutationObserver((records) => {
-        for (const record of records)
-          if (record.attributeName === 'data-state' && record.target === pill()) states.push(record.oldValue ?? '');
+      const observer = new MutationObserver(() => {
         if (readings.at(-1) !== meter()) readings.push(meter());
       });
-      observer.observe(document.body, {
-        subtree: true,
-        childList: true,
-        characterData: true,
-        attributes: true,
-        attributeOldValue: true,
-        attributeFilter: ['data-state'],
-      });
-      const statesSince = (from: number) => [...states.slice(from), pill().getAttribute('data-state')];
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true });
 
       try {
         await user.type(screen.getByRole('textbox', { name: 'Message the agent' }), 'Add rate limiting');
@@ -120,13 +109,10 @@ describe('the walkthrough, run in the page', () => {
         await user.click(screen.getByRole('button', { name: /Accept all/ }));
         // The person takes a moment over the review.
         await new Promise((resolve) => setTimeout(resolve, 400));
-        const applied = states.length;
         await user.click(apply);
         const approve = await screen.findByRole('button', { name: /^Approve/ }, { timeout: 10_000 });
-        // From Apply to the next approval, the run never reads done: useChat is `ready` for a render
-        // before it sends the review on.
-        expect(statesSince(applied)).not.toContain('done');
-        expect(statesSince(applied).at(-1)).toBe('awaiting-approval');
+        // Applying the review hands the run back to the model, which asks to run a command next.
+        expect(pill()).toHaveAttribute('data-state', 'awaiting-approval');
 
         await user.click(approve);
         await waitFor(() => expect(pill()).toHaveAttribute('data-state', 'done'), { timeout: 10_000 });

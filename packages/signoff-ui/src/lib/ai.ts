@@ -296,9 +296,7 @@ export interface DerivedAgentState {
  * text or reasoning still streaming, a tool call still preparing, running or partial, or a
  * sub-agent still running. That is what `stop()` leaves behind, and what an AG-UI run cancelled or
  * aborted mid-way does. A client-side tool the app runs itself is the exception: name it in
- * `clientTools`. Once a client-side tool's output is in (one in `pendingClientTools` or
- * `clientTools`), with every call of the step answered, the run reads `thinking`: `useChat` is
- * `ready` for a render before `sendAutomaticallyWhen` sends the next request.
+ * `clientTools`.
  */
 export function deriveAgentState({
   status,
@@ -358,8 +356,6 @@ export function deriveAgentState({
     const running = tools.find((t) => t.state === 'input-available' && clientTools.includes(getToolPartName(t)));
     if (running) return { state: 'working', detail: getToolPartName(running) };
     if (parts.some(isUnfinishedPart)) return { state: 'stopped' };
-    // The person's review (or the app's tool) is in, and the run goes on: not done for a render.
-    if (isAnsweredOnClient(parts, [...pendingClientTools, ...clientTools])) return { state: 'thinking' };
   }
   return parts.length > 0 ? { state: 'done' } : { state: 'idle' };
 }
@@ -378,19 +374,4 @@ function isUnfinishedPart(part: AnyUIPart): boolean {
   if (part.type === 'text' || part.type === 'reasoning') return part.state === 'streaming';
   if (isSubagentPart(part)) return part.data.status === 'running' || part.data.parts.some(isUnfinishedPart);
   return isToolPart(part) && isInterruptibleToolPart(part);
-}
-
-/**
- * The last step's calls all have their output, one of them a client-side tool's: what AI SDK's
- * `lastAssistantMessageIsCompleteWithToolCalls` sends the next request on. Only in a message with
- * steps, as AI SDK's are: the next request starts a new one. Messages without (AG-UI's) never match.
- */
-function isAnsweredOnClient(parts: readonly AnyUIPart[], names: readonly string[]): boolean {
-  const start = parts.findLastIndex((p) => p.type === 'step-start');
-  if (start === -1) return false;
-  const step = getToolParts(parts.slice(start + 1));
-  return (
-    step.some((t) => names.includes(getToolPartName(t))) &&
-    step.every((t) => (t.state === 'output-available' && t.preliminary !== true) || t.state === 'output-error')
-  );
 }
