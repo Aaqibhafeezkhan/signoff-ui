@@ -109,9 +109,9 @@ export const pt: SignoffLabels = {
     summary: ({ risk, command, cwd, args, rule }) =>
       [
         risk && `${risk}.`,
-        command !== undefined
-          ? `Executa ${command}${cwd ? ` em ${cwd}` : ''}.`
-          : args.length > 0 && `Argumentos: ${args.map((arg) => arg.join(' ')).join(', ')}.`,
+        command !== undefined && `Executa ${command}${cwd ? ` em ${cwd}` : ''}.`,
+        args.length > 0 &&
+          `${command !== undefined ? 'Com' : 'Argumentos:'} ${args.map((arg) => arg.join(' ')).join(', ')}.`,
         rule && `Uma decisão duradoura abrange ${rule}.`,
       ]
         .filter(Boolean)

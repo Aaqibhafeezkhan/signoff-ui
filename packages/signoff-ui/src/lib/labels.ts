@@ -131,9 +131,9 @@ export interface SignoffLabels {
     keyboardHint: (offered: OfferedChoices, mod: string) => string;
     /**
      * What a pending card says after its reason, for screen readers: the risk, what will run (the
-     * arguments' `command` and `cwd`, or else their first names and values), and the calls a
-     * lasting decision covers, as `describeRule` words them. Each is `undefined` or empty when the
-     * card has none.
+     * arguments' `command` and `cwd`), the first names and values of the arguments besides those
+     * (of all of them when there is no command), and the calls a lasting decision covers, as
+     * `describeRule` words them. Each is `undefined` or empty when the card has none.
      */
     summary: (card: {
       risk: string | undefined;
@@ -427,9 +427,9 @@ export const approvalCardLabels: SignoffLabels['approvalCard'] = {
   summary: ({ risk, command, cwd, args, rule }) =>
     [
       risk && `${risk}.`,
-      command !== undefined
-        ? `Runs ${command}${cwd ? ` in ${cwd}` : ''}.`
-        : args.length > 0 && `Arguments: ${args.map((arg) => arg.join(' ')).join(', ')}.`,
+      command !== undefined && `Runs ${command}${cwd ? ` in ${cwd}` : ''}.`,
+      args.length > 0 &&
+        `${command !== undefined ? 'With' : 'Arguments:'} ${args.map((arg) => arg.join(' ')).join(', ')}.`,
       rule && `A lasting decision covers ${rule}.`,
     ]
       .filter(Boolean)
