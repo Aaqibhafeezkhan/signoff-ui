@@ -205,3 +205,32 @@ describe('the advisories pnpm audit skips', () => {
     }
   });
 });
+
+describe('examples/copilotkit', () => {
+  /* CopilotKit pins @ag-ui/client and @ag-ui/core exactly. Should the example ask for another
+     version, it installs two copies, and its scripted agent, an AbstractAgent from the example's
+     copy, no longer type-checks as an agent of CopilotKit's runtime (Dependabot's @ag-ui/client
+     1.0.3, in #220). And one version of each @copilotkit package: one copy of CopilotKit. */
+  const example = lock?.importers['examples/copilotkit'];
+  const { packages, missing } = installs(
+    Object.entries({ ...example?.dependencies, ...example?.devDependencies }).flatMap(
+      ([name, { version }]) => snapshot(name, version) ?? [],
+    ),
+  );
+
+  it('installs one version of each @ag-ui and @copilotkit package, the @ag-ui/client it asks for', () => {
+    expect(missing).toEqual([]);
+    const versions = new Map<string, string[]>();
+    for (const pkg of packages.filter((id) => /^@(?:ag-ui|copilotkit)\//.test(id))) {
+      const name = pkg.slice(0, pkg.lastIndexOf('@'));
+      versions.set(name, [...(versions.get(name) ?? []), pkg]);
+    }
+    expect([...versions.keys()]).toEqual(
+      expect.arrayContaining(['@ag-ui/client', '@ag-ui/core', '@copilotkit/runtime', '@copilotkit/shared']),
+    );
+    expect([...versions.values()].filter((ids) => ids.length > 1)).toEqual([]);
+    expect(versions.get('@ag-ui/client')).toEqual([
+      `@ag-ui/client@${example?.dependencies?.['@ag-ui/client']?.version}`,
+    ]);
+  });
+});
