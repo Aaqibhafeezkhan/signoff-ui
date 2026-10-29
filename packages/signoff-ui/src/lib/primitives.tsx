@@ -145,11 +145,12 @@ export function JsonView({ value, label, collapseAfter = 24, className, labels }
   const shown = folded ? text.split('\n').slice(0, collapseAfter).join('\n') : text;
   return (
     <div data-signoff data-slot="signoff-json-view" className={cn('group/json relative', className)}>
+      {/* The code keeps the kit's font: Tailwind v3's preflight `code` rule outranks the kit's reset. */}
       <pre
         role="group"
         aria-label={label}
         tabIndex={0}
-        className="border-signoff-border bg-signoff-bg/60 font-signoff-mono text-signoff-fg focus-visible:outline-signoff-ring max-h-80 overflow-auto rounded-lg border px-3 py-2.5 text-xs leading-5 whitespace-pre focus-visible:outline-2 focus-visible:outline-offset-1"
+        className="border-signoff-border bg-signoff-bg/60 font-signoff-mono text-signoff-fg focus-visible:outline-signoff-ring [&>code]:font-signoff-mono max-h-80 overflow-auto rounded-lg border px-3 py-2.5 text-xs leading-5 whitespace-pre focus-visible:outline-2 focus-visible:outline-offset-1"
       >
         <CodeLines code={shown} language={language} />
       </pre>

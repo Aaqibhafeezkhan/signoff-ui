@@ -41,6 +41,23 @@ describe('a pending card describes', () => {
     );
   });
 
+  it('the command, then the other arguments it runs with', () => {
+    render(
+      <ApprovalCard
+        toolName="Bash"
+        input={{
+          command: 'rm -rf build',
+          cwd: '~/app',
+          description: 'Clean the build',
+          dangerouslyDisableSandbox: true,
+        }}
+      />,
+    );
+    expect(screen.getByRole('group', { name: 'Bash' })).toHaveAccessibleDescription(
+      `Runs rm -rf build in ~/app. With description Clean the build, dangerouslyDisableSandbox true. ${KEYS}`,
+    );
+  });
+
   it('the first arguments of a call with no command, cut short when long', () => {
     render(
       <ApprovalCard
