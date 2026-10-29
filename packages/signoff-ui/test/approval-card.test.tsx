@@ -34,6 +34,42 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('group')).toHaveAccessibleDescription(/Adds a dependency/);
   });
 
+  it('shows the arguments that come with a command below it, so nothing it runs with is out of view', async () => {
+    const { container } = render(
+      <ApprovalCard
+        toolName="run_command"
+        input={{ command: 'npm test', cwd: '~/app', env: { NODE_OPTIONS: '--require ./hook.js' }, timeout: 0 }}
+      />,
+    );
+    const card = screen.getByRole('group', { name: 'Run command' });
+    expect(within(card).getByText('npm test')).toBeInTheDocument();
+    expect(within(card).getByText('~/app')).toBeInTheDocument();
+    const args = within(card).getByRole('group', { name: 'Arguments' });
+    expect(args).toHaveTextContent('NODE_OPTIONS');
+    expect(args).toHaveTextContent('--require ./hook.js');
+    expect(args).toHaveTextContent('timeout');
+    // The command and its directory show once, on the command line.
+    expect(args).not.toHaveTextContent('npm test');
+    expect(args).not.toHaveTextContent('~/app');
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('shows a command with nothing else as the command line alone', () => {
+    setup();
+    expect(screen.queryByRole('group', { name: 'Arguments' })).not.toBeInTheDocument();
+  });
+
+  it('leaves out arguments set to undefined, in the preview and in the description', () => {
+    render(<ApprovalCard toolName="run_command" input={{ command: 'ls', cwd: undefined, timeout: undefined }} />);
+    expect(screen.queryByRole('group', { name: 'Arguments' })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Run command' })).toHaveAccessibleDescription(/^Runs ls\. Keyboard: /);
+  });
+
+  it('shows a cwd that is not text with the other arguments, not as the directory', () => {
+    render(<ApprovalCard toolName="run_command" input={{ command: 'ls', cwd: { path: '/etc' } }} />);
+    expect(screen.getByRole('group', { name: 'Arguments' })).toHaveTextContent('/etc');
+  });
+
   it('shows no risk level when none is given', () => {
     const { card, unmount } = setup({ risk: undefined });
     expect(screen.queryByText(/risk$/i)).not.toBeInTheDocument();

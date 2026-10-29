@@ -16,13 +16,13 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | `AgentStatus`                                                      |  11.4 kB |
 | `RunMeter`                                                         |  12.5 kB |
 | `useDiffReview` (the review without markup)                        |  16.4 kB |
-| `ApprovalCard`                                                     |  22.3 kB |
+| `ApprovalCard`                                                     |  22.4 kB |
 | `ToolCallTimeline`                                                 |  22.8 kB |
-| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  36.9 kB |
+| `AgentMessage` from `/custom-markdown` (with your own renderer)    |  37.0 kB |
 | `DiffReview`                                                       |  44.3 kB |
-| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  55.8 kB |
-| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  91.7 kB |
-| Everything in the main entry                                       | 129.2 kB |
+| `signoffTools` from `/assistant-ui` (with DiffReview, approvals)   |  55.9 kB |
+| `AgentMessage` (markdown, reasoning, timeline, approvals, sources) |  91.8 kB |
+| Everything in the main entry                                       | 129.3 kB |
 
 Measured with `pnpm size`, which bundles each import from the built package with Rolldown and gzips it. CI runs it on every pull request, with a budget per row about 5% over its size. Most of `AgentMessage` is the markdown parser: `Markdown` alone is 66.3 kB. An app with its own renderer can [import `AgentMessage` without it](/docs/components/agent-message#your-own-markdown-renderer), and CI checks that react-markdown stays out of that bundle. Each component carries the English labels of the sections it reads, not the others.
 

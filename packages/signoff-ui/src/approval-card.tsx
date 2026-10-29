@@ -77,7 +77,8 @@ export interface ApprovalCardProps extends Omit<ComponentPropsWithoutRef<'sectio
   /** How risky the action is, shown as a badge. Without it the card shows no risk level. */
   risk?: RiskLevel | undefined;
   /**
-   * Custom arguments preview. Defaults to a command line for `{ command }` inputs, else JSON.
+   * Custom arguments preview. Defaults to a command line for `{ command }` inputs, with any other
+   * arguments as JSON below it, else JSON.
    * Your content, like `AgentMessage`'s `renderTool`: keys pressed in it, or in a menu it opens in
    * a portal, are yours, not the card's shortcuts. Once the person edits the arguments (`editable`),
    * the card shows the edited ones in its default preview instead.
@@ -263,15 +264,36 @@ function CommandPreview({ command, cwd, label }: { command: string; cwd: string 
   );
 }
 
-/** The command a call runs, and where: from `{ command, cwd }` arguments. */
+/**
+ * The command a call runs, where, and the arguments that go with it: from `{ command, cwd, … }`
+ * arguments. `rest` holds every other argument, a `cwd` that is not text among them, since each
+ * can change what runs (`{ command: 'npm test', env: { … } }`); `undefined` when there are none.
+ */
 function commandOf(input: unknown) {
-  if (input && typeof input === 'object' && 'command' in input && typeof input.command === 'string')
-    return { command: input.command, cwd: 'cwd' in input && typeof input.cwd === 'string' ? input.cwd : undefined };
+  if (input && typeof input === 'object' && 'command' in input && typeof input.command === 'string') {
+    const others: Record<string, unknown> = { ...input };
+    delete others.command;
+    const cwd = typeof others.cwd === 'string' ? others.cwd : undefined;
+    if (cwd !== undefined) delete others.cwd;
+    // A key set to `undefined` is no argument (`{ cwd: undefined }`): JSON leaves it out as well.
+    for (const key of Object.keys(others)) if (others[key] === undefined) delete others[key];
+    return { command: input.command, cwd, rest: Object.keys(others).length > 0 ? others : undefined };
+  }
 }
 
 function DefaultPreview({ input, L }: { input: unknown; L: SignoffLabels['approvalCard'] }) {
   const run = commandOf(input);
-  if (run) return <CommandPreview command={run.command} cwd={run.cwd} label={L.command} />;
+  if (run && !run.rest) return <CommandPreview command={run.command} cwd={run.cwd} label={L.command} />;
+  if (run)
+    return (
+      <div className="flex flex-col gap-2">
+        <CommandPreview command={run.command} cwd={run.cwd} label={L.command} />
+        {/* What else the call runs with, below what it runs: nothing it is given goes unseen. */}
+        <div dir="ltr">
+          <JsonView value={run.rest} label={L.arguments} collapseAfter={14} />
+        </div>
+      </div>
+    );
   if (input === undefined) return null;
   return (
     <div dir="ltr">
@@ -769,14 +791,16 @@ export function ApprovalCard({
 
   // Focus on the card reads its title, then this: the risk, what runs, and what S or A would remember.
   const run = commandOf(runInput);
+  // With a command, the arguments besides it and its cwd: they change what runs as well.
+  const named = run ? run.rest : runInput;
   const summary = L.summary({
     risk: risk && L.risk[risk],
     // Whole, however long, unlike the arguments below: what runs is never cut in what is announced.
     command: run && spoken(run.command, all.untrusted),
     cwd: run?.cwd && spoken(run.cwd, all.untrusted),
     args:
-      !run && runInput && typeof runInput === 'object' && !Array.isArray(runInput)
-        ? Object.entries(runInput)
+      named && typeof named === 'object' && !Array.isArray(named)
+        ? Object.entries(named)
             .slice(0, 3)
             .map(([name, value]) => {
               const text = spoken(typeof value === 'string' ? value : safeStringify(value, 0), all.untrusted);
