@@ -63,10 +63,10 @@ export interface UseAgUiAgentResult {
   /**
    * Answer a tool-call interrupt. Pass it as `AgentMessage`'s `onToolApproval`. The agent resumes
    * once every open interrupt has an answer, since AG-UI resumes them all in one run. The first
-   * answer stands: another one for the same interrupt is ignored. If the run that resumes fails
-   * before it starts, the answers are taken back, so the cards ask again, and `error` says why: the
-   * promise doesn't reject. A denial of an expired interrupt (`expiresAt`) cancels it, and an
-   * approval of one is refused, as AG-UI takes only a cancellation then.
+   * answer stands: another one for the same interrupt is ignored. If the run that resumes fails or
+   * is stopped before it finishes, the answers are taken back, so the cards ask again, and `error`
+   * says why it failed: the promise doesn't reject. A denial of an expired interrupt (`expiresAt`)
+   * cancels it, and an approval of one is refused, as AG-UI takes only a cancellation then.
    */
   respond: (response: AgUiApprovalResponse) => Promise<void>;
   /** Answer any interrupt with your own payload (match its `responseSchema`), as `respond` does. */
@@ -79,7 +79,8 @@ export interface UseAgUiAgentResult {
   editInput: (toolCallId: string, input: unknown) => void;
   /**
    * Abort the run in progress, even before the server has answered. It ends like a cancelled run:
-   * what was streaming stays cut off, which `deriveAgentState` reads as `stopped`.
+   * what was streaming stays cut off, which `deriveAgentState` reads as `stopped`. A stopped resume
+   * asks its interrupts again, as the client still holds them.
    */
   stop: () => void;
 }
@@ -151,6 +152,11 @@ function createStore(agent: AgUiAgentLike) {
             );
             // A resumed run that ended before it started (failed or stopped) never gave the agent its answers.
             rollBack();
+            // One that started and ended without RUN_FINISHED (failed or stopped) leaves the client holding the
+            // interrupts, and it turns down a run that doesn't answer them: ask again.
+            const pending = agent.pendingInterrupts ?? [];
+            if (pending.length > 0 && snapshot.run.interrupts.length === 0)
+              update((run) => reopenAgUiInterrupts(run, pending));
           },
         });
       }

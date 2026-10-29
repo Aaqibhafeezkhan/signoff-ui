@@ -341,9 +341,15 @@ export function getAgUiResume(run: AgUiRunState): AgUiResumeEntry[] | undefined 
   return entries.every((e) => e !== undefined) ? entries : undefined;
 }
 
-/** The open interrupts with their answers taken back, as before anyone answered: for a resume that never started. */
-export function reopenAgUiInterrupts(run: AgUiRunState): AgUiRunState {
-  return withInterrupts(run, run.interrupts);
+/**
+ * The open interrupts, or the ones given, with their answers taken back, as before anyone answered:
+ * for a resume that never started, or one that started and ended without `RUN_FINISHED`.
+ */
+export function reopenAgUiInterrupts(
+  run: AgUiRunState,
+  interrupts: readonly AgUiInterrupt[] = run.interrupts,
+): AgUiRunState {
+  return withInterrupts(run, interrupts);
 }
 
 type Part = UIMessage['parts'][number];
