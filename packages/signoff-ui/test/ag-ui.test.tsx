@@ -13,7 +13,9 @@ import {
   reduceAgUiRun,
   useAgUiAgent,
   type AgUiAgentLike,
+  type AgUiInterrupt,
   type AgUiRunState,
+  type AgUiSubscriber,
   type UseAgUiAgentResult,
 } from '../src/ag-ui';
 import { AgentMessage } from '../src/agent-message';
@@ -1430,6 +1432,201 @@ describe('useAgUiAgent', () => {
         detail: 'run_command',
       });
       await expectAsksAgain(agent, result);
+    });
+
+    // Once the tool has run, the call has an outcome: no card asks again, but the client still waits on the
+    // interrupt. The app answers it with resolve, as the docs show.
+    const toolRan = (input: RunAgentInput): BaseEvent[] => [
+      ...started(input),
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tm1', toolCallId: 'tc1', content: '{"exitCode":0}' },
+    ];
+    const goesOn = ({ threadId, runId }: RunAgentInput): BaseEvent[] => [
+      { type: EventType.RUN_STARTED, threadId, runId },
+      { type: EventType.TEXT_MESSAGE_START, messageId: 'm2', role: 'assistant' },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm2', delta: 'Installed.' },
+      { type: EventType.TEXT_MESSAGE_END, messageId: 'm2' },
+      { type: EventType.RUN_FINISHED, threadId, runId, outcome: { type: 'success' } } as BaseEvent,
+    ];
+
+    it('keeps the interrupt open with no card when the resumed run fails after its tool ran, for resolve', async () => {
+      let third: RunAgentInput | undefined;
+      const agent = httpAgent(
+        interrupted!,
+        (input) => [...toolRan(input), { type: EventType.RUN_ERROR, message: 'Model overloaded' }],
+        (input) => goesOn((third = input)),
+      );
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      await act(() => agent.runAgent());
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
+      expect(result.current).toMatchObject({ status: 'error', error: { message: 'Model overloaded' } });
+      // The call shows its result, still approved, and no card.
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({
+        state: 'output-available',
+        output: { exitCode: 0 },
+        approval: { id: 'int1', approved: true },
+      });
+      expect(result.current.interrupts.map((i) => i.id)).toEqual(['int1']);
+      expect(agent.pendingInterrupts.map((i) => i.id)).toEqual(['int1']);
+      await expect(agent.runAgent()).rejects.toThrow('pending interrupt(s) not addressed by resume: int1');
+
+      // The docs' retry: answer the interrupts whose call already has a result.
+      const { messages, interrupts, resolve } = result.current;
+      async function retry() {
+        const calls = messages.flatMap((m) => m.parts.filter((p) => p.type === 'dynamic-tool'));
+        for (const interrupt of interrupts) {
+          const call = calls.find((c) => c.toolCallId === interrupt.toolCallId);
+          if (call?.state.startsWith('output-'))
+            await resolve({
+              interruptId: interrupt.id,
+              status: 'resolved',
+              payload: { approved: call.state !== 'output-denied' },
+            });
+        }
+      }
+      await act(retry);
+      expect(third?.resume).toEqual([{ interruptId: 'int1', status: 'resolved', payload: { approved: true } }]);
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+      expect(agent.pendingInterrupts).toEqual([]);
+      expect(result.current.messages[1]!.parts).toMatchObject([
+        { type: 'text', text: 'Adding zod.' },
+        { state: 'output-available', approval: { approved: true } },
+        { type: 'text', text: 'Installed.' },
+      ]);
+    });
+
+    it('keeps the interrupt open with no card when the resumed run is stopped after its tool ran', async () => {
+      const agent = httpAgent(interrupted!, (input) => ({
+        events: [
+          ...toolRan(input),
+          { type: EventType.TEXT_MESSAGE_START, messageId: 'm2', role: 'assistant' },
+          { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm2', delta: 'Installed zod, now' },
+        ],
+        then: 'hang',
+      }));
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      await act(() => agent.runAgent());
+      let responding: Promise<void> = Promise.resolve();
+      act(() => {
+        responding = result.current.respond({ id: 'int1', approved: true });
+      });
+      await waitFor(() => expect(result.current.messages[1]!.parts[2]).toMatchObject({ text: 'Installed zod, now' }));
+      await act(async () => {
+        result.current.stop();
+        await responding;
+      });
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined });
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({
+        state: 'output-available',
+        approval: { approved: true },
+      });
+      expect(deriveAgentState({ status: result.current.status, message: result.current.messages[1] })).toEqual({
+        state: 'stopped',
+      });
+      expect(result.current.interrupts.map((i) => i.id)).toEqual(['int1']);
+      expect(agent.pendingInterrupts.map((i) => i.id)).toEqual(['int1']);
+    });
+
+    it('ends with no interrupts when the answer comes right after RUN_FINISHED, before that run ends', async () => {
+      // An answer in the same task, as an approval policy's can be: @ag-ui/client doesn't wait on
+      // onRunFinalized, so the first run's comes once the resume has started.
+      const agent = httpAgent(interrupted!, resumed!);
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      let answered: Promise<void> | undefined;
+      let finalized = 0;
+      let bothEnded = () => {};
+      const ended = new Promise<void>((resolve) => (bothEnded = resolve));
+      agent.subscribe({
+        onEvent: ({ event }) => {
+          if (event.type === EventType.RUN_FINISHED && !answered)
+            queueMicrotask(() => (answered = result.current.respond({ id: 'int1', approved: true })));
+        },
+        onRunFinalized: () => {
+          if (++finalized === 2) bothEnded();
+        },
+      });
+      await act(async () => {
+        await agent.runAgent();
+        await answered;
+        await ended;
+      });
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+      expect(agent.pendingInterrupts).toEqual([]);
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({ state: 'output-available' });
+    });
+  });
+
+  describe('when a run reports its end after the next run has started', () => {
+    // @ag-ui/client fires onRunFinalized without waiting on it: an answer right after RUN_FINISHED can
+    // start the resume before the first run's comes, at any point of the resume.
+    const interrupt = { id: 'int1', reason: 'tool_call', toolCallId: 'tc1' };
+    const messages = [
+      { id: 'u1', role: 'user', content: 'Add zod' },
+      {
+        id: 'm1',
+        role: 'assistant',
+        toolCalls: [{ id: 'tc1', function: { name: 'run_command', arguments: '{"command":"pnpm add zod"}' } }],
+      },
+    ];
+    function answeredAgent() {
+      const subscribers: AgUiSubscriber[] = [];
+      const resumes: unknown[] = [];
+      const agent = {
+        messages,
+        pendingInterrupts: [] as AgUiInterrupt[],
+        subscribe(subscriber: AgUiSubscriber) {
+          subscribers.push(subscriber);
+          return { unsubscribe: () => void subscribers.splice(subscribers.indexOf(subscriber), 1) };
+        },
+        // The resume stays in flight: the test plays its lifecycle.
+        runAgent: (parameters?: { resume?: unknown }) => {
+          resumes.push(parameters?.resume);
+          return new Promise<never>(() => {});
+        },
+      } satisfies AgUiAgentLike;
+      const emit = (call: (subscriber: AgUiSubscriber) => void) =>
+        act(() => {
+          for (const subscriber of [...subscribers]) call(subscriber);
+        });
+      const start = (runId: string) => emit((s) => s.onRunInitialized?.({ messages, input: { runId } }));
+      const play = (event: { type: string; [field: string]: unknown }) => emit((s) => s.onEvent?.({ event }));
+      const end = (runId: string) => emit((s) => s.onRunFinalized?.({ messages, input: { runId } }));
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      start('r1');
+      play({ type: 'RUN_STARTED' });
+      play({ type: 'RUN_FINISHED', outcome: { type: 'interrupt', interrupts: [interrupt] } });
+      agent.pendingInterrupts = [interrupt];
+      act(() => void result.current.respond({ id: 'int1', approved: true }));
+      expect(resumes).toHaveLength(1);
+      const finish = () => {
+        play({ type: 'RUN_FINISHED', outcome: { type: 'success' } });
+        agent.pendingInterrupts = [];
+        end('r2');
+        expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+      };
+      return { result, resumes, start, play, end, finish };
+    }
+
+    it('keeps the answers of a resume that hasn’t started yet', () => {
+      const { result, resumes, start, play, end, finish } = answeredAgent();
+      end('r1');
+      expect(result.current.messages[1]!.parts[0]).toMatchObject({ state: 'approval-responded' });
+      // The answer stands, so another can't start a second resume.
+      act(() => void result.current.respond({ id: 'int1', approved: true }));
+      expect(resumes).toHaveLength(1);
+      start('r2');
+      play({ type: 'RUN_STARTED' });
+      finish();
+    });
+
+    it('leaves the resume in progress alone', () => {
+      const { result, start, play, end, finish } = answeredAgent();
+      start('r2');
+      play({ type: 'RUN_STARTED' });
+      play({ type: 'TEXT_MESSAGE_START', messageId: 'm2' });
+      end('r1');
+      // Not cancelled, and the interrupt the client holds until the resume finishes isn't reopened.
+      expect(result.current).toMatchObject({ status: 'streaming', interrupts: [] });
+      finish();
     });
   });
 

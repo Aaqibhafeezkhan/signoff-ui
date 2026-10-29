@@ -117,7 +117,29 @@ Interrupts that aren't tool approvals (`input_required`, or your own) are in `in
 await resolve({ interruptId: interrupt.id, status: 'resolved', payload: { city: 'Lisbon' } });
 ```
 
-Each interrupt takes one answer, and the first one stands: another, from a retry, a button of your own or a second card for the same call, is ignored, so it can't start a second run with a different payload. If the run that resumes fails before it starts (the request fails, or the client turns the answers down), the hook takes them back: the cards ask again, `status` is `error`, and `error` says why. The same goes for one that starts and then ends without `RUN_FINISHED`, on a `RUN_ERROR` or a broken stream, as `@ag-ui/client` keeps the interrupts pending until a run finishes and turns down any run that doesn't answer them. A resume stopped with `stop()` asks again too, with `status` `ready`, since the client still waits on its interrupts. If it had started, the agent may have acted on the first answer: the next one resumes the same interrupt again. `respond` and `resolve` don't reject, as `useChat` doesn't when a request fails, since the cards call them without catching. An interrupt past its `expiresAt` takes only a cancellation, as AG-UI requires: denying its card sends `status: 'cancelled'`, and approving it sends nothing and sets `error`, with the code `interrupt_expired`. Answer one that isn't a tool approval with `resolve` and `status: 'cancelled'`.
+Each interrupt takes one answer, and the first one stands: another, from a retry, a button of your own or a second card for the same call, is ignored, so it can't start a second run with a different payload. If the run that resumes fails before it starts (the request fails, or the client turns the answers down), the hook takes them back: the cards ask again, `status` is `error`, and `error` says why. `respond` and `resolve` don't reject, as `useChat` doesn't when a request fails, since the cards call them without catching. An interrupt past its `expiresAt` takes only a cancellation, as AG-UI requires: denying its card sends `status: 'cancelled'`, and approving it sends nothing and sets `error`, with the code `interrupt_expired`. Answer one that isn't a tool approval with `resolve` and `status: 'cancelled'`.
+
+A resume can also start and then end without `RUN_FINISHED`: on a `RUN_ERROR` or a broken stream (`status` is `error`), or with `stop()` (`status` is `ready`). `@ag-ui/client` keeps the interrupts pending until a run finishes, and turns down any run that doesn't answer them, so the hook opens them again. A call whose tool hadn't run yet asks again on its card. One that has a result by then, as its tool ran, shows it with the answer it had and no card, since the agent acted on that answer: its interrupt stays in `interrupts`, and the next run is turned down until it has an answer. Give it one with `resolve`, from a retry button of yours for example:
+
+```ts
+const { messages, interrupts, resolve } = useAgUiAgent(agent);
+
+async function retry() {
+  const calls = messages.flatMap((m) => m.parts.filter((p) => p.type === 'dynamic-tool'));
+  for (const interrupt of interrupts) {
+    const call = calls.find((c) => c.toolCallId === interrupt.toolCallId);
+    // No card asks for a call with a result: send the answer it ran on again.
+    if (call?.state.startsWith('output-'))
+      await resolve({
+        interruptId: interrupt.id,
+        status: 'resolved',
+        payload: { approved: call.state !== 'output-denied' },
+      });
+  }
+}
+```
+
+The agent then gets a second answer to an interrupt it has acted on, so have it treat an answer for a call that already has a result as done.
 
 ## LangGraph
 

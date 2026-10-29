@@ -28,11 +28,11 @@ export interface AgUiAgentLike {
 
 /** The subscriber callbacks `useAgUiAgent` registers (a subset of `@ag-ui/client`'s `AgentSubscriber`). */
 export interface AgUiSubscriber {
-  onRunInitialized?(params: { messages: readonly AgUiMessage[] }): void;
+  onRunInitialized?(params: { messages: readonly AgUiMessage[]; input?: { runId?: string } }): void;
   onEvent?(params: { event: AgUiEvent }): void;
   onMessagesChanged?(params: { messages: readonly AgUiMessage[] }): void;
   onRunFailed?(params: { error: Error }): void;
-  onRunFinalized?(params: { messages: readonly AgUiMessage[] }): void;
+  onRunFinalized?(params: { messages: readonly AgUiMessage[]; input?: { runId?: string } }): void;
 }
 
 export interface UseAgUiAgentOptions {
@@ -64,9 +64,11 @@ export interface UseAgUiAgentResult {
    * Answer a tool-call interrupt. Pass it as `AgentMessage`'s `onToolApproval`. The agent resumes
    * once every open interrupt has an answer, since AG-UI resumes them all in one run. The first
    * answer stands: another one for the same interrupt is ignored. If the run that resumes fails or
-   * is stopped before it finishes, the answers are taken back, so the cards ask again, and `error`
-   * says why it failed: the promise doesn't reject. A denial of an expired interrupt (`expiresAt`)
-   * cancels it, and an approval of one is refused, as AG-UI takes only a cancellation then.
+   * is stopped before it finishes, its interrupts are open again, and `error` says why it failed:
+   * the promise doesn't reject. The card of a call that hasn't run asks again. A call that ran
+   * shows its result instead, with no card: answer its interrupt with `resolve`, as the client
+   * turns down any run that doesn't. A denial of an expired interrupt (`expiresAt`) cancels it, and
+   * an approval of one is refused, as AG-UI takes only a cancellation then.
    */
   respond: (response: AgUiApprovalResponse) => Promise<void>;
   /** Answer any interrupt with your own payload (match its `responseSchema`), as `respond` does. */
@@ -80,7 +82,7 @@ export interface UseAgUiAgentResult {
   /**
    * Abort the run in progress, even before the server has answered. It ends like a cancelled run:
    * what was streaming stays cut off, which `deriveAgentState` reads as `stopped`. A stopped resume
-   * asks its interrupts again, as the client still holds them.
+   * opens its interrupts again, as the client still holds them: see `respond`.
    */
   stop: () => void;
 }
@@ -110,6 +112,13 @@ function createStore(agent: AgUiAgentLike) {
   };
   /** The interrupts the resume in flight answers, until its run starts (RUN_STARTED replaces them). */
   let resuming: readonly AgUiInterrupt[] | undefined;
+  /**
+   * The last run seen starting (`onRunInitialized`), and the one whose interrupts the last resume
+   * answers. `@ag-ui/client` doesn't wait on `onRunFinalized`, so a run's can come once an answer
+   * right after its `RUN_FINISHED` has started the next run: it is left out then.
+   */
+  let runId: string | undefined;
+  let resumedFrom: string | undefined;
   /** If the resume never started, take its answers back, so they can be given again. */
   const rollBack = (error?: AgUiRunState['error']) => {
     const answered = resuming;
@@ -127,7 +136,8 @@ function createStore(agent: AgUiAgentLike) {
         // Catch up on anything that happened before the first subscriber.
         snapshot = { ...snapshot, messages: [...agent.messages] };
         subscription = agent.subscribe({
-          onRunInitialized: ({ messages }) => {
+          onRunInitialized: ({ messages, input }) => {
+            runId = input?.runId;
             set({ messages: [...messages], run: { ...snapshot.run, status: 'submitted', error: undefined } });
           },
           onEvent: ({ event }) => {
@@ -144,7 +154,10 @@ function createStore(agent: AgUiAgentLike) {
                 : { ...reduceAgUiRun(run, { type: 'RUN_ERROR' }), error: { message: error.message || 'Run failed' } },
             );
           },
-          onRunFinalized: ({ messages }) => {
+          onRunFinalized: ({ messages, input }) => {
+            // A late one, from a run before the newest: what it would cancel, take back or reopen is the newer run's.
+            const id = input?.runId;
+            if (id !== undefined && (id === resumedFrom || (runId !== undefined && id !== runId))) return;
             set({ messages: [...messages] });
             // Aborted runs end without RUN_FINISHED: as a cancelled run, what was streaming stays cut off.
             update((run) =>
@@ -153,10 +166,11 @@ function createStore(agent: AgUiAgentLike) {
             // A resumed run that ended before it started (failed or stopped) never gave the agent its answers.
             rollBack();
             // One that started and ended without RUN_FINISHED (failed or stopped) leaves the client holding the
-            // interrupts, and it turns down a run that doesn't answer them: ask again.
+            // interrupts, and it turns down a run that doesn't answer them: open them again. A call that hasn't
+            // run asks again; one that ran shows its result, and the app answers its interrupt with resolve.
             const pending = agent.pendingInterrupts ?? [];
             if (pending.length > 0 && snapshot.run.interrupts.length === 0)
-              update((run) => reopenAgUiInterrupts(run, pending));
+              update((run) => reopenAgUiInterrupts(run, pending, snapshot.messages));
           },
         });
       }
@@ -183,7 +197,10 @@ function createStore(agent: AgUiAgentLike) {
       if (run === snapshot.run) return undefined;
       set({ run });
       const resume = getAgUiResume(run);
-      if (resume) resuming = run.interrupts;
+      if (resume) {
+        resuming = run.interrupts;
+        resumedFrom = runId;
+      }
       return resume;
     },
     /** The run that resumes failed: before it started, its answers are taken back. */

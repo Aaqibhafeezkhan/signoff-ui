@@ -45,7 +45,7 @@ const rows = [
     37.7,
     ['react-markdown', 'remark-gfm', 'remend'],
   ],
-  ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 4.1],
+  ['`useAgUiAgent` (`/ag-ui`)', `export * from ${JSON.stringify(join(dist, 'ag-ui.js'))};`, 4.3],
   ['ACP converters (`/acp`)', `export * from ${JSON.stringify(join(dist, 'acp.js'))};`, 1.8],
   [
     '`signoffTools` (`/assistant-ui`, with DiffReview and the approval card)',
