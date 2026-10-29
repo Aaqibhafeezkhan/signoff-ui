@@ -33,6 +33,10 @@ describe('parsePartialJson', () => {
     ['{"paths": ["a.ts", "b', { paths: ['a.ts', 'b'] }],
     ['{"nested": {"deep": [1, {"x": "y\\', { nested: { deep: [1, { x: 'y' }] } }],
     ['{"text": "caf\\u00', { text: 'caf' }],
+    // An escaped backslash, then a u, is a Windows path, not a \u escape cut off.
+    ['{"path": "C:\\\\u', { path: 'C:\\u' }],
+    ['{"path": "C:\\\\u00', { path: 'C:\\u00' }],
+    ['{"path": "C:\\\\\\u00', { path: 'C:\\' }],
     ['{"done": true}', { done: true }],
     ['[', []],
   ])('%s', (text, expected) => {
@@ -183,6 +187,52 @@ describe('reduceAgUiRun', () => {
       input: { command: 'npm test' },
     });
     expect(getAgUiResume(denied)?.[0]?.payload).toEqual({ approved: false });
+  });
+
+  it('keeps the first answer to an interrupt: a second, even a conflicting one, changes nothing', () => {
+    const run = answerAgUiInterrupt(withInterrupt(), { id: 'int1', approved: true });
+    expect(answerAgUiInterrupt(run, { id: 'int1', approved: false, reason: 'No' })).toBe(run);
+    expect(answerAgUiInterrupt(run, { interruptId: 'int1', status: 'cancelled' })).toBe(run);
+    expect(getAgUiResume(run)).toEqual([{ interruptId: 'int1', status: 'resolved', payload: { approved: true } }]);
+  });
+
+  it('takes only a cancellation for an expired interrupt: a denial cancels it, an approval is refused', () => {
+    const expiresAt = '2026-10-29T10:00:00.000Z';
+    const run = createAgUiRun([
+      { id: 'int1', reason: 'tool_call', toolCallId: 'tc1', expiresAt },
+      { id: 'int2', reason: 'input_required', expiresAt },
+    ]);
+    const before = Date.parse(expiresAt) - 1;
+    const after = Date.parse(expiresAt);
+    // Until then, as any other.
+    expect(answerAgUiInterrupt(run, { id: 'int1', approved: true }, before).answers.int1).toEqual({
+      interruptId: 'int1',
+      status: 'resolved',
+      payload: { approved: true },
+    });
+
+    const refused = answerAgUiInterrupt(run, { id: 'int1', approved: true }, after);
+    expect(refused.answers).toEqual({});
+    expect(refused.approvals.tc1?.approved).toBeUndefined();
+    expect(refused).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'interrupt_expired',
+        message: `Interrupt int1 expired at ${expiresAt}: it can only be denied now.`,
+      },
+    });
+    const denied = answerAgUiInterrupt(run, { id: 'int1', approved: false, reason: 'Too late' }, after);
+    expect(denied.answers.int1).toEqual({
+      interruptId: 'int1',
+      status: 'cancelled',
+      payload: { approved: false, reason: 'Too late' },
+    });
+    expect(denied.approvals.tc1).toMatchObject({ approved: false, reason: 'Too late' });
+
+    const resolved = answerAgUiInterrupt(denied, { interruptId: 'int2', status: 'resolved', payload: {} }, after);
+    expect(resolved.error?.message).toBe(`Interrupt int2 expired at ${expiresAt}: it can only be cancelled now.`);
+    const cancelled = answerAgUiInterrupt(denied, { interruptId: 'int2', status: 'cancelled' }, after);
+    expect(getAgUiResume(cancelled)?.map((entry) => entry.status)).toEqual(['cancelled', 'cancelled']);
   });
 });
 
@@ -898,18 +948,113 @@ describe('useAgUiAgent', () => {
       expect(agent.inputs[1]?.resume).toEqual(resumed);
     });
 
-    it('rejects when runAgent fails, as respond does without it', async () => {
+    it('takes the answer back when runAgent fails before the run starts, and says why, without rejecting', async () => {
       const agent = interruptingAgent();
       agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
+      let reachable = false;
       const { result } = renderHook(() =>
-        useAgUiAgent(agent, { runAgent: () => Promise.reject(new Error('Runtime unreachable')) }),
+        useAgUiAgent(agent, {
+          runAgent: (parameters) =>
+            reachable ? agent.runAgent(parameters) : Promise.reject(new Error('Runtime unreachable')),
+        }),
       );
       await act(() => agent.runAgent());
-      await expect(act(() => result.current.respond({ id: 'int1', approved: true }))).rejects.toThrow(
-        'Runtime unreachable',
-      );
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
       expect(agent.inputs).toHaveLength(1);
+      expect(result.current).toMatchObject({ status: 'error', error: { message: 'Runtime unreachable' } });
+      expect(result.current.interrupts).toHaveLength(1);
+      // The card asks again, rather than reading Approved for a call that never went.
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({
+        state: 'approval-requested',
+        approval: { id: 'int1', requestReason: 'Install zod?' },
+      });
+
+      reachable = true;
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
+      expect(agent.inputs[1]?.resume).toEqual(resumed);
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
     });
+  });
+
+  it('answers each interrupt once: a second answer before the resumed run starts, even a conflicting one, starts no run', async () => {
+    const agent = interruptingAgent();
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
+    const { result } = renderHook(() => useAgUiAgent(agent));
+    await act(() => agent.runAgent());
+    // The card, and the app's own button or a retry, in the same moment.
+    await act(() =>
+      Promise.all([
+        result.current.respond({ id: 'int1', approved: true }),
+        result.current.respond({ id: 'int1', approved: false, reason: 'No' }),
+        result.current.resolve({ interruptId: 'int1', status: 'cancelled' }),
+      ]),
+    );
+    expect(agent.inputs.map((input) => input.resume)).toEqual([
+      undefined,
+      [{ interruptId: 'int1', status: 'resolved', payload: { approved: true } }],
+    ]);
+    expect(result.current.messages[1]!.parts[1]).toMatchObject({
+      state: 'output-available',
+      approval: { approved: true },
+    });
+    // Once the resumed run has started, the interrupt is no longer open.
+    await act(() => result.current.respond({ id: 'int1', approved: true }));
+    expect(agent.inputs).toHaveLength(2);
+  });
+
+  it('refuses to approve an expired interrupt, which AG-UI only cancels, and cancels it on a denial', async () => {
+    const expiresAt = '2000-01-01T00:00:00.000Z';
+    const [first] = interruptingAgent().scripts;
+    const agent = new ScriptedAgent([
+      (input) =>
+        first!(input).map((event) =>
+          event.type === EventType.RUN_FINISHED
+            ? ({
+                ...event,
+                outcome: {
+                  type: 'interrupt',
+                  interrupts: [
+                    { id: 'int1', reason: 'tool_call', toolCallId: 'tc1', message: 'Install zod?', expiresAt },
+                  ],
+                },
+              } as BaseEvent)
+            : event,
+        ),
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 'm2', role: 'assistant' },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm2', delta: 'Not installing it.' },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 'm2' },
+        { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId, outcome: { type: 'success' } } as BaseEvent,
+      ],
+    ]);
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
+    const { result } = renderHook(() => useAgUiAgent(agent));
+    await act(() => agent.runAgent());
+    expect(result.current.interrupts[0]?.expiresAt).toBe(expiresAt);
+
+    await act(() => result.current.respond({ id: 'int1', approved: true }));
+    // Nothing sent: the client would turn it down. The card still asks, and the error says why.
+    expect(agent.inputs).toHaveLength(1);
+    expect(result.current.messages[1]!.parts[1]).toMatchObject({ state: 'approval-requested' });
+    expect(result.current).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'interrupt_expired',
+        message: `Interrupt int1 expired at ${expiresAt}: it can only be denied now.`,
+      },
+    });
+
+    await act(() => result.current.respond({ id: 'int1', approved: false }));
+    expect(agent.inputs[1]?.resume).toEqual([
+      { interruptId: 'int1', status: 'cancelled', payload: { approved: false } },
+    ]);
+    expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+    expect(result.current.messages[1]!.parts).toMatchObject([
+      { type: 'text', text: 'Adding zod.' },
+      { state: 'output-denied', approval: { id: 'int1', approved: false } },
+      { type: 'text', text: 'Not installing it.' },
+    ]);
   });
 
   it('follows a run through an interrupt, the approval and the resumed run', async () => {
@@ -1120,6 +1265,82 @@ describe('useAgUiAgent', () => {
     expect(result.current).toMatchObject({ status: 'ready', error: undefined });
     expect(last?.parts).toMatchObject([{ type: 'text', text: 'Adding zod to', state: 'streaming' }]);
     expect(deriveAgentState({ status: result.current.status, message: last })).toEqual({ state: 'stopped' });
+  });
+
+  describe('over HTTP, when the server is slow or unreachable', () => {
+    /** An HttpAgent whose server plays these replies in turn: events, a failed request, or none until stopped. */
+    function httpAgent(...replies: ((input: RunAgentInput) => BaseEvent[] | Error | 'hang')[]) {
+      const agent = new HttpAgent({
+        url: 'https://agent.test/run',
+        fetch: async (_url, init) => {
+          const reply = replies.shift()!(JSON.parse(String(init.body)) as RunAgentInput);
+          if (reply instanceof Error) throw reply;
+          if (reply === 'hang') {
+            // A cold start: the request is out, and no response headers have come back.
+            return new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener('abort', () =>
+                reject(new DOMException('This operation was aborted', 'AbortError')),
+              );
+            });
+          }
+          const body = reply.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+          return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+        },
+      });
+      agent.addMessage({ id: 'u1', role: 'user', content: 'Add zod' });
+      return agent;
+    }
+    const [interrupted, resumed] = interruptingAgent().scripts;
+
+    it('reads a run stopped before the server answers as stopped, not failed', async () => {
+      const agent = httpAgent(() => 'hang');
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      let running: Promise<unknown> = Promise.resolve();
+      act(() => {
+        running = agent.runAgent().catch(() => undefined);
+      });
+      await waitFor(() => expect(result.current.status).toBe('submitted'));
+      await act(async () => {
+        result.current.stop();
+        await running;
+      });
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined });
+    });
+
+    it('asks again when the request that resumes fails, and resumes once answered again', async () => {
+      const agent = httpAgent(interrupted!, () => new TypeError('fetch failed'), resumed!);
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      await act(() => agent.runAgent());
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
+      expect(result.current).toMatchObject({ status: 'error', error: { message: 'fetch failed' } });
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({ state: 'approval-requested' });
+
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+      expect(result.current.messages[1]!.parts).toMatchObject([
+        { type: 'text', text: 'Adding zod.' },
+        { state: 'output-available', output: { exitCode: 0 }, approval: { approved: true } },
+        { type: 'text', text: 'Installed.' },
+      ]);
+    });
+
+    it('asks again when the resume is stopped before the server answers, as the client still waits on it', async () => {
+      const agent = httpAgent(interrupted!, () => 'hang');
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      await act(() => agent.runAgent());
+      let responding: Promise<void> = Promise.resolve();
+      act(() => {
+        responding = result.current.respond({ id: 'int1', approved: true });
+      });
+      await waitFor(() => expect(result.current.status).toBe('submitted'));
+      await act(async () => {
+        result.current.stop();
+        await responding;
+      });
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined });
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({ state: 'approval-requested' });
+      expect(agent.pendingInterrupts.map((i) => i.id)).toEqual(['int1']);
+    });
   });
 
   it('reports a failed run', async () => {
