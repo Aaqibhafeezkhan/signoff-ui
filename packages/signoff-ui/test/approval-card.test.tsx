@@ -320,6 +320,37 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('button', { name: /^deny$/i })).toHaveAttribute('aria-keyshortcuts', 'N');
   });
 
+  it('shows an object that comes twice in the arguments each time, and approves an edit with it', async () => {
+    const user = userEvent.setup();
+    const onDecide = vi.fn();
+    const env = { NODE_ENV: 'production' };
+    const { container } = render(
+      <ApprovalCard
+        toolName="deploy"
+        input={{ target: 'staging', build: { env }, test: { env } }}
+        editable
+        onDecide={onDecide}
+      />,
+    );
+    const args = screen.getByRole('group', { name: 'Arguments' });
+    expect(args).not.toHaveTextContent('[Circular]');
+    expect(args.textContent?.match(/NODE_ENV/g)).toHaveLength(2);
+    expect(await axe(container)).toHaveNoViolations();
+
+    await user.click(screen.getByRole('button', { name: 'Edit arguments' }));
+    const json = screen.getByRole('textbox', { name: 'Arguments, as JSON' });
+    expect(json).not.toHaveValue(expect.stringContaining('[Circular]'));
+    const edited = (json as HTMLTextAreaElement).value.replace('staging', 'production');
+    await user.clear(json);
+    await user.click(json);
+    await user.paste(edited);
+    await user.click(screen.getByRole('button', { name: /^Approve/ }));
+    expect(onDecide).toHaveBeenLastCalledWith({
+      decision: 'allow-once',
+      input: { target: 'production', build: { env }, test: { env } },
+    });
+  });
+
   it('has no axe violations when pending, with feedback open, and resolved', async () => {
     const { container, user, rerender } = setup({ description: 'Adds a dependency' });
     expect(await axe(container)).toHaveNoViolations();

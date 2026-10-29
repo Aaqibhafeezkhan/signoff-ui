@@ -85,19 +85,27 @@ export function summarizeValue(value: unknown, max = 72): string | undefined {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/**
+ * A value as JSON, for showing it: a bigint as `10n`, and an object inside itself as `[Circular]`.
+ * Only a cycle is: an object that comes twice, side by side (`{ a: env, b: env }`), is written out
+ * each time, as the call that receives it reads it.
+ */
 export function safeStringify(value: unknown, space = 2): string {
   if (value === undefined) return 'undefined';
   if (typeof value === 'string') return JSON.stringify(value);
-  const seen = new WeakSet<object>();
+  // The objects from the root down to the one being written, which only a cycle comes back to.
+  const path: object[] = [];
   try {
     return (
       JSON.stringify(
         value,
-        (_key, v: unknown) => {
+        function (this: unknown, _key, v: unknown) {
           if (typeof v === 'bigint') return `${v.toString()}n`;
           if (typeof v === 'object' && v !== null) {
-            if (seen.has(v)) return '[Circular]';
-            seen.add(v);
+            // `this` holds `v`: what is below it on the path was written, and is not around `v`.
+            while (path.length > 0 && path.at(-1) !== this) path.pop();
+            if (path.includes(v)) return '[Circular]';
+            path.push(v);
           }
           return v;
         },

@@ -254,7 +254,7 @@ export const pt: SignoffLabels = {
         ? 'o ficheiro'
         : comment.target === 'hunk'
           ? 'o bloco'
-          : lines({ side: 'new', startLine: comment.startLine ?? 0, endLine: comment.endLine ?? 0 }),
+          : lines({ side: comment.side ?? 'new', startLine: comment.startLine ?? 0, endLine: comment.endLine ?? 0 }),
     commentHeading: (where) => ({ hidden: 'Comentário ', visible: `Sobre ${where}` }),
     commentField: (where) => `Comentário sobre ${where}, para o agente`,
     commentPlaceholder: 'O que deve mudar aqui?',

@@ -551,7 +551,7 @@ export const diffReviewLabels: SignoffLabels['diffReview'] = {
       ? 'the file'
       : comment.target === 'hunk'
         ? 'the hunk'
-        : lines({ side: 'new', startLine: comment.startLine ?? 0, endLine: comment.endLine ?? 0 }),
+        : lines({ side: comment.side ?? 'new', startLine: comment.startLine ?? 0, endLine: comment.endLine ?? 0 }),
   commentHeading: (where) => ({ hidden: 'Comment ', visible: `On ${where}` }),
   commentField: (where) => `Comment on ${where}, for the agent`,
   commentPlaceholder: 'What should change here?',

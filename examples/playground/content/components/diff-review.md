@@ -19,7 +19,7 @@ Decisions are keyed by a hunk's position in its file, so when the agent revises 
 
 ### Comments
 
-Select lines from a hunk with Shift and the up or down arrow: down starts at its first changed line, up at its last. Or click a line number and Shift-click another. C comments on the selected lines, or on the whole hunk when none are selected, and the hunk's comment button does the same. ⌘ or Ctrl + Enter saves the comment and Escape cancels it. Lines are numbered in the proposed file, or in the original when only removed lines are selected (`side: 'old'`). Removed lines selected with lines of the proposed file are numbered in the original too (`oldStartLine`, `oldEndLine`), so they stay in the comment and in its `excerpt`. Control comments with `comments` and `onCommentsChange`, or start from `defaultComments`.
+Select lines from a hunk with Shift and the up or down arrow: down starts at its first changed line, up at its last. Or click a line number and Shift-click another. C comments on the selected lines, or on the whole hunk when none are selected, and the hunk's comment button does the same. ⌘ or Ctrl + Enter saves the comment and Escape cancels it. Lines are numbered in the proposed file, or in the original when only removed lines are selected (`side: 'old'`), and the comment's field, buttons and announcement name them so: "Comment on line 21 of the original". Removed lines selected with lines of the proposed file are numbered in the original too (`oldStartLine`, `oldEndLine`), so they stay in the comment and in its `excerpt`. Control comments with `comments` and `onCommentsChange`, or start from `defaultComments`.
 
 ### Files
 
