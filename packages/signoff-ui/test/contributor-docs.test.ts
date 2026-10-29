@@ -31,9 +31,9 @@ const changelog = read('packages/signoff-ui/CHANGELOG.md');
 const ci = parse(read('.github/workflows/ci.yml')) as Workflow;
 const checks = section(contributing, 'Checks');
 
-/** The steps of the CI jobs that run on every pull request: their own `if` skips only the daily run. */
+/** The steps of the CI jobs that run on every pull request: those with no `if`, and those whose `if` skips only the daily run. */
 const pullRequestSteps = Object.values(ci.jobs)
-  .filter((job) => job.if === "github.event_name != 'schedule'")
+  .filter((job) => job.if === undefined || job.if === "github.event_name != 'schedule'")
   .flatMap((job) => job.steps);
 
 /** Commands that set CI up rather than check anything, which the Setup section and the prose cover. */
@@ -70,6 +70,7 @@ describe('CONTRIBUTING: checks', () => {
   it('names every command the pull request CI jobs run', () => {
     expect(commands.map(({ command }) => command)).toContain('pnpm perf');
     expect(commands.map(({ command }) => command)).toContain('pnpm smoke:assistant-ui');
+    expect(commands.map(({ command }) => command)).toContain('pnpm registry:typecheck');
     for (const { command } of commands) expect(checks, command).toContain(command);
   });
 

@@ -6,10 +6,16 @@
 // without cross-item registryDependencies. Shared files are identical across
 // items, so installing a second component skips them.
 //
-// Usage: node scripts/registry.mjs [--check]
-import { readFileSync, writeFileSync } from 'node:fs';
+// Each npm dependency carries the range the package itself is published with, so
+// `shadcn add` installs the major the code is tested against, not whatever is
+// latest. `--stamp <dir>` writes the version of signoff-ui into the meta of each
+// item `shadcn build` wrote there, so whoever copies one can tell which release
+// it matches.
+//
+// Usage: node scripts/registry.mjs [--check | --stamp <dir>]
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = join(root, 'packages/signoff-ui/src');
@@ -106,6 +112,55 @@ const ITEMS = [
 ];
 
 const read = (file) => readFileSync(file, 'utf8');
+const library = JSON.parse(read(join(root, 'packages/signoff-ui/package.json')));
+
+/**
+ * How an item asks for an npm package: with the range packages/signoff-ui/package.json depends on
+ * it at (`diff@^9.0.0`). A peer dependency (`ai`, `@assistant-ui/react`) stays a bare name: the app
+ * picks its version, as with the npm package. shadcn skips a bare name the app already has, but
+ * installs a name with a range again, and npm then moves it to the newest version in the range:
+ * `ai@^6.0.0 || ^7.0.102` would take an app on AI SDK 6 to 7.
+ */
+export function dependencySpec(name, manifest = library) {
+  const range = manifest.dependencies?.[name];
+  if (range) return `${name}@${range}`;
+  if (manifest.peerDependencies?.[name]) return name;
+  throw new Error(
+    `${name} is imported by a registry file, but is not a dependency or peer dependency of packages/signoff-ui`,
+  );
+}
+
+/**
+ * Whether a pending changeset (in .changeset/) changes signoff-ui: main is then ahead of npm. Only
+ * its front matter names the packages it bumps; its body is the changelog entry.
+ */
+export function hasPendingChangeset(dir = join(root, '.changeset')) {
+  return readdirSync(dir)
+    .filter((file) => file.endsWith('.md') && file !== 'README.md')
+    .some((file) => {
+      const frontMatter = /^---\n([\s\S]*?)^---$/m.exec(read(join(dir, file)))?.[1] ?? '';
+      return /^['"]?signoff-ui['"]?\s*:/m.test(frontMatter);
+    });
+}
+
+/**
+ * Writes into the meta of each item `shadcn build` wrote to `dir` (`<name>.json`, and the items of
+ * the registry.json next to them) `version`, packages/signoff-ui/package.json's: the last release,
+ * which the code was built on. `unreleasedChanges` is true when a pending changeset changes
+ * signoff-ui: the site builds the items from main, which is then ahead of that release on npm.
+ */
+export function stamp(dir, { version = library.version, unreleasedChanges = hasPendingChangeset() } = {}) {
+  const meta = { version, unreleasedChanges };
+  const index = JSON.parse(read(join(dir, 'registry.json')));
+  index.items = index.items.map((item) => ({ ...item, meta: { ...item.meta, ...meta } }));
+  writeFileSync(join(dir, 'registry.json'), JSON.stringify(index, null, 2) + '\n');
+  for (const { name } of index.items) {
+    const file = join(dir, `${name}.json`);
+    const item = JSON.parse(read(file));
+    writeFileSync(file, JSON.stringify({ ...item, meta: { ...item.meta, ...meta } }, null, 2) + '\n');
+  }
+  return index.items.length;
+}
 
 /**
  * Relative imports of a source file, resolved to files under src/. Workers started by URL
@@ -229,7 +284,7 @@ const registry = {
       title: item.title,
       description: item.description,
       author: 'Diogo Esteves <https://github.com/dgesteves>',
-      dependencies: [...deps].sort(),
+      dependencies: [...deps].sort().map((name) => dependencySpec(name)),
       files: files.map((f) => ({
         path: relative(root, join(src, f)).split('\\').join('/'),
         type: f.startsWith('lib/') ? 'registry:lib' : 'registry:component',
@@ -243,7 +298,15 @@ const registry = {
 
 const json = JSON.stringify(registry, null, 2) + '\n';
 const file = join(root, 'registry.json');
-if (process.argv.includes('--check')) {
+const main = process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+const stampAt = process.argv.indexOf('--stamp');
+if (!main) {
+  // Imported by the tests: write nothing.
+} else if (stampAt !== -1) {
+  const dir = process.argv[stampAt + 1];
+  if (!dir) throw new Error('--stamp needs the directory shadcn build wrote the items to');
+  console.log(`${stamp(dir)} items in ${dir}: signoff-ui ${library.version} in their meta`);
+} else if (process.argv.includes('--check')) {
   if (read(file) !== json) {
     console.error('registry.json is out of date. Run `pnpm registry:generate`.');
     process.exit(1);

@@ -10,11 +10,11 @@
       "description": "Review agent edits across files: accept or reject hunks or whole files, comment on lines, mark files viewed, from the keyboard; returns the applied files, rejected hunks and comments.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "@radix-ui/react-toggle-group",
+        "@radix-ui/react-toggle-group@^1.2.1",
         "ai",
-        "clsx",
-        "diff",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "diff@^9.0.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -291,9 +291,9 @@
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
         "ai",
-        "clsx",
-        "diff",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "diff@^9.0.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -534,10 +534,10 @@
       "description": "Approve or deny a tool call once, for the session or always, by tool and argument pattern: an args preview, editable arguments, risk levels, a denial reason, a key per choice, approve all pending.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "@radix-ui/react-collapsible",
+        "@radix-ui/react-collapsible@^1.2.1",
         "ai",
-        "clsx",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -1012,13 +1012,13 @@
       "description": "Renders an assistant UIMessage: markdown, reasoning, grouped tool calls, inline approvals and sources.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "@radix-ui/react-collapsible",
+        "@radix-ui/react-collapsible@^1.2.1",
         "ai",
-        "clsx",
-        "react-markdown",
-        "remark-gfm",
-        "remend",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "react-markdown@^10.1.0",
+        "remark-gfm@^4.0.1",
+        "remend@^1.4.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -1319,10 +1319,10 @@
       "description": "Vertical timeline of AI SDK tool calls with live states, durations, a waterfall and expandable input/output.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "@radix-ui/react-collapsible",
+        "@radix-ui/react-collapsible@^1.2.1",
         "ai",
-        "clsx",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -1559,8 +1559,8 @@
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
         "ai",
-        "clsx",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -1802,8 +1802,8 @@
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
         "ai",
-        "clsx",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -2040,8 +2040,8 @@
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
         "ai",
-        "clsx",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -2267,11 +2267,11 @@
       "description": "Streaming-safe GFM markdown with linked [n] citations and a typing caret.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "clsx",
-        "react-markdown",
-        "remark-gfm",
-        "remend",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "react-markdown@^10.1.0",
+        "remark-gfm@^4.0.1",
+        "remend@^1.4.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -2512,13 +2512,13 @@
       "description": "Collapsible model reasoning that opens while streaming and summarizes its duration.",
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
-        "@radix-ui/react-collapsible",
+        "@radix-ui/react-collapsible@^1.2.1",
         "ai",
-        "clsx",
-        "react-markdown",
-        "remark-gfm",
-        "remend",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "react-markdown@^10.1.0",
+        "remark-gfm@^4.0.1",
+        "remend@^1.4.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
@@ -2989,12 +2989,12 @@
       "author": "Diogo Esteves <https://github.com/dgesteves>",
       "dependencies": [
         "@assistant-ui/react",
-        "@radix-ui/react-collapsible",
-        "@radix-ui/react-toggle-group",
+        "@radix-ui/react-collapsible@^1.2.1",
+        "@radix-ui/react-toggle-group@^1.2.1",
         "ai",
-        "clsx",
-        "diff",
-        "tailwind-merge"
+        "clsx@^2.1.1",
+        "diff@^9.0.0",
+        "tailwind-merge@^3.7.0"
       ],
       "files": [
         {
