@@ -502,6 +502,22 @@ describe('sub-agents', () => {
       ]);
     });
 
+    it('keeps a sub-agent’s user message, the task it was given, out of the person’s turn', () => {
+      const run = fold([started, start('sa1'), finish('sa1')]);
+      const without = fromAgUiMessages(turn(), run);
+      const messages = turn();
+      // The researcher's prompt, as a sub-agent that keeps its own context posts it.
+      messages.splice(3, 0, { id: 's0', role: 'user', content: 'Find the rate limits', subagentRunId: 'sa1' });
+      const converted = fromAgUiMessages(messages, run);
+      expect(converted.map((m) => [m.role, m.id])).toEqual([
+        ['user', 'u1'],
+        ['assistant', 'm1'],
+      ]);
+      // The same parts as without it: the sub-agent's work, and the parent's answer after it.
+      expect(converted[1]!.parts).toEqual(without[1]!.parts);
+      expect(JSON.stringify(converted)).not.toContain('Find the rate limits');
+    });
+
     it('carries a failure’s message, and applies the run state inside', () => {
       const run = fold([
         started,
@@ -955,6 +971,47 @@ describe('useAgUiAgent', () => {
       expect(screen.getByText('Installed.')).toBeInTheDocument();
     });
     expect(agent.inputs).toHaveLength(2);
+  });
+
+  it('keeps a sub-agent’s own user message inside the run, as the client streams it', async () => {
+    const inside = { subagentRunId: 'sa1' };
+    const agent = new ScriptedAgent([
+      ({ runId }) => [
+        { type: EventType.RUN_STARTED, threadId: 'thread-1', runId },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 'm1', role: 'assistant' },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm1', delta: 'Delegating.' },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 'm1' },
+        { type: EventType.TOOL_CALL_START, toolCallId: 'tc1', toolCallName: 'research', parentMessageId: 'm1' },
+        { type: EventType.TOOL_CALL_END, toolCallId: 'tc1' },
+        { type: EventType.SUBAGENT_STARTED, subagentRunId: 'sa1', name: 'Researcher', parentToolCallId: 'tc1' },
+        // The task the parent gave it, posted in its own context.
+        { type: EventType.TEXT_MESSAGE_START, messageId: 's0', role: 'user', ...inside },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 's0', delta: 'Find the rate limits', ...inside },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 's0', ...inside },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 's1', role: 'assistant', ...inside },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 's1', delta: 'Searching.', ...inside },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 's1', ...inside },
+        { type: EventType.SUBAGENT_FINISHED, subagentRunId: 'sa1' },
+        { type: EventType.TOOL_CALL_RESULT, messageId: 'tr1', toolCallId: 'tc1', content: 'found' },
+        { type: EventType.TEXT_MESSAGE_START, messageId: 'm2', role: 'assistant' },
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'm2', delta: 'Done.' },
+        { type: EventType.TEXT_MESSAGE_END, messageId: 'm2' },
+        { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId, outcome: { type: 'success' } },
+      ],
+    ]);
+    agent.addMessage({ id: 'u1', role: 'user', content: 'Research rate limits' });
+    const { result } = renderHook(() => useAgUiAgent(agent));
+    await act(() => agent.runAgent());
+    const { messages } = result.current;
+    expect(messages.map((m) => [m.role, m.id])).toEqual([
+      ['user', 'u1'],
+      ['assistant', 'm1'],
+    ]);
+    expect(messages[1]!.parts.map((p) => p.type)).toEqual(['text', 'dynamic-tool', 'data-signoff-subagent', 'text']);
+    expect((messages[1]!.parts[2] as SubagentPart).data.parts).toEqual([
+      { type: 'text', text: 'Searching.', state: 'done' },
+    ]);
+    expect(deriveAgentState({ status: result.current.status, message: messages[1] })).toEqual({ state: 'done' });
   });
 
   it('nests a sub-agent under the call that started it, and resumes it once its call is approved', async () => {

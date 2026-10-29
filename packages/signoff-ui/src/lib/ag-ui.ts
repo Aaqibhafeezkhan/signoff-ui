@@ -340,7 +340,8 @@ interface Gathered {
  *
  * A sub-agent's messages become one `data-signoff-subagent` part, after the tool call that started
  * it (`SUBAGENT_STARTED`'s `parentToolCallId`), which may be another sub-agent's, or else where its
- * first message was. `ToolCallTimeline` nests its calls under that call.
+ * first message was. `ToolCallTimeline` nests its calls under that call. A user message of its own,
+ * the task its parent gave it, is left out, and doesn't end the parent's turn.
  */
 export function fromAgUiMessages(messages: readonly AgUiMessage[], run?: AgUiRunState): UIMessage[] {
   const out: UIMessage[] = [];
@@ -392,7 +393,9 @@ export function fromAgUiMessages(messages: readonly AgUiMessage[], run?: AgUiRun
   };
 
   for (const message of messages) {
-    if (message.role === 'user') {
+    // A sub-agent's user message is the task its parent gave it, not the person's: it stays inside
+    // the sub-agent, which shows what it did, and the parent's turn goes on.
+    if (message.role === 'user' && message.subagentRunId === undefined) {
       group = undefined;
       out.push({ id: message.id, role: 'user', parts: userParts(message.content) });
     } else if (message.subagentRunId === undefined) {

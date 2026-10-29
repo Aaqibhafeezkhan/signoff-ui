@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCost, formatDuration, formatDurationLong, formatTokens } from '../src/lib/format';
+import { formatCost, formatDuration, formatDurationLong, formatTokens, safeStringify } from '../src/lib/format';
 
 describe('formatDuration', () => {
   it.each([
@@ -82,5 +82,45 @@ describe('formatCost', () => {
       expect({ usd, text, decimals: digits.length }).toEqual({ usd, text, decimals: expected });
       expect(Math.abs(printed - usd)).toBeLessThanOrEqual(0.5 * 10 ** -expected + 1e-12);
     }
+  });
+});
+
+describe('safeStringify', () => {
+  it('writes out an object that comes twice, side by side, each time', () => {
+    const env = { NODE_ENV: 'production' };
+    expect(JSON.parse(safeStringify({ build: { env }, test: { env } }))).toEqual({
+      build: { env: { NODE_ENV: 'production' } },
+      test: { env: { NODE_ENV: 'production' } },
+    });
+    const files = ['a.ts', 'b.ts'];
+    expect(safeStringify([files, files], 0)).toBe('[["a.ts","b.ts"],["a.ts","b.ts"]]');
+  });
+
+  it('writes an object inside itself as [Circular], however deep', () => {
+    const node: Record<string, unknown> = { name: 'root' };
+    node.self = node;
+    node.child = { parent: node, list: [node] };
+    expect(safeStringify(node, 0)).toBe(
+      '{"name":"root","self":"[Circular]","child":{"parent":"[Circular]","list":["[Circular]"]}}',
+    );
+    // A cycle beside a shared object: each is what it is.
+    const shared = { id: 1 };
+    const loop: unknown[] = [shared];
+    loop.push(loop, shared);
+    expect(safeStringify(loop, 0)).toBe('[{"id":1},"[Circular]",{"id":1}]');
+  });
+
+  it('writes bigints, strings and undefined, and falls back to String for what JSON cannot write', () => {
+    expect(safeStringify({ size: 10n }, 0)).toBe('{"size":"10n"}');
+    expect(safeStringify('a "b"')).toBe('"a \\"b\\""');
+    expect(safeStringify(undefined)).toBe('undefined');
+    expect(safeStringify(() => 1)).toBe('() => 1');
+    const broken = {
+      toJSON() {
+        throw new Error('no');
+      },
+      toString: () => 'broken',
+    };
+    expect(safeStringify(broken)).toBe('broken');
   });
 });
