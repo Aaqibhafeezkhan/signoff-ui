@@ -2,6 +2,20 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.12.1
+
+### Patch Changes
+
+- [#233](https://github.com/dgesteves/signoff-ui/pull/233) [`21d78b7`](https://github.com/dgesteves/signoff-ui/commit/21d78b7d31ff65bbadd4871a2f0a2f7bf7b81304) - `fromAgUiMessages`, and so `useAgUiAgent`: a sub-agent's user message stays out of the person's turn. A sub-agent that keeps its own context posts the task its parent gave it as a user message with its `subagentRunId`, which AG-UI allows. That message was read as the person's: it showed as a user bubble with the sub-agent's prompt in it, and split the parent's answer into two assistant messages, so `deriveAgentState` read only the second half. It is now left out of the conversation, and the parent's turn stays one message, with the sub-agent's `data-signoff-subagent` part in it.
+
+- [#227](https://github.com/dgesteves/signoff-ui/pull/227) [`4e20f6b`](https://github.com/dgesteves/signoff-ui/commit/4e20f6b2cc160aa251a887e90f3ddbb2cf0420e5) - `ApprovalCard` shows the arguments that come with a command. A call such as `{ command: 'rm -rf build', dangerouslyDisableSandbox: true }` showed only `$ rm -rf build`, and a focused card said only "Runs rm -rf build.", so a person approved without seeing the rest of what the call runs with. Every argument other than `command` and a text `cwd` now shows as JSON below the command line, and the card's description names up to three of them ("Runs rm -rf build. With dangerouslyDisableSandbox true."). A translation's `approvalCard.summary` now gets `args` with a `command` too.
+
+- [#229](https://github.com/dgesteves/signoff-ui/pull/229) [`58b8057`](https://github.com/dgesteves/signoff-ui/commit/58b805775f9b54bb39ced9827b9a92f7db557dc1) - `DiffReview`: a comment on removed lines is named by their lines in the original. The selection already said "Line 21 of the original selected.", but the comment's field ("Comment on line 21, for the agent"), heading, Edit and Delete buttons and its announcement named line 21 of the proposed file, another line. They now say "line 21 of the original". `labels.diffReview.where` reads the comment's `side`, which it already received.
+
+- [#227](https://github.com/dgesteves/signoff-ui/pull/227) [`3ce0961`](https://github.com/dgesteves/signoff-ui/commit/3ce0961b98a18616e2fa3de49b09065d0b8f95f2) - In a Tailwind v3 app, the JSON view of a tool call took the app font for code.
+
+- [#231](https://github.com/dgesteves/signoff-ui/pull/231) [`213deda`](https://github.com/dgesteves/signoff-ui/commit/213deda063383c9cf9f7dc2d0ac0e0318bfc92dd) - An object that comes twice in a tool call's arguments or output, such as `{ build: { env }, test: { env } }`, no longer shows as `"[Circular]"` the second time. Every object already written counted as a cycle, so `ApprovalCard`'s arguments, its JSON editor and the timeline's JSON showed `"test": { "env": "[Circular]" }`, and approving an edit made in that editor sent the string `"[Circular]"` to the tool in place of the object. Only an object inside itself reads `[Circular]` now. Input parsed from JSON, as the AI SDK's is, has no shared objects; input your app builds, and client tool outputs, can.
+
 ## 0.12.0
 
 ### Minor Changes
