@@ -59,6 +59,12 @@ describe('ApprovalCard', () => {
     expect(screen.queryByRole('group', { name: 'Arguments' })).not.toBeInTheDocument();
   });
 
+  it('leaves out arguments set to undefined, in the preview and in the description', () => {
+    render(<ApprovalCard toolName="run_command" input={{ command: 'ls', cwd: undefined, timeout: undefined }} />);
+    expect(screen.queryByRole('group', { name: 'Arguments' })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Run command' })).toHaveAccessibleDescription(/^Runs ls\. Keyboard: /);
+  });
+
   it('shows a cwd that is not text with the other arguments, not as the directory', () => {
     render(<ApprovalCard toolName="run_command" input={{ command: 'ls', cwd: { path: '/etc' } }} />);
     expect(screen.getByRole('group', { name: 'Arguments' })).toHaveTextContent('/etc');

@@ -275,6 +275,8 @@ function commandOf(input: unknown) {
     delete others.command;
     const cwd = typeof others.cwd === 'string' ? others.cwd : undefined;
     if (cwd !== undefined) delete others.cwd;
+    // A key set to `undefined` is no argument (`{ cwd: undefined }`): JSON leaves it out as well.
+    for (const key of Object.keys(others)) if (others[key] === undefined) delete others[key];
     return { command: input.command, cwd, rest: Object.keys(others).length > 0 ? others : undefined };
   }
 }
