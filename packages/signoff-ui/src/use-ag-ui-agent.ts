@@ -113,12 +113,12 @@ function createStore(agent: AgUiAgentLike) {
   /** The interrupts the resume in flight answers, until its run starts (RUN_STARTED replaces them). */
   let resuming: readonly AgUiInterrupt[] | undefined;
   /**
-   * The last run seen starting (`onRunInitialized`), and the one whose interrupts the last resume
-   * answers. `@ag-ui/client` doesn't wait on `onRunFinalized`, so a run's can come once an answer
-   * right after its `RUN_FINISHED` has started the next run: it is left out then.
+   * The last run seen starting (`onRunInitialized`), and whether a resume has been asked for and
+   * hasn't started yet. `@ag-ui/client` doesn't wait on `onRunFinalized`, so a run's can come once an
+   * answer right after its `RUN_FINISHED` has started the next run: it is left out then.
    */
   let runId: string | undefined;
-  let resumedFrom: string | undefined;
+  let waiting = false;
   /** If the resume never started, take its answers back, so they can be given again. */
   const rollBack = (error?: AgUiRunState['error']) => {
     const answered = resuming;
@@ -138,6 +138,7 @@ function createStore(agent: AgUiAgentLike) {
         subscription = agent.subscribe({
           onRunInitialized: ({ messages, input }) => {
             runId = input?.runId;
+            waiting = false;
             set({ messages: [...messages], run: { ...snapshot.run, status: 'submitted', error: undefined } });
           },
           onEvent: ({ event }) => {
@@ -157,7 +158,7 @@ function createStore(agent: AgUiAgentLike) {
           onRunFinalized: ({ messages, input }) => {
             // A late one, from a run before the newest: what it would cancel, take back or reopen is the newer run's.
             const id = input?.runId;
-            if (id !== undefined && (id === resumedFrom || (runId !== undefined && id !== runId))) return;
+            if (id !== undefined && (waiting || (runId !== undefined && id !== runId))) return;
             set({ messages: [...messages] });
             // Aborted runs end without RUN_FINISHED: as a cancelled run, what was streaming stays cut off.
             update((run) =>
@@ -199,7 +200,7 @@ function createStore(agent: AgUiAgentLike) {
       const resume = getAgUiResume(run);
       if (resume) {
         resuming = run.interrupts;
-        resumedFrom = runId;
+        waiting = true;
       }
       return resume;
     },

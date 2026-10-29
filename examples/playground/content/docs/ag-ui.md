@@ -129,17 +129,19 @@ async function retry() {
   for (const interrupt of interrupts) {
     const call = calls.find((c) => c.toolCallId === interrupt.toolCallId);
     // No card asks for a call with a result: send the answer it ran on again.
-    if (call?.state.startsWith('output-'))
-      await resolve({
-        interruptId: interrupt.id,
-        status: 'resolved',
-        payload: { approved: call.state !== 'output-denied' },
-      });
+    if (!call?.state.startsWith('output-')) continue;
+    // Past its expiresAt, AG-UI takes only a cancellation.
+    const expired = interrupt.expiresAt !== undefined && Date.parse(interrupt.expiresAt) <= Date.now();
+    await resolve(
+      expired
+        ? { interruptId: interrupt.id, status: 'cancelled' }
+        : { interruptId: interrupt.id, status: 'resolved', payload: { approved: call.state !== 'output-denied' } },
+    );
   }
 }
 ```
 
-The agent then gets a second answer to an interrupt it has acted on, so have it treat an answer for a call that already has a result as done.
+A cancelled interrupt reads as a no, so the call then shows as denied (`output-denied`), though its tool ran. The agent then gets a second answer to an interrupt it has acted on, so have it treat an answer for a call that already has a result as done, or it may run the tool a second time.
 
 ## LangGraph
 

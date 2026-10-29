@@ -353,11 +353,9 @@ export function reopenAgUiInterrupts(
   messages: readonly AgUiMessage[] = [],
 ): AgUiRunState {
   const reopened = withInterrupts(run, interrupts);
-  const ran = new Set(messages.map((m) => (m.role === 'tool' ? m.toolCallId : undefined)));
-  for (const { toolCallId: id } of interrupts) {
-    const decided = id === undefined ? undefined : run.approvals[id];
-    if (decided?.approved !== undefined && ran.has(id))
-      reopened.approvals[id!] = { ...reopened.approvals[id!]!, approved: decided.approved, reason: decided.reason };
+  for (const m of messages) {
+    const decided = m.role === 'tool' ? run.approvals[m.toolCallId!] : undefined;
+    if (decided?.approved !== undefined) reopened.approvals[m.toolCallId!] = decided;
   }
   return reopened;
 }

@@ -3,7 +3,7 @@ import { EventType, type Event as AgUiCoreEvent, type Message } from '@ag-ui/cor
 import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Observable } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   answerAgUiInterrupt,
   createAgUiRun,
@@ -1447,6 +1447,28 @@ describe('useAgUiAgent', () => {
       { type: EventType.TEXT_MESSAGE_END, messageId: 'm2' },
       { type: EventType.RUN_FINISHED, threadId, runId, outcome: { type: 'success' } } as BaseEvent,
     ];
+    /** The docs' retry: answer the interrupts whose call already has a result. */
+    function docsRetry({ messages, interrupts, resolve }: UseAgUiAgentResult) {
+      return async function retry() {
+        const calls = messages.flatMap((m) => m.parts.filter((p) => p.type === 'dynamic-tool'));
+        for (const interrupt of interrupts) {
+          const call = calls.find((c) => c.toolCallId === interrupt.toolCallId);
+          // No card asks for a call with a result: send the answer it ran on again.
+          if (!call?.state.startsWith('output-')) continue;
+          // Past its expiresAt, AG-UI takes only a cancellation.
+          const expired = interrupt.expiresAt !== undefined && Date.parse(interrupt.expiresAt) <= Date.now();
+          await resolve(
+            expired
+              ? { interruptId: interrupt.id, status: 'cancelled' }
+              : {
+                  interruptId: interrupt.id,
+                  status: 'resolved',
+                  payload: { approved: call.state !== 'output-denied' },
+                },
+          );
+        }
+      };
+    }
 
     it('keeps the interrupt open with no card when the resumed run fails after its tool ran, for resolve', async () => {
       let third: RunAgentInput | undefined;
@@ -1469,21 +1491,7 @@ describe('useAgUiAgent', () => {
       expect(agent.pendingInterrupts.map((i) => i.id)).toEqual(['int1']);
       await expect(agent.runAgent()).rejects.toThrow('pending interrupt(s) not addressed by resume: int1');
 
-      // The docs' retry: answer the interrupts whose call already has a result.
-      const { messages, interrupts, resolve } = result.current;
-      async function retry() {
-        const calls = messages.flatMap((m) => m.parts.filter((p) => p.type === 'dynamic-tool'));
-        for (const interrupt of interrupts) {
-          const call = calls.find((c) => c.toolCallId === interrupt.toolCallId);
-          if (call?.state.startsWith('output-'))
-            await resolve({
-              interruptId: interrupt.id,
-              status: 'resolved',
-              payload: { approved: call.state !== 'output-denied' },
-            });
-        }
-      }
-      await act(retry);
+      await act(docsRetry(result.current));
       expect(third?.resume).toEqual([{ interruptId: 'int1', status: 'resolved', payload: { approved: true } }]);
       expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
       expect(agent.pendingInterrupts).toEqual([]);
@@ -1492,6 +1500,43 @@ describe('useAgUiAgent', () => {
         { state: 'output-available', approval: { approved: true } },
         { type: 'text', text: 'Installed.' },
       ]);
+    });
+
+    it('cancels with the docs’ retry an interrupt past its expiresAt whose tool ran', async () => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+      const expiring = (input: RunAgentInput) =>
+        interrupted!(input).map((event) =>
+          event.type === EventType.RUN_FINISHED
+            ? ({
+                ...event,
+                outcome: {
+                  type: 'interrupt',
+                  interrupts: [{ id: 'int1', reason: 'tool_call', toolCallId: 'tc1', expiresAt }],
+                },
+              } as BaseEvent)
+            : event,
+        );
+      let third: RunAgentInput | undefined;
+      const agent = httpAgent(
+        expiring,
+        (input) => [...toolRan(input), { type: EventType.RUN_ERROR, message: 'Model overloaded' }],
+        (input) => goesOn((third = input)),
+      );
+      const { result } = renderHook(() => useAgUiAgent(agent));
+      await act(() => agent.runAgent());
+      await act(() => result.current.respond({ id: 'int1', approved: true }));
+      expect(result.current.interrupts.map((i) => i.id)).toEqual(['int1']);
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(Date.parse(expiresAt));
+        await act(docsRetry(result.current));
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(third?.resume).toEqual([{ interruptId: 'int1', status: 'cancelled' }]);
+      expect(result.current).toMatchObject({ status: 'ready', error: undefined, interrupts: [] });
+      expect(agent.pendingInterrupts).toEqual([]);
+      expect(result.current.messages[1]!.parts[1]).toMatchObject({ state: 'output-denied' });
     });
 
     it('keeps the interrupt open with no card when the resumed run is stopped after its tool ran', async () => {
@@ -1567,7 +1612,8 @@ describe('useAgUiAgent', () => {
         toolCalls: [{ id: 'tc1', function: { name: 'run_command', arguments: '{"command":"pnpm add zod"}' } }],
       },
     ];
-    function answeredAgent() {
+    /** A run that ends in an interrupt, answered. `mountedPartWay`: the hook never saw the run start. */
+    function answeredAgent({ mountedPartWay = false } = {}) {
       const subscribers: AgUiSubscriber[] = [];
       const resumes: unknown[] = [];
       const agent = {
@@ -1591,8 +1637,10 @@ describe('useAgUiAgent', () => {
       const play = (event: { type: string; [field: string]: unknown }) => emit((s) => s.onEvent?.({ event }));
       const end = (runId: string) => emit((s) => s.onRunFinalized?.({ messages, input: { runId } }));
       const { result } = renderHook(() => useAgUiAgent(agent));
-      start('r1');
-      play({ type: 'RUN_STARTED' });
+      if (!mountedPartWay) {
+        start('r1');
+        play({ type: 'RUN_STARTED' });
+      }
       play({ type: 'RUN_FINISHED', outcome: { type: 'interrupt', interrupts: [interrupt] } });
       agent.pendingInterrupts = [interrupt];
       act(() => void result.current.respond({ id: 'int1', approved: true }));
@@ -1627,6 +1675,32 @@ describe('useAgUiAgent', () => {
       // Not cancelled, and the interrupt the client holds until the resume finishes isn't reopened.
       expect(result.current).toMatchObject({ status: 'streaming', interrupts: [] });
       finish();
+    });
+
+    it('keeps the answers when the hook mounted part-way through the run, which ends before the resume starts', () => {
+      // The hook has no run id to compare: it never saw the run start.
+      const { result, resumes, start, play, end, finish } = answeredAgent({ mountedPartWay: true });
+      end('r1');
+      expect(result.current.messages[1]!.parts[0]).toMatchObject({ state: 'approval-responded' });
+      act(() => void result.current.respond({ id: 'int1', approved: true }));
+      expect(resumes).toHaveLength(1);
+      start('r2');
+      play({ type: 'RUN_STARTED' });
+      finish();
+    });
+
+    it('asks again when a resume with the run id of the run it answers fails after it starts', () => {
+      // An app can pass one runId to a run and its resume, through runAgent.
+      const { result, resumes, start, play, end } = answeredAgent();
+      start('r1');
+      play({ type: 'RUN_STARTED' });
+      play({ type: 'RUN_ERROR', message: 'Model overloaded' });
+      end('r1');
+      expect(result.current).toMatchObject({ status: 'error', error: { message: 'Model overloaded' } });
+      expect(result.current.interrupts.map((i) => i.id)).toEqual(['int1']);
+      expect(result.current.messages[1]!.parts[0]).toMatchObject({ state: 'approval-requested' });
+      act(() => void result.current.respond({ id: 'int1', approved: true }));
+      expect(resumes).toHaveLength(2);
     });
   });
 
