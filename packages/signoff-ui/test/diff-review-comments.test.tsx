@@ -80,6 +80,36 @@ describe('DiffReview line selection', () => {
 });
 
 describe('DiffReview comments', () => {
+  it('names removed lines by their number in the original, from the field to the announcement', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(result: DiffReviewResult) => void>();
+    const { container } = render(<DiffReview files={files} onSubmit={onSubmit} />);
+    const third = hunks()[2]!;
+    third.focus();
+    // Only the removed line, `model: openai('gpt-4o'),`: line 21 of the original. Line 21 of the
+    // proposed file is another line.
+    await user.keyboard('{Shift>}{ArrowUp}{ArrowUp}{/Shift}{ArrowDown}{ArrowUp}');
+    expect(status()).toHaveTextContent(/Line 21 of the original selected\.$/);
+    await user.keyboard('c');
+    const editor = screen.getByRole('textbox', { name: 'Comment on line 21 of the original, for the agent' });
+    expect(await axe(container)).toHaveNoViolations();
+    await user.type(editor, 'Keep gpt-4o for now.');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(status()).toHaveTextContent('Comment added on line 21 of the original of app/api/chat/route.ts.');
+    const comment = within(third)
+      .getByText('Keep gpt-4o for now.')
+      .closest<HTMLElement>('[data-slot="signoff-diff-comment"]')!;
+    expect(within(comment).getByText(/On line 21 of the original/)).toBeInTheDocument();
+    expect(
+      within(comment).getByRole('button', { name: 'Edit comment on line 21 of the original' }),
+    ).toBeInTheDocument();
+    expect(
+      within(comment).getByRole('button', { name: 'Delete comment on line 21 of the original' }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Apply/ }));
+    expect(onSubmit.mock.calls[0]![0].comments).toMatchObject([{ side: 'old', startLine: 21, endLine: 21 }]);
+  });
+
   it('comments on the selected lines with C, saves with Ctrl+Enter, and sends them with the review', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn<(result: DiffReviewResult) => void>();

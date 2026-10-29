@@ -181,7 +181,12 @@ describe('the advisories pnpm audit skips', () => {
   const { auditConfig } = parse(source) as { auditConfig?: { ignoreGhsas?: string[] } };
   const locked = new Set(Object.keys(lock?.packages ?? {}).map((key) => key.slice(0, key.lastIndexOf('@'))));
   // The package each advisory skipped today is about.
-  const about: Record<string, string> = { 'GHSA-mrhx-c7xc-m3w5': 'zod', 'GHSA-238p-pmpm-9mq7': 'katex' };
+  const about: Record<string, string> = {
+    'GHSA-mrhx-c7xc-m3w5': 'zod',
+    'GHSA-238p-pmpm-9mq7': 'katex',
+    'GHSA-x8rm-f576-gq67': 'graphql-scalars',
+    'GHSA-rmxm-3fg6-px4f': '@hono/node-server',
+  };
 
   /** The comment right above an advisory's line, as one line. */
   const comment = (id: string) => {

@@ -32,6 +32,16 @@ auditConfig:
     # deepmerge release fixes it (4.3.1, the latest, is affected), and shadcn 4.23.0, the latest, still asks for
     # ^4.3.1: remove this when shadcn drops deepmerge or a fixed release exists.
     - GHSA-gcqx-w48m-w2h4
+    # graphql-scalars (high): the PhoneNumber scalar's pattern takes very long on crafted input, fixed only in
+    # 2.0.1. Only examples/copilotkit has it: @copilotkit/runtime (1.82.0 too) asks for ^1.23.0, and type-graphql
+    # 2.0.0-rc.1, which it pins, for ^1.22.4. They use only its JSON, JSONObject, Timestamp and DateTimeISO
+    # scalars, never PhoneNumber: remove this when both move to graphql-scalars 2.
+    - GHSA-x8rm-f576-gq67
+    # @hono/node-server (moderate): serveStatic decodes the request path twice, so a middleware on static paths
+    # can be bypassed. Every release from 1.19.10 on is affected until 2.1.3. Only examples/copilotkit has an
+    # affected one: @copilotkit/runtime (1.82.0 too) lists ^1.13.5 but never imports it, and the example serves
+    # through Next.js. Remove this when @copilotkit/runtime moves to 2.1.3 or later.
+    - GHSA-rmxm-3fg6-px4f
 allowBuilds:
   '@parcel/watcher': false
   '@scarf/scarf': false
