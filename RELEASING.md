@@ -4,7 +4,7 @@
 
 ## How a release happens
 
-1. A pull request with a changeset merges to `main`. The release workflow opens or updates the version pull request, `chore: version packages`, which moves the version, the changelog and the range of `signoff-ui` that `examples/coding-agent` asks for.
+1. A pull request with a changeset merges to `main`. The release workflow opens or updates the version pull request, `chore: version packages`, which moves the version, the changelog and the range of `signoff-ui` that every example but the playground asks for (the playground links the local package).
 2. CI runs on the version pull request as on any other (see [the release GitHub App](#the-release-github-app)). Merge it once `Lint, typecheck, test, build` passes, or let it merge by itself (`RELEASE_AUTO_MERGE`, below).
 3. The merge runs the release workflow again. With no changesets left, it publishes to npm what npm doesn't have yet, then creates the tag `signoff-ui@X.Y.Z` and its GitHub release, with the version's `CHANGELOG.md` entry as the notes.
 
