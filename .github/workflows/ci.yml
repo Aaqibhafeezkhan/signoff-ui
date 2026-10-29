@@ -6,7 +6,8 @@ on:
   pull_request:
   # Started by the release workflow on its release pull request, which its own pushes can't trigger.
   workflow_dispatch:
-  # Daily, the examples installed fresh from npm (the fresh-install job) and nothing else.
+  # Daily, the examples installed fresh from npm (the fresh-install job) and the registry items added
+  # to a new app (the registry job), and nothing else.
   schedule:
     - cron: '17 5 * * *'
 
@@ -333,6 +334,32 @@ jobs:
         run: pnpm smoke:nextjs
         env:
           BROWSER: firefox
+
+  # The shadcn registry as an app gets it: each item the site serves added to a new app with
+  # `shadcn add`, which installs its dependencies from npm at their ranges and the peers at their
+  # latest, then typechecked. Daily too, so a new release of one that breaks an item shows up the
+  # next day, with no pull request.
+  registry:
+    name: shadcn registry items in a new app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: shadcn registry, each item with the version it was built at
+        run: pnpm registry:build
+
+      - name: Add every item to a new app with shadcn, install from npm, typecheck
+        run: pnpm registry:typecheck
+        timeout-minutes: 10
 
   # The examples as someone outside this repository runs them: copied out, installed from the
   # registry with no lockfile, and started with `dev`. Daily with signoff-ui from npm; on the version
