@@ -30,12 +30,15 @@ import { useAgUiAgent } from 'signoff-ui/ag-ui';
 const agent = new HttpAgent({ url: '/api/agent' });
 
 export function AgentRun() {
-  const { messages, status, usage, step, respond } = useAgUiAgent(agent);
+  const { messages, status, error, usage, step, interrupts, respond } = useAgUiAgent(agent);
   const last = messages.findLast((m) => m.role === 'assistant');
-  const { state, detail } = deriveAgentState({ status, message: last });
+  const derived = deriveAgentState({ status, message: last });
+  // A question rather than a tool approval (`input_required`) waits on the person too: answer it with `resolve`.
+  const question = status === 'ready' ? interrupts.find((i) => !i.toolCallId) : undefined;
+  const { state, detail } = question ? { state: 'awaiting-approval' as const, detail: question.message } : derived;
   return (
     <>
-      <AgentStatus state={state} detail={step ?? detail} />
+      <AgentStatus state={state} detail={state === 'error' ? error?.message : (step ?? detail)} />
       {last ? (
         <AgentMessage
           message={last}
@@ -52,24 +55,29 @@ export function AgentRun() {
 
 export async function send(text: string) {
   agent.addMessage({ id: crypto.randomUUID(), role: 'user', content: text });
-  await agent.runAgent();
+  try {
+    await agent.runAgent();
+  } catch (error) {
+    // A run that fails shows in AgentStatus. One the client turns down, sent while an interrupt waits, never starts.
+    console.error(error);
+  }
 }
 ```
 
-Create the agent once, outside the component or in a `useMemo`: the hook subscribes to the instance it's given.
+Create the agent once, outside the component or in a `useMemo`: the hook subscribes to the instance it's given. A failed run reads Error with its message, not a bare Error, and a run that stops on a question rather than an approval reads as waiting, with the question.
 
 | Returns      | What it is                                                                      |
 | ------------ | ------------------------------------------------------------------------------- |
 | `messages`   | The conversation as AI SDK `UIMessage`s: pass each to `AgentMessage`            |
 | `status`     | `useChat`-style status, for `deriveAgentState` and `AgentStatus`                |
-| `error`      | The run's error, if it failed                                                   |
+| `error`      | Why the run failed, or why answers to its interrupts didn't go                  |
 | `usage`      | Token usage summed over the runs seen, for `RunMeter`                           |
 | `step`       | The step in progress, such as the LangGraph node running                        |
 | `interrupts` | Open interrupts; those bound to a tool call show as approval cards              |
 | `respond`    | Answers a tool-call interrupt; pass it as `AgentMessage`'s `onToolApproval`     |
 | `resolve`    | Answers any interrupt with your own payload                                     |
 | `editInput`  | Arguments a person edited, sent with the approval; pass it as `onToolInputEdit` |
-| `stop`       | Aborts the run in progress; it ends as canceled, so it reads as `stopped`       |
+| `stop`       | Aborts the run, even before the server answers; it reads as `stopped`           |
 
 ## How events map
 
@@ -108,6 +116,8 @@ Interrupts that aren't tool approvals (`input_required`, or your own) are in `in
 ```ts
 await resolve({ interruptId: interrupt.id, status: 'resolved', payload: { city: 'Lisbon' } });
 ```
+
+Each interrupt takes one answer, and the first one stands: another, from a retry, a button of your own or a second card for the same call, is ignored, so it can't start a second run with a different payload. If the run that resumes fails before it starts (the request fails, or the client turns the answers down), the hook takes them back: the cards ask again, `status` is `error`, and `error` says why. `respond` and `resolve` don't reject, as `useChat` doesn't when a request fails, since the cards call them without catching. An interrupt past its `expiresAt` takes only a cancellation, as AG-UI requires: denying its card sends `status: 'cancelled'`, and approving it sends nothing and sets `error`, with the code `interrupt_expired`. Answer one that isn't a tool approval with `resolve` and `status: 'cancelled'`.
 
 ## LangGraph
 

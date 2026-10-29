@@ -44,6 +44,8 @@ export interface AgUiInterrupt {
   message?: string;
   toolCallId?: string;
   responseSchema?: Record<string, unknown>;
+  /** When it expires (ISO 8601). From then on AG-UI takes only a cancellation for it. */
+  expiresAt?: string | undefined;
 }
 
 /** An answer to an interrupt, sent in `RunAgentInput.resume` (AG-UI `ResumeEntry`). */
@@ -286,9 +288,18 @@ export interface AgUiApprovalResponse {
  * approve-with-edits field, a full replacement of the call's arguments. The same arguments go as
  * `input` too, the name earlier versions sent, which is deprecated. Pass a resume entry for other
  * interrupts.
+ *
+ * The first answer to an interrupt stands: for another one, or one that isn't open, the run comes
+ * back unchanged, so it can't start a second resume. Once an interrupt's `expiresAt` has passed
+ * (at `now`), AG-UI takes only a cancellation for it: a denial goes as one, and an approval or a
+ * resolved entry is refused, with `status: 'error'` and an `interrupt_expired` error saying so.
  */
-export function answerAgUiInterrupt(run: AgUiRunState, answer: AgUiApprovalResponse | AgUiResumeEntry): AgUiRunState {
-  const entry: AgUiResumeEntry =
+export function answerAgUiInterrupt(
+  run: AgUiRunState,
+  answer: AgUiApprovalResponse | AgUiResumeEntry,
+  now: number = Date.now(),
+): AgUiRunState {
+  let entry: AgUiResumeEntry =
     'interruptId' in answer
       ? answer
       : {
@@ -301,7 +312,15 @@ export function answerAgUiInterrupt(run: AgUiRunState, answer: AgUiApprovalRespo
           },
         };
   const interrupt = run.interrupts.find((i) => i.id === entry.interruptId);
-  if (!interrupt) return run;
+  if (!interrupt || run.answers[interrupt.id]) return run;
+  if (interrupt.expiresAt !== undefined && Date.parse(interrupt.expiresAt) <= now) {
+    const decision = 'interruptId' in answer ? undefined : answer;
+    if (entry.status === 'resolved' && decision?.approved !== false) {
+      const message = `Interrupt ${interrupt.id} expired at ${interrupt.expiresAt}: it can only be ${decision ? 'denied' : 'cancelled'} now.`;
+      return { ...run, status: 'error', error: { message, code: 'interrupt_expired' } };
+    }
+    entry = { ...entry, status: 'cancelled' };
+  }
   const approvals = { ...run.approvals };
   const approval = interrupt.toolCallId ? approvals[interrupt.toolCallId] : undefined;
   if (interrupt.toolCallId && approval) {
@@ -320,6 +339,11 @@ export function getAgUiResume(run: AgUiRunState): AgUiResumeEntry[] | undefined 
   if (run.interrupts.length === 0) return undefined;
   const entries = run.interrupts.map((i) => run.answers[i.id]);
   return entries.every((e) => e !== undefined) ? entries : undefined;
+}
+
+/** The open interrupts with their answers taken back, as before anyone answered: for a resume that never started. */
+export function reopenAgUiInterrupts(run: AgUiRunState): AgUiRunState {
+  return withInterrupts(run, run.interrupts);
 }
 
 type Part = UIMessage['parts'][number];
@@ -536,7 +560,9 @@ export function parsePartialJson(text: string): unknown {
   }
   let body = text;
   const { inString, escaped } = scan(body);
-  if (inString) body = `${(escaped ? body.slice(0, -1) : body).replace(/\\u[0-9a-fA-F]{0,3}$/, '')}"`;
+  // A cut-off \u escape goes, unless its backslash is itself escaped (C:\\u...).
+  if (inString)
+    body = `${(escaped ? body.slice(0, -1) : body).replace(/(^|[^\\])((?:\\\\)*)\\u[0-9a-fA-F]{0,3}$/, '$1$2')}"`;
   for (;;) {
     try {
       return JSON.parse(body + scan(body).closers) as unknown;

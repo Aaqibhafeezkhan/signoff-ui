@@ -8,6 +8,7 @@ import {
   fromAgUiMessages,
   getAgUiResume,
   reduceAgUiRun,
+  reopenAgUiInterrupts,
   type AgUiApprovalResponse,
   type AgUiEvent,
   type AgUiInterrupt,
@@ -51,6 +52,7 @@ export interface UseAgUiAgentResult {
   messages: UIMessage[];
   /** `useChat`-style status, for `deriveAgentState` and `AgentStatus`. */
   status: ChatStatus;
+  /** Why the run failed, or why the answers to its interrupts didn't go (`status` is then `error`). */
   error: AgUiRunState['error'];
   /** Token usage summed over the runs seen, for `RunMeter`. */
   usage: RunUsage | undefined;
@@ -60,10 +62,14 @@ export interface UseAgUiAgentResult {
   interrupts: AgUiInterrupt[];
   /**
    * Answer a tool-call interrupt. Pass it as `AgentMessage`'s `onToolApproval`. The agent resumes
-   * once every open interrupt has an answer, since AG-UI resumes them all in one run.
+   * once every open interrupt has an answer, since AG-UI resumes them all in one run. The first
+   * answer stands: another one for the same interrupt is ignored. If the run that resumes fails
+   * before it starts, the answers are taken back, so the cards ask again, and `error` says why: the
+   * promise doesn't reject. A denial of an expired interrupt (`expiresAt`) cancels it, and an
+   * approval of one is refused, as AG-UI takes only a cancellation then.
    */
   respond: (response: AgUiApprovalResponse) => Promise<void>;
-  /** Answer any interrupt with your own payload (match its `responseSchema`). */
+  /** Answer any interrupt with your own payload (match its `responseSchema`), as `respond` does. */
   resolve: (entry: AgUiResumeEntry) => Promise<void>;
   /**
    * Arguments a person edited for a tool call, sent as the approval payload's `editedArgs` (and as
@@ -72,8 +78,8 @@ export interface UseAgUiAgentResult {
    */
   editInput: (toolCallId: string, input: unknown) => void;
   /**
-   * Abort the run in progress. It ends like a cancelled run: what was streaming stays cut off, which
-   * `deriveAgentState` reads as `stopped`.
+   * Abort the run in progress, even before the server has answered. It ends like a cancelled run:
+   * what was streaming stays cut off, which `deriveAgentState` reads as `stopped`.
    */
   stop: () => void;
 }
@@ -101,6 +107,16 @@ function createStore(agent: AgUiAgentLike) {
   const update = (next: (run: AgUiRunState) => AgUiRunState) => {
     set({ run: next(snapshot.run) });
   };
+  /** The interrupts the resume in flight answers, until its run starts (RUN_STARTED replaces them). */
+  let resuming: readonly AgUiInterrupt[] | undefined;
+  /** If the resume never started, take its answers back, so they can be given again. */
+  const rollBack = (error?: AgUiRunState['error']) => {
+    const answered = resuming;
+    resuming = undefined;
+    if (!answered || snapshot.run.interrupts !== answered) return false;
+    update((run) => ({ ...reopenAgUiInterrupts(run), ...(error && { status: 'error' as const, error }) }));
+    return true;
+  };
 
   return {
     getSnapshot: () => snapshot,
@@ -120,10 +136,12 @@ function createStore(agent: AgUiAgentLike) {
             set({ messages: [...messages] });
           },
           onRunFailed: ({ error }) => {
-            update((run) => ({
-              ...reduceAgUiRun(run, { type: 'RUN_ERROR' }),
-              error: { message: error.message || 'Run failed' },
-            }));
+            // stop() before the server answered: the fetch's AbortError comes here, not as RUN_ERROR.
+            update((run) =>
+              error.name === 'AbortError'
+                ? reduceAgUiRun(run, CANCELLED)
+                : { ...reduceAgUiRun(run, { type: 'RUN_ERROR' }), error: { message: error.message || 'Run failed' } },
+            );
           },
           onRunFinalized: ({ messages }) => {
             set({ messages: [...messages] });
@@ -131,6 +149,8 @@ function createStore(agent: AgUiAgentLike) {
             update((run) =>
               run.status === 'submitted' || run.status === 'streaming' ? reduceAgUiRun(run, CANCELLED) : run,
             );
+            // A resumed run that ended before it started (failed or stopped) never gave the agent its answers.
+            rollBack();
           },
         });
       }
@@ -142,7 +162,7 @@ function createStore(agent: AgUiAgentLike) {
         }
       };
     },
-    /** Record an answer; returns the resume entries once every open interrupt has one. */
+    /** Record an answer; returns the resume entries once every open interrupt has one, the first time only. */
     answer(response: AgUiApprovalResponse | AgUiResumeEntry) {
       let answer = response;
       if (!('interruptId' in response)) {
@@ -152,8 +172,19 @@ function createStore(agent: AgUiAgentLike) {
           edits.delete(toolCallId);
         }
       }
-      update((run) => answerAgUiInterrupt(run, answer));
-      return getAgUiResume(snapshot.run);
+      const run = answerAgUiInterrupt(snapshot.run, answer);
+      // Not open, or answered already: the resume, if any, is on its way.
+      if (run === snapshot.run) return undefined;
+      set({ run });
+      const resume = getAgUiResume(run);
+      if (resume) resuming = run.interrupts;
+      return resume;
+    },
+    /** The run that resumes failed: before it started, its answers are taken back. */
+    fail(error: unknown) {
+      const message = (error instanceof Error && error.message) || 'Run failed';
+      if (!rollBack({ message }) && snapshot.run.status !== 'error')
+        update((run) => ({ ...run, status: 'error', error: { message } }));
     },
     editInput(toolCallId: string, input: unknown) {
       edits.set(toolCallId, input);
@@ -186,7 +217,12 @@ export function useAgUiAgent(agent: AgUiAgentLike, options: UseAgUiAgentOptions 
     async (response: AgUiApprovalResponse | AgUiResumeEntry) => {
       const resume = store.answer(response);
       if (!resume) return;
-      await (runAgent.current ? runAgent.current({ resume }) : agent.runAgent({ resume }));
+      try {
+        await (runAgent.current ? runAgent.current({ resume }) : agent.runAgent({ resume }));
+      } catch (error) {
+        // In `error`, as useChat reports a failed request: the cards call respond without catching.
+        store.fail(error);
+      }
     },
     [agent, store],
   );

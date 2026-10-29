@@ -10,7 +10,7 @@ What each import adds to an app's JavaScript, minified and gzipped. React and Re
 | ACP converters from `/acp`                                         |   1.6 kB |
 | `toToolApproval` from `/core` (approval rules in a route handler)  |   2.5 kB |
 | `useApprovalPolicy` (the rules without markup)                     |   4.1 kB |
-| `useAgUiAgent` from `/ag-ui`                                       |   3.6 kB |
+| `useAgUiAgent` from `/ag-ui`                                       |   3.9 kB |
 | `applyHunks`, `parseFileChange` from `/core` (with jsdiff)         |   6.7 kB |
 | `Sources`                                                          |  10.4 kB |
 | `AgentStatus`                                                      |  11.4 kB |
