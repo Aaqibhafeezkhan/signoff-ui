@@ -335,10 +335,11 @@ jobs:
         env:
           BROWSER: firefox
 
-  # The shadcn registry as an app gets it: each item the site serves added to a new app with
-  # `shadcn add`, which installs its dependencies from npm at their ranges and the peers at their
-  # latest, then typechecked. Daily too, so a new release of one that breaks an item shows up the
-  # next day, with no pull request.
+  # The shadcn registry as an app gets it: each item the site serves read on its own for the files
+  # and npm packages its files import, then all of them added to a new app with `shadcn add`, which
+  # installs their dependencies from npm at their ranges and the peers at their latest, and
+  # typechecked. Daily too, so a new release of one that breaks an item shows up the next day, with
+  # no pull request.
   registry:
     name: shadcn registry items in a new app
     runs-on: ubuntu-latest
@@ -357,7 +358,7 @@ jobs:
       - name: shadcn registry, each item with the version it was built at
         run: pnpm registry:build
 
-      - name: Add every item to a new app with shadcn, install from npm, typecheck
+      - name: Each item declares what its files import; all added to a new app with shadcn, installed from npm, typechecked
         run: pnpm registry:typecheck
         timeout-minutes: 10
 

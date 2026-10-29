@@ -130,11 +130,17 @@ export function dependencySpec(name, manifest = library) {
   );
 }
 
-/** Whether a pending changeset (in .changeset/) changes signoff-ui: main is then ahead of npm. */
+/**
+ * Whether a pending changeset (in .changeset/) changes signoff-ui: main is then ahead of npm. Only
+ * its front matter names the packages it bumps; its body is the changelog entry.
+ */
 export function hasPendingChangeset(dir = join(root, '.changeset')) {
   return readdirSync(dir)
     .filter((file) => file.endsWith('.md') && file !== 'README.md')
-    .some((file) => /^---\n[\s\S]*?^['"]?signoff-ui['"]?\s*:/m.test(read(join(dir, file))));
+    .some((file) => {
+      const frontMatter = /^---\n([\s\S]*?)^---$/m.exec(read(join(dir, file)))?.[1] ?? '';
+      return /^['"]?signoff-ui['"]?\s*:/m.test(frontMatter);
+    });
 }
 
 /**

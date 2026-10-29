@@ -44,6 +44,7 @@ pnpm test:site        # the site's own tests: the docs pages, the API index, Ask
 pnpm --filter signoff-ui lint:package   # publint and attw
 pnpm registry:check   # registry.json matches src/
 pnpm registry:build   # registry:check, then shadcn build writes each item into the site (public/r)
+pnpm registry:typecheck   # each built item declares what its files import; all of them added to a new app with shadcn, installed from npm, typechecked
 pnpm smoke:styles     # styles.css in Chrome: a global reset, a Tailwind v3 build, your content in slots
 pnpm build:playground && pnpm smoke:playground
 pnpm a11y             # axe in Chrome, across the built playground, components page and docs
