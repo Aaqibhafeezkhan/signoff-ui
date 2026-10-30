@@ -49,6 +49,14 @@ export const GUIDES: DocPage[] = [
       'Use the review and approval components in assistant-ui, AI Elements or your own chat, with the code for each.',
   },
   {
+    slug: 'own-renderer',
+    href: '/docs/own-renderer',
+    title: 'Bring your own diff renderer',
+    label: 'Your diff renderer',
+    description:
+      'Keep @pierre/diffs, or the diff renderer you have, and review with useDiffReview: decisions per hunk, comments on lines, and the result the agent gets back.',
+  },
+  {
     slug: 'ag-ui',
     href: '/docs/ag-ui',
     title: 'AG-UI agents',
@@ -107,7 +115,7 @@ export const GUIDES: DocPage[] = [
     title: 'signoff-ui vs assistant-ui, AI Elements and @pierre/diffs',
     label: 'Comparison',
     description:
-      'How signoff-ui is different from assistant-ui, AI Elements and @pierre/diffs, what each does better, and how to use them together.',
+      'How signoff-ui is different from assistant-ui, AI Elements, @pierre/diffs and other diff viewers, what each does better, and how to use them together.',
   },
   {
     slug: 'migrating-from-agent-ui-kit',
@@ -128,7 +136,10 @@ const guides = (...slugs: string[]) =>
 /** The sidebar, in reading order: what to read first, the guides, each component, and the rest. */
 export const NAV: NavGroup[] = [
   { title: 'Get started', items: guides('introduction', 'getting-started') },
-  { title: 'Guides', items: guides('chat-ui', 'ag-ui', 'copilotkit', 'acp', 'labels', 'accessibility') },
+  {
+    title: 'Guides',
+    items: guides('chat-ui', 'own-renderer', 'ag-ui', 'copilotkit', 'acp', 'labels', 'accessibility'),
+  },
   {
     title: 'Components',
     items: [

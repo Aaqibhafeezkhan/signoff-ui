@@ -4,6 +4,7 @@ import { getHeadings, getPager, NAV, readGuide, type DocPage, type Heading } fro
 import { lastModified } from '@/lib/git';
 import { GITHUB_URL, SITE_URL } from '@/lib/site';
 import { ArrowRightIcon, GitHubIcon } from '../icons';
+import { GuideDemo } from './guide-demo';
 import { DocMarkdown } from './markdown';
 import { PageActions } from './page-actions';
 import { TableOfContents, TocMenu } from './toc';
@@ -132,6 +133,7 @@ export function DocArticle({ doc }: { doc: DocPage }) {
       sourcePaths={[`examples/playground/content/docs/${doc.slug}.md`]}
       headings={getHeadings(markdown)}
     >
+      <GuideDemo slug={doc.slug} />
       <DocMarkdown markdown={markdown} />
     </DocShell>
   );

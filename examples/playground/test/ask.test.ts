@@ -91,6 +91,29 @@ describe('Ask', () => {
     }
   });
 
+  it('answers how signoff-ui differs from @pierre/diffs and the other diff viewers, from the comparison page', () => {
+    for (const question of [
+      'How is signoff-ui different from @pierre/diffs?',
+      'signoff-ui vs @codemirror/merge',
+      'How is signoff-ui different from react-diff-view or diff2html?',
+    ]) {
+      const { answerable, best, hits } = ask(question);
+      assert.ok(answerable, `refused "${question}" (keyword coverage ${best.keywordCoverage.toFixed(2)})`);
+      assert.match(hits[0]!.chunk.url, /\/docs\/comparison(#|$)/, question);
+    }
+  });
+
+  it('answers how to keep @pierre/diffs and review with signoff-ui, from the own-renderer recipe', () => {
+    for (const question of [
+      'Can I use useDiffReview with @pierre/diffs?',
+      'I already render diffs with @pierre/diffs. How do I add accept, reject and comments?',
+    ]) {
+      const { answerable, best, hits } = ask(question);
+      assert.ok(answerable, `refused "${question}" (keyword coverage ${best.keywordCoverage.toFixed(2)})`);
+      assert.match(hits[0]!.chunk.url, /\/docs\/own-renderer(#|$)/, question);
+    }
+  });
+
   it('still says it does not know what the docs do not cover', () => {
     for (const question of ['Does it work with Vue?', 'What is the weather in Lisbon today?']) {
       assert.equal(ask(question).answerable, false, question);
