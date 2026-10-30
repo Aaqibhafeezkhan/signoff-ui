@@ -14,7 +14,6 @@ Nothing from this roadmap right now. Open pull requests are [on GitHub](https://
 
 ### Review
 
-- Bring your own diff renderer: `useDiffReview` holds the review while @pierre/diffs draws it, plus a "vs diff viewers" table. [#177](https://github.com/dgesteves/signoff-ui/issues/177)
 - A Wrap lines toggle in `DiffReview`, for long lines in a wide review (narrow reviews already wrap). [#178](https://github.com/dgesteves/signoff-ui/issues/178)
 
 ### Run, timeline and messages
@@ -70,6 +69,10 @@ These get built when someone who needs them says so on the issue.
 
 Since this roadmap was published. Each release's changes are in the [changelog](packages/signoff-ui/CHANGELOG.md).
 
+- **0.14.0**: The checkboxes of a task list in `Markdown` have names, an AG-UI thread whose resumed run breaks off can be answered again, and an ACP turn cancelled while the agent writes reads as stopped. [#230](https://github.com/dgesteves/signoff-ui/pull/230) [#239](https://github.com/dgesteves/signoff-ui/pull/239) [#232](https://github.com/dgesteves/signoff-ui/pull/232)
+- **0.13.0**: Each AG-UI interrupt takes one answer, answers come back when the resumed run fails before it starts, and an expired interrupt takes only a cancellation. [#237](https://github.com/dgesteves/signoff-ui/pull/237)
+- **0.12.1**: The approval card shows every argument that comes with a command, a sub-agent's message stays out of the person's turn, a comment on removed lines names them by their lines in the original, and an object that comes twice is no longer shown as `[Circular]`. [#227](https://github.com/dgesteves/signoff-ui/pull/227) [#233](https://github.com/dgesteves/signoff-ui/pull/233) [#229](https://github.com/dgesteves/signoff-ui/pull/229) [#231](https://github.com/dgesteves/signoff-ui/pull/231)
+- **0.12.0**: The status pill, the timeline and the run meter report the run, not the time a person spent reviewing or the previous run. [#225](https://github.com/dgesteves/signoff-ui/pull/225)
 - **0.11.0**: Accessibility and touch in the approval card and the review: Approve all keeps focus, a focused card says what it will run, code reads left to right on right-to-left pages, buttons show in forced colours, and fields no longer zoom on iOS. [#174](https://github.com/dgesteves/signoff-ui/pull/174)
 - **0.10.2**: `Sources` lays out its cards by its own width, not the screen's (good first issue [#191](https://github.com/dgesteves/signoff-ui/issues/191)). [#209](https://github.com/dgesteves/signoff-ui/pull/209)
 - **0.10.1**: Risk levels from a tool's MCP annotations, and a recipe that puts an organization's policy ahead of a person's rules. [#172](https://github.com/dgesteves/signoff-ui/pull/172)
@@ -77,6 +80,10 @@ Since this roadmap was published. Each release's changes are in the [changelog](
 
 Docs, examples and CI, which take effect on `main` without a release:
 
+- [Bring your own diff renderer](https://signoff-ui.vercel.app/docs/own-renderer): `useDiffReview` holds the review while @pierre/diffs draws the diff, and the comparison page compares signoff-ui with diff viewers. [#177](https://github.com/dgesteves/signoff-ui/issues/177), [#241](https://github.com/dgesteves/signoff-ui/pull/241)
+- Registry items ask for each dependency at its published range, and CI typechecks every item in a new app. [#235](https://github.com/dgesteves/signoff-ui/pull/235)
+- An API index of every export, linked from each component page. [#222](https://github.com/dgesteves/signoff-ui/pull/222)
+- The CopilotKit example on CopilotKit 1.82.0. [#224](https://github.com/dgesteves/signoff-ui/pull/224)
 - Support tiers (tested in CI, or documented only), and new integrations wait until Thursday 2026-11-19, four weeks after launch, unless someone asks for one. [#175](https://github.com/dgesteves/signoff-ui/pull/175)
 - The examples do what their READMEs say: each new message restarts the quickstart's scripted run, and the examples pin signoff-ui. [#171](https://github.com/dgesteves/signoff-ui/pull/171)
 - `pnpm audit` in CI, because GitHub's dependency alerts can't read this repository's lockfile. [#211](https://github.com/dgesteves/signoff-ui/pull/211)
