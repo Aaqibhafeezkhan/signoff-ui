@@ -341,9 +341,23 @@ export function getAgUiResume(run: AgUiRunState): AgUiResumeEntry[] | undefined 
   return entries.every((e) => e !== undefined) ? entries : undefined;
 }
 
-/** The open interrupts with their answers taken back, as before anyone answered: for a resume that never started. */
-export function reopenAgUiInterrupts(run: AgUiRunState): AgUiRunState {
-  return withInterrupts(run, run.interrupts);
+/**
+ * The open interrupts, or the ones given, with their answers taken back, as before anyone answered:
+ * for a resume that never started, or one that started and ended without `RUN_FINISHED`. A call
+ * with a result in `messages` keeps its decision for display, as the agent acted on it: the
+ * timeline still says it was approved (or denied), and no card asks again.
+ */
+export function reopenAgUiInterrupts(
+  run: AgUiRunState,
+  interrupts: readonly AgUiInterrupt[] = run.interrupts,
+  messages: readonly AgUiMessage[] = [],
+): AgUiRunState {
+  const reopened = withInterrupts(run, interrupts);
+  for (const m of messages) {
+    const decided = m.role === 'tool' ? run.approvals[m.toolCallId!] : undefined;
+    if (decided?.approved !== undefined) reopened.approvals[m.toolCallId!] = decided;
+  }
+  return reopened;
 }
 
 type Part = UIMessage['parts'][number];
