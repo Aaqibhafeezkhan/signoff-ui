@@ -2,6 +2,18 @@
 
 Until 0.4.3 this package was published as `@dgesteves/agent-ui-kit`. Its entries below keep the links and names of that time.
 
+## 0.14.0
+
+### Minor Changes
+
+- [#230](https://github.com/dgesteves/signoff-ui/pull/230) [`fc4c22f`](https://github.com/dgesteves/signoff-ui/commit/fc4c22fe1891d2f538ab1e8d2db8a94f912d1335) Thanks [@kasettadoo-sys](https://github.com/kasettadoo-sys)! - `Markdown`, and so `AgentMessage`, names the checkboxes of a task list. GFM renders `- [x] Read the route` as a disabled checkbox with no name, which axe reports as a critical `label` violation and a screen reader reads as an unnamed checkbox; agents write such lists for their plans. Each checkbox is now named "Task", from the new `labels.markdown.task`, and read with its state, checked or not. A translation typed as `SignoffLabels` needs the new key to type-check; one passed as `SignoffLabelsInput` keeps the English for it.
+
+### Patch Changes
+
+- [#232](https://github.com/dgesteves/signoff-ui/pull/232) [`b24c120`](https://github.com/dgesteves/signoff-ui/commit/b24c120786a300505853dada5930d170fe7cdaf5) Thanks [@kasettadoo-sys](https://github.com/kasettadoo-sys)! - `toAcpMessage`: a turn cancelled while the agent was writing reads as stopped, not done. Once `endAcpTurn` set `ready`, the last text or reasoning part was always `done`, whatever the `stopReason`, so after Stop (`session/cancel`, then `stopReason: 'cancelled'`) `deriveAgentState` read `done` unless a tool call happened to be left running. That text now stays `streaming`, cut off, as a cancelled AG-UI run's does, and the run reads `stopped`. A turn that ended on its own (`end_turn`, `max_tokens`, `refusal`) is still done.
+
+- [#239](https://github.com/dgesteves/signoff-ui/pull/239) [`a99ceba`](https://github.com/dgesteves/signoff-ui/commit/a99cebaf6970cba4b3cd74a0e17e6416073e7a39) - `useAgUiAgent`: a resumed run that starts and then ends without finishing, on a `RUN_ERROR`, a broken stream or `stop()`, no longer leaves the thread stuck with nothing to answer. `@ag-ui/client` keeps the interrupts pending until a run finishes (`RUN_FINISHED`) and turns down any run that doesn't answer them, but the hook had cleared them when the run started: the card read as answered, `respond` did nothing, and the next run was refused with "Thread has 1 pending interrupt(s) not addressed by resume". The interrupts are open again now. The card of a call whose tool hadn't run asks again, and answering it resumes the run. A call whose tool ran shows its result, still approved, and no card: answer its interrupt with `resolve`, as /docs/ag-ui shows. And the end of the run before a resume, which the client reports without waiting, no longer cancels the resume or takes back its answers when it comes late.
+
 ## 0.13.0
 
 ### Minor Changes
