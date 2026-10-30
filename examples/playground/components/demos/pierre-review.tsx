@@ -1,6 +1,12 @@
 'use client';
 
-import { processFile, type DiffLineAnnotation, type FileDiffMetadata, type SelectedLineRange } from '@pierre/diffs';
+import {
+  parseDiffFromFile,
+  processFile,
+  type DiffLineAnnotation,
+  type FileDiffMetadata,
+  type SelectedLineRange,
+} from '@pierre/diffs';
 import { FileDiff, useStableCallback } from '@pierre/diffs/react';
 import { useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import {
@@ -9,12 +15,14 @@ import {
   toPatch,
   useDiffReview,
   type DiffHunk,
+  type DiffReviewDraft,
   type DiffReviewFileState,
   type DiffReviewToolOutput,
   type FileChange,
   type ParsedFileDiff,
   type UseDiffReviewResult,
 } from 'signoff-ui';
+import type { ReviewItem } from 'signoff-ui/core';
 import { RATELIMIT_UPSTASH, ROUTE_NEW, ROUTE_OLD } from '@/lib/scenario';
 
 const FILES: FileChange[] = [
@@ -24,18 +32,23 @@ const FILES: FileChange[] = [
 
 type Side = 'additions' | 'deletions';
 
+/** @pierre/diffs's kind of change, for a file it draws without hunks. */
+const CHANGE = { added: 'new', deleted: 'deleted', renamed: 'rename-pure', modified: 'change' } as const;
+
 /**
  * The file as @pierre/diffs reads it, with the review's own hunks: the patch of every hunk accepted
- * is the diff itself, and with both contents the unchanged lines between hunks still expand. Hunk
- * `i` here is hunk `i` of the review.
+ * is the diff itself, read with both contents. Hunk `i` here is hunk `i` of the review. A file with
+ * no hunks (a pure rename, an empty or a binary file) is drawn as its name and kind of change.
  */
 function toPierre(file: ParsedFileDiff): FileDiffMetadata {
+  const oldFile = { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' };
+  const newFile = { name: file.path, contents: file.newContent ?? '' };
+  if (file.hunks.length === 0) {
+    const names = parseDiffFromFile({ ...oldFile, contents: '' }, { ...newFile, contents: '' });
+    return { ...names, type: CHANGE[file.status] };
+  }
   const all = Object.fromEntries(file.hunks.map((hunk) => [hunk.id, 'accepted' as const]));
-  return processFile(toPatch([file], all), {
-    oldFile: { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' },
-    newFile: { name: file.path, contents: file.newContent ?? '' },
-    throwOnError: true,
-  })!;
+  return processFile(toPatch([file], all), { oldFile, newFile, throwOnError: true })!;
 }
 
 /** Where a hunk's controls go: under its last changed line. */
@@ -73,14 +86,23 @@ const themeOf = () => (document.documentElement.classList.contains('dark') ? 'da
 
 /**
  * Accessible choices over @pierre/diffs's defaults, checked with axe: GitHub's high-contrast themes,
- * hunk headers rather than expand buttons with no name, and in the light theme paler added and
- * removed lines, so comments keep 4.5:1.
+ * hunk headers rather than expand buttons with no name, in the light theme paler added and removed
+ * lines, so comments keep 4.5:1, and a blue selection, paler in the light theme and darker in the
+ * dark one, so code on selected lines keeps it too.
  */
 const THEMES = { dark: 'github-dark-high-contrast', light: 'github-light-high-contrast' };
-const LIGHT_LINES = {
-  '--diffs-bg-addition-override': '#eff7ef',
-  '--diffs-bg-deletion-override': '#fef1f1',
-} as CSSProperties;
+const LINES = {
+  light: {
+    '--diffs-bg-addition-override': '#eff7ef',
+    '--diffs-bg-deletion-override': '#fef1f1',
+    '--diffs-bg-selection-override': '#b6e3ff',
+    '--diffs-bg-selection-number-override': '#b6e3ff',
+  } as CSSProperties,
+  dark: {
+    '--diffs-bg-selection-override': '#0d419d',
+    '--diffs-bg-selection-number-override': '#0d419d',
+  } as CSSProperties,
+};
 
 const LABEL = { pending: 'Not decided', accepted: 'Accepted', rejected: 'Rejected' } as const;
 
@@ -90,12 +112,28 @@ const controlsId = (itemId: string) => `pierre-review-${itemId}`;
 const button =
   'border-line text-fg-soft hover:text-fg aria-pressed:bg-raised aria-pressed:text-fg focus-visible:outline-cyan-soft cursor-pointer rounded-md border px-2 py-0.5 text-xs focus-visible:outline-2';
 
-/** One hunk's controls, in the annotation under it: its decision, its comments and the comment editor. */
+/** Whether a comment, or the one being written, is on an item: on its hunk, or on a file with none. */
+const isOn = (item: ReviewItem, on: Pick<DiffReviewDraft, 'fileId' | 'target' | 'hunkId'>) =>
+  item.hunk ? on.hunkId === item.id : on.target === 'file' && on.fileId === item.file.id;
+
+/** What the comment editor says it is on: `line 31`, `lines 15–16`, `old line 4`, the change or the file. */
+function draftLabel(draft: DiffReviewDraft) {
+  if (draft.target === 'file') return 'Comment on this file';
+  if (draft.target !== 'lines' || !draft.range) return 'Comment on this change';
+  const { side, startLine, endLine } = draft.range;
+  const lines = startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`;
+  return `Comment on ${side === 'old' ? 'old ' : ''}${lines}`;
+}
+
+/**
+ * One item's controls: its decision, its comments and the comment editor. A hunk's are in the
+ * annotation under it, and a file with no hunks has its own above the file.
+ */
 function HunkControls({ review, index }: { review: UseDiffReviewResult; index: number }) {
   const item = review.items[index]!;
   const decision = review.decisions[item.id] ?? 'pending';
-  const comments = review.comments.filter((comment) => comment.hunkId === item.id);
-  const draft = review.draft?.hunkId === item.id ? review.draft : undefined;
+  const comments = review.comments.filter((comment) => isOn(item, comment));
+  const draft = review.draft && isOn(item, review.draft) ? review.draft : undefined;
   return (
     <div
       {...review.getItemProps(index)}
@@ -120,8 +158,11 @@ function HunkControls({ review, index }: { review: UseDiffReviewResult; index: n
         <p key={comment.id} className="text-fg-soft text-xs">
           {comment.startLine !== undefined && (
             <span className="text-fg-muted">
-              {comment.side === 'old' ? 'Old line' : 'Line'} {comment.startLine}
-              {comment.endLine !== comment.startLine && `–${comment.endLine}`}:{' '}
+              {comment.side === 'old' ? 'Old line' : 'Line'}
+              {comment.endLine === comment.startLine
+                ? ` ${comment.startLine}`
+                : `s ${comment.startLine}–${comment.endLine}`}
+              :{' '}
             </span>
           )}
           {comment.text}
@@ -130,13 +171,11 @@ function HunkControls({ review, index }: { review: UseDiffReviewResult; index: n
       {draft && (
         <div className="flex flex-col gap-1.5">
           <label className="text-fg-muted flex flex-col gap-1 text-xs">
-            {draft.target === 'lines' && draft.range
-              ? `Comment on ${draft.range.side === 'old' ? 'old ' : ''}lines ${draft.range.startLine}–${draft.range.endLine}`
-              : 'Comment on this change'}
+            {draftLabel(draft)}
             <textarea
               {...review.getDraftProps()}
               rows={2}
-              className="border-line bg-ink text-fg focus-visible:outline-cyan-soft rounded-md border px-2 py-1.5 text-[13px] focus-visible:outline-2"
+              className="border-line bg-ink text-fg focus-visible:outline-cyan-soft rounded-md border px-2 py-1.5 text-[13px] focus-visible:outline-2 pointer-coarse:text-base"
             />
           </label>
           <span className="flex justify-end gap-2">
@@ -153,7 +192,7 @@ function HunkControls({ review, index }: { review: UseDiffReviewResult; index: n
   );
 }
 
-/** One file, drawn by @pierre/diffs, with the review's controls under each hunk. */
+/** One file, drawn by @pierre/diffs, with the review's controls under each hunk, or above a file with none. */
 function PierreFile({
   review,
   file,
@@ -205,18 +244,23 @@ function PierreFile({
     }),
     [theme, onLineSelected],
   );
+  // A file with no hunks (a pure rename, an empty or a binary file) is decided as a whole.
+  const whole = file.items.find((item) => !item.hunk);
   // A large file is diffed in a worker: `parsed` is undefined until then.
   if (!fileDiff) return <p className="text-fg-muted text-xs">Comparing {file.path}…</p>;
   return (
-    <FileDiff
-      fileDiff={fileDiff}
-      options={options}
-      lineAnnotations={annotations}
-      selectedLines={selectedLines}
-      renderAnnotation={(annotation) => <HunkControls review={review} index={annotation.metadata.index} />}
-      className="border-line block overflow-hidden rounded-lg border"
-      style={theme === 'light' ? LIGHT_LINES : undefined}
-    />
+    <div>
+      {whole && <HunkControls review={review} index={review.items.indexOf(whole)} />}
+      <FileDiff
+        fileDiff={fileDiff}
+        options={options}
+        lineAnnotations={annotations}
+        selectedLines={selectedLines}
+        renderAnnotation={(annotation) => <HunkControls review={review} index={annotation.metadata.index} />}
+        className="border-line block overflow-hidden rounded-lg border"
+        style={LINES[theme]}
+      />
+    </div>
   );
 }
 

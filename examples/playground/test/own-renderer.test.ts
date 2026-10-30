@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { processFile, type FileDiffMetadata } from '@pierre/diffs';
-import { parseFileChange, toPatch, type FileChange, type ParsedFileDiff } from 'signoff-ui/core';
+import { parseDiffFromFile, processFile, type FileDiffMetadata } from '@pierre/diffs';
+import { parseFileChange, reviewItems, toPatch, type FileChange, type ParsedFileDiff } from 'signoff-ui/core';
 import { getGuide, NAV, readGuide } from '../lib/docs';
 import { RATELIMIT_UPSTASH, ROUTE_NEW, ROUTE_OLD } from '../lib/scenario';
 
@@ -21,14 +21,22 @@ const SITE = join(import.meta.dirname, '..');
 const ROOT = join(SITE, '../..');
 const DEMO = 'components/demos/pierre-review.tsx';
 
-/** As the demo does it: the patch of every hunk accepted, read with both contents. */
+/** @pierre/diffs's kind of change, for a file it draws without hunks. */
+const CHANGE = { added: 'new', deleted: 'deleted', renamed: 'rename-pure', modified: 'change' } as const;
+
+/**
+ * As the demo does it, line for line (a test below compares them): the patch of every hunk
+ * accepted, read with both contents, or for a file with no hunks, its names and kind of change.
+ */
 function toPierre(file: ParsedFileDiff): FileDiffMetadata {
+  const oldFile = { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' };
+  const newFile = { name: file.path, contents: file.newContent ?? '' };
+  if (file.hunks.length === 0) {
+    const names = parseDiffFromFile({ ...oldFile, contents: '' }, { ...newFile, contents: '' });
+    return { ...names, type: CHANGE[file.status] };
+  }
   const all = Object.fromEntries(file.hunks.map((hunk) => [hunk.id, 'accepted' as const]));
-  return processFile(toPatch([file], all), {
-    oldFile: { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' },
-    newFile: { name: file.path, contents: file.newContent ?? '' },
-    throwOnError: true,
-  })!;
+  return processFile(toPatch([file], all), { oldFile, newFile, throwOnError: true })!;
 }
 
 type Line = { type: 'context' | 'add' | 'del'; content: string; oldNumber?: number; newNumber?: number };
@@ -114,7 +122,7 @@ describe('the review’s hunks, as @pierre/diffs reads them', () => {
       const file = parseFileChange(change);
       assert.ok(file.hunks.length > 0, 'nothing to review');
       const diff = toPierre(file);
-      assert.equal(diff.isPartial, false, 'both contents, so unchanged lines expand');
+      assert.equal(diff.isPartial, false, 'not read with both contents');
       assert.equal(diff.name, file.path);
       assert.deepEqual(pierreLines(diff), reviewLines(file));
     });
@@ -123,6 +131,45 @@ describe('the review’s hunks, as @pierre/diffs reads them', () => {
   it('names a new file new, and a deleted one deleted', () => {
     assert.equal(toPierre(parseFileChange(CASES[0]![1])).type, 'new');
     assert.equal(toPierre(parseFileChange(CASES[2]![1])).type, 'deleted');
+  });
+
+  // A file with no hunks is one item, decided as a whole, with no changed line to anchor its
+  // controls to: the demo renders them above the file, which @pierre/diffs draws by its names.
+  const WHOLE: Array<[string, FileChange, Pick<FileDiffMetadata, 'name' | 'prevName' | 'type'>]> = [
+    [
+      'a pure rename',
+      { path: 'src/next.ts', oldPath: 'src/prev.ts', oldContent: LONG, newContent: LONG },
+      { name: 'src/next.ts', prevName: 'src/prev.ts', type: 'rename-pure' },
+    ],
+    [
+      'an empty new file',
+      { path: 'src/empty.ts', oldContent: '', newContent: '' },
+      { name: 'src/empty.ts', prevName: undefined, type: 'new' },
+    ],
+  ];
+  for (const [name, change, drawn] of WHOLE) {
+    it(`draws a file with no hunks by its names, decided as a whole: ${name}`, () => {
+      const file = parseFileChange(change);
+      assert.equal(file.hunks.length, 0);
+      assert.deepEqual(
+        reviewItems(file).map((item) => [item.id, item.hunk]),
+        [[`${file.id}:file`, undefined]],
+      );
+      const diff = toPierre(file);
+      assert.deepEqual({ name: diff.name, prevName: diff.prevName, type: diff.type }, drawn);
+      assert.equal(diff.hunks.length, 0);
+    });
+  }
+
+  it('is the demo’s toPierre, line for line', () => {
+    const at = (source: string) => {
+      const lines = source.split('\n');
+      const start = lines.findIndex((line) => line.startsWith('const CHANGE = '));
+      const end = lines.findIndex((line, i) => i > start && line === '}');
+      assert.ok(start !== -1 && end !== -1, 'no CHANGE and toPierre');
+      return lines.slice(start, end + 1).filter((line) => !/^\s*(\/\*\*|\*)/.test(line));
+    };
+    assert.deepEqual(at(readFileSync(import.meta.filename, 'utf8')), at(readFileSync(join(SITE, DEMO), 'utf8')));
   });
 });
 

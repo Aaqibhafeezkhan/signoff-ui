@@ -88,6 +88,22 @@ async function firstScreen(page, label) {
   await audit(page, `${label} · first screen, a hunk rejected and the command denied`);
 }
 
+/**
+ * /docs/own-renderer mid-review: lines selected in a file @pierre/diffs draws (its imports, code and
+ * a code comment, in its own selection color) and a comment being written on them.
+ */
+async function ownRendererComment(page, label) {
+  await page.goto(`${BASE}/docs/own-renderer`, { waitUntil: 'networkidle' });
+  const demo = page.locator('main section[aria-label="Review drawn by @pierre/diffs"]');
+  await demo.locator('[id^="pierre-review-"]').first().focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('c');
+  await demo.locator('textarea').waitFor();
+  await page.keyboard.type('Name the window in seconds.');
+  await settle(page);
+  await audit(page, `${label} · lines selected, a comment being written`);
+}
+
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
 await firstScreen(page, 'home');
 await page.goto(`${BASE}/?speed=4#run`, { waitUntil: 'networkidle' });
@@ -144,6 +160,7 @@ await page.keyboard.type('Keep the existing error format.');
 await page.locator('[data-slot="signoff-diff-file"] input[type="checkbox"]').last().check();
 await settle(page);
 await audit(page, 'docs /docs/components/diff-review · lines selected, a comment being written');
+await ownRendererComment(page, 'docs /docs/own-renderer');
 // Approval rules at work: a rule made, a call it answers, two at once, and arguments being edited.
 await page.goto(`${BASE}/docs/components/use-approval-policy`, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: 'two at once' }).click();
@@ -191,6 +208,7 @@ for (const path of ['/docs/components/diff-review', '/components']) {
 await page.goto(`${BASE}/docs/limits`, { waitUntil: 'networkidle' });
 await settle(page);
 await audit(page, 'docs /docs/limits · 390px viewport');
+await ownRendererComment(page, 'docs /docs/own-renderer · 390px viewport');
 
 // The light theme, with a light OS: the site follows it until the reader picks.
 const light = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' });
@@ -204,6 +222,7 @@ for (const path of ['/components', '/docs/getting-started', '/docs/components/di
   await settle(light);
   await audit(light, `light · ${path}`);
 }
+await ownRendererComment(light, 'light · /docs/own-renderer');
 await light.setViewportSize({ width: 390, height: 844 });
 await light.goto(`${BASE}/docs/components/approval-card`, { waitUntil: 'networkidle' });
 await settle(light);
@@ -377,6 +396,14 @@ if (await touch.evaluate(() => matchMedia('(pointer: coarse)').matches)) {
   await touch.locator('main [data-slot="signoff-diff-hunk"] button[aria-keyshortcuts="C"]').first().click();
   await touch.locator('main [data-slot="signoff-diff-comment-editor"] textarea').waitFor();
   check('touch · /docs/components/diff-review: the comment and the docs search at 16px', await small());
+  await touch.goto(`${BASE}/docs/own-renderer`, { waitUntil: 'networkidle' });
+  await touch
+    .locator('main section[aria-label="Review drawn by @pierre/diffs"]')
+    .getByRole('button', { name: 'Comment' })
+    .first()
+    .click();
+  await touch.locator('main section[aria-label="Review drawn by @pierre/diffs"] textarea').waitFor();
+  check('touch · /docs/own-renderer: the comment drawn with @pierre/diffs at 16px', await small());
 } else {
   console.log(`skip  touch: ${BROWSER} does not emulate a coarse pointer`);
 }

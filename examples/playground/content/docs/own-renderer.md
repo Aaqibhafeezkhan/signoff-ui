@@ -11,20 +11,22 @@ npm i signoff-ui @pierre/diffs
 
 ## The same hunks on both sides
 
-Decisions and comments are keyed by the review's hunks, so @pierre/diffs has to draw those hunks and no others. Don't let it diff the two contents itself: another diff run can cut the hunks differently (another context size, another version of the diff library), and a decision would land on the wrong change. Give it the review's own diff instead. `toPatch` with every hunk accepted is that diff, and `processFile` reads it with both contents: hunk `i` there is hunk `i` of the review, and @pierre/diffs has the whole of each file to show the unchanged lines between hunks from.
+Decisions and comments are keyed by the review's hunks, so @pierre/diffs has to draw those hunks and no others. Don't let it diff the two contents itself: another diff run can cut the hunks differently (another context size, another version of the diff library), and a decision would land on the wrong change. Give it the review's own diff instead. `toPatch` with every hunk accepted is that diff, and `processFile` reads it with both contents: hunk `i` there is hunk `i` of the review. The example shows a header above each hunk instead of the buttons that expand the unchanged lines between hunks, which have no accessible name (see [below](#what-stays-with-pierrediffs)), so those lines stay folded.
 
 ```tsx title="pierre-review.tsx"
 function toPierre(file: ParsedFileDiff): FileDiffMetadata {
+  const oldFile = { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' };
+  const newFile = { name: file.path, contents: file.newContent ?? '' };
+  if (file.hunks.length === 0) {
+    const names = parseDiffFromFile({ ...oldFile, contents: '' }, { ...newFile, contents: '' });
+    return { ...names, type: CHANGE[file.status] };
+  }
   const all = Object.fromEntries(file.hunks.map((hunk) => [hunk.id, 'accepted' as const]));
-  return processFile(toPatch([file], all), {
-    oldFile: { name: file.oldPath ?? file.path, contents: file.oldContent ?? '' },
-    newFile: { name: file.path, contents: file.newContent ?? '' },
-    throwOnError: true,
-  })!;
+  return processFile(toPatch([file], all), { oldFile, newFile, throwOnError: true })!;
 }
 ```
 
-`file` is one of the hook's `files`, and `file.parsed` its diff. A file too large to diff while rendering is diffed in a worker, and its `parsed` is `undefined` until then: show that it is being compared.
+`file` is one of the hook's `files`, and `file.parsed` its diff. A file with no hunks, such as a pure rename, an empty file or a binary one, has no lines to draw: @pierre/diffs gets its names, and `CHANGE` maps the review's `status` to its kind of change (`renamed` to `rename-pure`, `added` to `new`). A file too large to diff while rendering is diffed in a worker, and its `parsed` is `undefined` until then: show that it is being compared.
 
 ## Each hunk's controls in an annotation
 
@@ -53,9 +55,11 @@ const annotations: DiffLineAnnotation<{ index: number }>[] = file.items.flatMap(
   selectedLines={selectedLines}
   renderAnnotation={(annotation) => <HunkControls review={review} index={annotation.metadata.index} />}
   className="border-line block overflow-hidden rounded-lg border"
-  style={theme === 'light' ? LIGHT_LINES : undefined}
+  style={LINES[theme]}
 />
 ```
+
+A file with no hunks is one item, decided as a whole: its `item.hunk` is `undefined`, and there is no changed line to put an annotation under. The example renders that item's controls above the file instead, with the comments and the comment being written whose `target` is `'file'`.
 
 Spread `getRootProps()` on the element around the files, as on any `useDiffReview` markup: it holds the keyboard. Render `announcement` in a polite live region.
 
@@ -83,7 +87,7 @@ const onLineSelected = useStableCallback((range: SelectedLineRange | null) => {
 });
 ```
 
-Lines outside a hunk, such as unchanged lines you expanded, can't be commented on: the selection is cleared. Render the comment editor in the annotation of the hunk it is on, with `getDraftProps()` on a labeled `textarea`.
+A selection that runs across two hunks can't be commented on: the selection is cleared. Render the comment editor with the controls of the item it is on, with `getDraftProps()` on a labeled `textarea`.
 
 ## The result
 
@@ -92,7 +96,7 @@ Lines outside a hunk, such as unchanged lines you expanded, can't be commented o
 ## What stays with @pierre/diffs
 
 - **Drawing.** Highlighting, themes, split or unified, wrapping and virtualization are its options. The example follows the site's theme switch with `themeType`.
-- **Accessibility of what it draws.** With its defaults, @pierre/diffs 1.6.2 fails axe (4.14) on two counts: its buttons that expand unchanged lines have no accessible name, and some tokens of its default themes fall below 4.5:1 contrast. The example passes axe with GitHub's high-contrast themes, hunk headers instead of those buttons (`hunkSeparators: 'metadata'`), and paler added and removed lines in the light theme.
+- **Accessibility of what it draws.** With its defaults, @pierre/diffs 1.6.2 fails axe (4.14) on two counts: its buttons that expand unchanged lines have no accessible name, and some tokens of its default themes fall below 4.5:1 contrast. Its selection color lowers contrast too: with the example's themes and line colors but the default selection, selected code fell to 4.03:1 in the dark theme, and a selected code comment to 3.67:1 in the light one. The example passes axe, also with lines selected and a comment being written, with GitHub's high-contrast themes, hunk headers instead of those buttons (`hunkSeparators: 'metadata'`), paler added and removed lines in the light theme, and a selection color of its own in each theme (`--diffs-bg-selection-override` and `--diffs-bg-selection-number-override`).
 - **Its own accept and reject.** `diffAcceptRejectHunk` returns a new diff with a hunk's change resolved into the file. With `useDiffReview`, the review holds the decisions, and the diff stays as the agent proposed it, so every hunk keeps its index.
 
 ## Other renderers
